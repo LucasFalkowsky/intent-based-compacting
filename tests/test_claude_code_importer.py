@@ -698,6 +698,112 @@ def test_an_empty_text_block_next_to_a_result_adds_no_empty_user_turn(tmp_path):
     assert imported.notes == ()
 
 
+# --- a text block whose text is not a string --------------------------------
+#
+# Coercing it was worse than dropping it: `0`, `false` and `[]` became `""`
+# with no note, and an object or a list became a Python repr that landed in
+# canonical content. A measurement tool may lose a value it cannot read; it may
+# not invent one.
+
+
+@pytest.mark.parametrize(
+    ("value", "shape"),
+    [(0, "number"), (False, "boolean"), ([], "array"), ({"a": 1}, "object")],
+)
+def test_a_text_block_whose_text_is_no_string_is_dropped_and_noted(tmp_path, value, shape):
+    path = write_jsonl(tmp_path, [user_record("u1", [{"type": "text", "text": value}])])
+
+    imported = import_claude_code(path)
+
+    assert [message.content for message in imported.session.messages] == [""]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        f"text/<text: {shape}>"
+    ]
+
+
+def test_an_object_text_never_reaches_the_canonical_content(tmp_path):
+    path = write_jsonl(tmp_path, [user_record("u1", [{"type": "text", "text": {"a": 1}}])])
+
+    imported = import_claude_code(path)
+
+    assert "{'a': 1}" not in dumps(imported.session)
+    assert "a" not in imported.session.messages[0].content
+
+
+def test_a_text_block_whose_text_is_empty_keeps_the_empty_string_unnoted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [user_record("u1", [{"type": "text", "text": ""}, {"type": "text", "text": "hi"}])],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [message.content for message in imported.session.messages] == ["hi"]
+    assert imported.notes == ()
+
+
+def test_a_text_block_without_a_text_field_is_not_noted(tmp_path):
+    path = write_jsonl(tmp_path, [user_record("u1", [{"type": "text"}])])
+
+    imported = import_claude_code(path)
+
+    assert [message.content for message in imported.session.messages] == [""]
+    assert imported.notes == ()
+
+
+def test_an_assistant_text_block_whose_text_is_no_string_is_dropped_and_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record("u1", "fix the exporter"),
+            assistant_record("a1", [{"type": "text", "text": ["lost"]}]),
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[1].content == ""
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["text/<text: array>"]
+
+
+def test_a_result_text_block_whose_text_is_no_string_is_noted_inside_its_result(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record(
+                "u1",
+                [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": [{"type": "text", "text": {"stdout": "1 passed"}}],
+                    }
+                ],
+            )
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].tool_result.output == ""
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        "tool_result/text/<text: object>"
+    ]
+
+
+def test_a_summary_text_block_whose_text_is_no_string_is_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path, [user_record("c1", [{"type": "text", "text": 0}], isCompactSummary=True)]
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].content == ""
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        "text/<text: number>"
+    ]
+
+
 def test_a_content_entry_that_is_not_an_object_is_dropped_and_noted(tmp_path):
     path = write_jsonl(
         tmp_path,
