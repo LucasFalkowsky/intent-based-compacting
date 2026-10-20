@@ -579,6 +579,25 @@ def test_the_user_message_of_a_foreign_chunk_is_not_silently_empty():
         chunk_user_message(session, Chunk(id="K9", start_index=90, end_index=99))
 
 
+def test_appending_a_chunk_without_a_user_turn_keeps_the_chains_last_user_message():
+    # Where the distinction `ChunkUnderDecision` flattens still exists. An
+    # adapter is shown `""` for a chunk with no user turn and for a user turn
+    # whose content is empty alike, but the store is handed `None` for the first
+    # and leaves the chain's last user message where it was: a chain whose last
+    # chunk is subagent work is still *about* the turn that started that work,
+    # and that is the text the next decision is compared against.
+    session = CORPUS.session("subagent_result")
+    chunks = chunk_with_subagents(session, is_task_tool)
+    subagent = next(chunk for chunk in chunks if chunk.origin.value == "subagent")
+    store = ChainStore(session)
+    store.open_chain(chunks[0])
+
+    store.append("C1", subagent)
+
+    assert chunk_user_message(session, subagent) is None
+    assert store.candidates()[0].last_user_message == session.messages[0].content
+
+
 def test_a_chain_opened_on_a_chunk_without_a_user_turn_falls_back_to_its_position():
     session = CORPUS.session("subagent_result")
     chunks = chunk_with_subagents(session, is_task_tool)

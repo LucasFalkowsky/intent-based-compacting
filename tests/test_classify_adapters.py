@@ -196,6 +196,18 @@ def test_the_chunk_under_decision_is_built_from_a_chunk_without_restating_its_fi
     assert ChunkUnderDecision.from_chunk(chunk("K2"), None).user_message == ""
 
 
+def test_the_chunk_under_decision_flattens_a_missing_user_turn_and_an_empty_one():
+    # The ambiguity the docstring now names, pinned rather than removed: an
+    # adapter cannot tell a chunk that holds no user turn from a user turn whose
+    # content is empty. Neither #17 nor #18 asks for that difference, and
+    # widening the value object for an unused case is the over-wide interface
+    # this one is deliberately not. Where it is used it survives —
+    # `chunk_user_message` answers `None` or `""`, and the store reads it.
+    assert ChunkUnderDecision.from_chunk(chunk("K2"), None) == ChunkUnderDecision.from_chunk(
+        chunk("K2"), ""
+    )
+
+
 def test_the_chunk_under_decision_needs_an_id():
     with pytest.raises(ValueError, match="id"):
         ChunkUnderDecision(id="", user_message="do the thing")
