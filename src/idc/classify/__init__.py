@@ -41,7 +41,9 @@ The stage is split along what a model may decide and what it may not:
   the end-to-end one above all (#42) — free of a model and of the network.
 
 Every failure of the stage is a `ClassifyError`, so a caller catches the whole
-stage with one `except`.
+stage with one `except` — an adapter answering a chain id of the wrong shape
+included, which is why `AdapterContractError` is a `ValueError` as well: the
+message says which mistake was made, but there is only one family to catch.
 """
 
 from idc.classify.adapters import (
