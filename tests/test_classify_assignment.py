@@ -6,17 +6,20 @@ following `tests/test_chunk_subagents.py`:
 - **The expectation table.** `EXPECTED_CHAINS` holds, per fixture, the scripted
   decision list and the chains it must produce — chain id, chunk ids and
   provisional label, all read off the fixtures by hand, so the per-fixture tests
-  have an oracle the implementation cannot agree with by accident. Unlike the
-  tables of T3 it covers three fixtures rather than the whole corpus: a hand-made
-  script only means something for a transcript whose intents are known, and the
-  rest of the corpus is covered by the generated scripts below.
-- **The corpus-wide invariants.** Everything parametrized over `FIXTURE_NAMES`
-  and `SCRIPT_BUILDERS` is discovered from `tests/fixtures/` at collection time,
-  so a tenth fixture is covered without touching their code. They state what no
-  adapter may be able to break: every chunk lands in exactly one chain, the
-  chains are numbered `C1…Ck` in the order they were opened, their chunk ids
-  stay in transcript order, the same script yields the same result twice, and
-  the chains are a valid canonical `CompactedBlock`.
+  have an oracle the implementation cannot agree with by accident. It is pinned
+  to the discovered corpus **in both directions**, the way
+  `tests/test_chunk_subagents.py` pins its own: a tenth fixture fails the
+  coverage test instead of silently receiving only the generic invariants.
+- **The corpus-wide invariants.** Everything parametrized over `SCRIPT_CASES` is
+  discovered from `tests/fixtures/` at collection time, so a tenth fixture is
+  covered without touching their code. They state what no adapter may be able to
+  break: every chunk lands in exactly one chain, the chains are numbered
+  `C1…Ck` in the order they were opened, their chunk ids stay in transcript
+  order, the same script yields the same result twice, and the chains are a
+  valid canonical `CompactedBlock`. A builder appears for a fixture only where
+  it writes a script no other builder wrote — seven of the nine fixtures hold a
+  single chunk, so crossing the corpus with the builders ran the same case three
+  times.
 - **The loud failures**, driven through the loop rather than against the store:
   a script that ran out, a decision naming a chain that was never a candidate,
   and an adapter that returns something that is not a decision.
@@ -101,6 +104,41 @@ def alternating(count: int) -> list[object]:
 
 SCRIPT_BUILDERS = (all_new, all_one, alternating)
 """Generated scripts, so the corpus-wide invariants need no hand-written one."""
+
+
+def script_cases() -> list[tuple[str, str, list[object]]]:
+    """Return every fixture-and-script pair that classifies the corpus anew.
+
+    Seven of the nine fixtures hold a single chunk, so all three builders write
+    `[NEW]` for them, and `alternating` collapses onto `all_new` for a two-chunk
+    one. Crossing the corpus with the builders therefore ran the same script
+    under three ids — 75 cases over the five invariants below that pinned
+    nothing a single one of them did not. A builder is kept for a fixture only
+    where it writes a script no other builder wrote.
+
+    Returns:
+        One `(fixture name, builder name, script)` per case, in corpus order.
+    """
+    cases: list[tuple[str, str, list[object]]] = []
+    for name in FIXTURE_NAMES:
+        count = len(chunk_session(CORPUS.session(name)))
+        written: list[list[object]] = []
+        for build in SCRIPT_BUILDERS:
+            script = build(count)
+            if script in written:
+                continue
+            written.append(script)
+            cases.append((name, build.__name__, script))
+    return cases
+
+
+SCRIPT_CASES = script_cases()
+"""Every discriminating (fixture, script) pair, discovered at collection time."""
+
+SCRIPT_PARAMS = [
+    pytest.param(name, script, id=f"{name}-{builder}") for name, builder, script in SCRIPT_CASES
+]
+"""`SCRIPT_CASES` as pytest parameters, keeping the builder's name in the id."""
 
 
 def is_task_tool(agent: Agent, tool_name: str) -> bool:
@@ -191,15 +229,41 @@ class KeywordAdapter:
         return {word for word in stripped if len(word) > 5}
 
 
-def test_the_expectation_table_names_only_fixtures_the_corpus_holds():
-    # Pins the table to the discovered corpus the way T3's tables do: a renamed
-    # or removed fixture fails here instead of silently losing a case.
-    assert set(EXPECTED_CHAINS) <= set(FIXTURE_NAMES)
-    assert set(EXPECTED_CHAINS) == {
-        "single_intent",
-        "two_sequential_intents",
-        "interleaved_intents",
-    }
+def test_the_corpus_was_discovered():
+    # Guards everything parametrized below: an empty corpus would turn them into
+    # zero test cases instead of into failures.
+    assert FIXTURE_NAMES
+
+
+def test_the_expectation_table_covers_the_discovered_fixtures():
+    # Pins the table to the discovered corpus in **both** directions, which is
+    # what `tests/test_chunk_subagents.py` does and what this table did not: a
+    # tenth fixture would otherwise receive only the generic invariants, and a
+    # renamed one would silently lose its hand-read oracle.
+    assert EXPECTED_CHAINS, "the hand-read expectation table must not be empty"
+    missing = sorted(set(FIXTURE_NAMES) - set(EXPECTED_CHAINS))
+    unknown = sorted(set(EXPECTED_CHAINS) - set(FIXTURE_NAMES))
+
+    assert missing == [], f"fixtures without hand-read expected chains: {missing}"
+    assert unknown == [], f"expected chains for fixtures that do not exist: {unknown}"
+
+
+def test_the_generated_scripts_cover_every_fixture_exactly_once_per_script():
+    # Guards the five invariants below: a fixture missing from the cases, or a
+    # script repeated under a second builder's name, would change how many cases
+    # they run instead of failing here.
+    assert SCRIPT_CASES
+    assert {name for name, _, _ in SCRIPT_CASES} == set(FIXTURE_NAMES)
+    written = [(name, [repr(entry) for entry in script]) for name, _, script in SCRIPT_CASES]
+    assert len(written) == len({(name, tuple(script)) for name, script in written})
+
+
+def test_every_builder_survives_where_it_discriminates():
+    # The counterpart: dropping the duplicates may not drop a *case*. The
+    # three-chunk fixture is where all three builders write a different script.
+    builders = {builder for name, builder, _ in SCRIPT_CASES if name == "interleaved_intents"}
+
+    assert builders == {build.__name__ for build in SCRIPT_BUILDERS}
 
 
 @pytest.mark.parametrize("name", list(EXPECTED_CHAINS))
@@ -409,12 +473,11 @@ def test_a_subagent_chunk_is_classified_like_every_other_chunk():
     assert [chain.chunk_ids for chain in result.chains] == [[chunk.id for chunk in chunks]]
 
 
-@pytest.mark.parametrize("name", FIXTURE_NAMES)
-@pytest.mark.parametrize("builder", SCRIPT_BUILDERS, ids=lambda build: build.__name__)
-def test_every_chunk_lands_in_exactly_one_chain(name, builder):
+@pytest.mark.parametrize(("name", "script"), SCRIPT_PARAMS)
+def test_every_chunk_lands_in_exactly_one_chain(name, script):
     session, chunks = session_and_chunks(name)
 
-    result = classify_chunks(session, chunks, FakeAdapter(builder(len(chunks))))
+    result = classify_chunks(session, chunks, FakeAdapter(script))
 
     assigned = [chunk_id for chain in result.chains for chunk_id in chain.chunk_ids]
     assert sorted(assigned) == sorted(chunk.id for chunk in chunks)
@@ -424,13 +487,12 @@ def test_every_chunk_lands_in_exactly_one_chain(name, builder):
     ]
 
 
-@pytest.mark.parametrize("name", FIXTURE_NAMES)
-@pytest.mark.parametrize("builder", SCRIPT_BUILDERS, ids=lambda build: build.__name__)
-def test_the_chains_are_numbered_by_position_and_ordered_by_their_first_chunk(name, builder):
+@pytest.mark.parametrize(("name", "script"), SCRIPT_PARAMS)
+def test_the_chains_are_numbered_by_position_and_ordered_by_their_first_chunk(name, script):
     session, chunks = session_and_chunks(name)
     positions = {chunk.id: index for index, chunk in enumerate(chunks)}
 
-    result = classify_chunks(session, chunks, FakeAdapter(builder(len(chunks))))
+    result = classify_chunks(session, chunks, FakeAdapter(script))
 
     assert [chain.id for chain in result.chains] == [
         f"C{position}" for position in range(1, len(result.chains) + 1)
@@ -443,12 +505,11 @@ def test_the_chains_are_numbered_by_position_and_ordered_by_their_first_chunk(na
         assert indices == sorted(indices), chain.id
 
 
-@pytest.mark.parametrize("name", FIXTURE_NAMES)
-@pytest.mark.parametrize("builder", SCRIPT_BUILDERS, ids=lambda build: build.__name__)
-def test_every_chain_carries_a_usable_provisional_label(name, builder):
+@pytest.mark.parametrize(("name", "script"), SCRIPT_PARAMS)
+def test_every_chain_carries_a_usable_provisional_label(name, script):
     session, chunks = session_and_chunks(name)
 
-    result = classify_chunks(session, chunks, FakeAdapter(builder(len(chunks))))
+    result = classify_chunks(session, chunks, FakeAdapter(script))
 
     for chain in result.chains:
         assert chain.label
@@ -456,12 +517,11 @@ def test_every_chain_carries_a_usable_provisional_label(name, builder):
         assert len(chain.label) <= PROVISIONAL_LABEL_MAX_LENGTH
 
 
-@pytest.mark.parametrize("name", FIXTURE_NAMES)
-@pytest.mark.parametrize("builder", SCRIPT_BUILDERS, ids=lambda build: build.__name__)
-def test_the_chains_round_trip_as_a_canonical_compacted_block(name, builder):
+@pytest.mark.parametrize(("name", "script"), SCRIPT_PARAMS)
+def test_the_chains_round_trip_as_a_canonical_compacted_block(name, script):
     session, chunks = session_and_chunks(name)
 
-    chains = classify(session, chunks, FakeAdapter(builder(len(chunks))))
+    chains = classify(session, chunks, FakeAdapter(script))
 
     latest = next(chunk for chunk in chunks if chunk.is_latest)
     block = CompactedBlock(chains=chains, latest_chunk_id=latest.id, rendered_for=session.agent)
@@ -469,12 +529,11 @@ def test_the_chains_round_trip_as_a_canonical_compacted_block(name, builder):
     assert all(loads(Chain, dumps(chain)) == chain for chain in chains)
 
 
-@pytest.mark.parametrize("name", FIXTURE_NAMES)
-@pytest.mark.parametrize("builder", SCRIPT_BUILDERS, ids=lambda build: build.__name__)
-def test_the_same_script_classifies_the_same_way_twice(name, builder):
+@pytest.mark.parametrize(("name", "script"), SCRIPT_PARAMS)
+def test_the_same_script_classifies_the_same_way_twice(name, script):
     session, chunks = session_and_chunks(name)
 
-    first = classify_chunks(session, chunks, FakeAdapter(builder(len(chunks))))
-    second = classify_chunks(session, chunks, FakeAdapter(builder(len(chunks))))
+    first = classify_chunks(session, chunks, FakeAdapter(script))
+    second = classify_chunks(session, chunks, FakeAdapter(script))
 
     assert first == second
