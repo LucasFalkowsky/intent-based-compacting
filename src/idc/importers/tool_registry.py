@@ -266,7 +266,9 @@ def _tokens(segment: str) -> tuple[str, ...]:
     Quoted text stays one token, which is what keeps `echo "go test"` from
     looking like a `go test` run. A segment whose quoting is unbalanced cannot be
     tokenized that way; it falls back to splitting on whitespace, which is safe
-    because matching is anchored on the command word either way.
+    because matching is anchored on the command word either way. `_segments`
+    only ever hands such a segment on when it is the whole command line
+    (`pytest -k "slow`); one it split off while its quote was open it drops.
     """
     try:
         return tuple(shlex.split(segment, comments=False, posix=True))

@@ -43,7 +43,10 @@ runner_prefixes = [
 # on the runner belongs to its pattern below (`non_running_flags` there), and a
 # bare `--` is deliberately absent: it is the argument separator of
 # `npm test -- --runInBand`, a real run. Tokens are compared whole, so `--help`
-# never matches `--help-all`, and the list is extended here, not in code.
+# never matches `--help-all`; the one exception is a value joined with `=`, so
+# an entry listed here also disqualifies its `--show-only=json-v1` spelling (the
+# matcher does that for every entry — the list is still extended here, not in
+# code).
 non_running_flags = [
     "--version",  # every runner prints it and exits
     "--help",
@@ -135,12 +138,21 @@ bash = { category = "exec" }
 #   - Windows-style paths are not reduced to their file name: the command word
 #     is reduced with POSIX path semantics, so `C:\Python\Scripts\pytest.exe`
 #     stays one token and matches nothing. The three agents record POSIX paths.
-#   - A backslash-escaped line continuation is not joined: `make \` followed by
-#     a newline and `test` is scanned as two segments, neither of which is a
-#     pattern.
+#   - A backslash-escaped line continuation is not joined. The scan keeps it in
+#     one segment (the backslash escapes the newline, so it is no separator),
+#     but `shlex` then hands the newline to the following token: `make \` + a
+#     newline + `test` tokenizes as `make`, `\ntest`, so the second word of the
+#     `make test` pattern is not there and the run is missed. A one-word pattern
+#     survives it, because only the arguments carry the newline: `pytest \` + a
+#     newline + `-q tests/` does match (tokens `pytest`, `\n-q`, `tests/`).
 #   - A segment whose quoting is unbalanced is tokenized by whitespace instead
-#     of by the shell's rules, which can lose a real run behind the apostrophe:
-#     `echo it's && pytest` is given up.
+#     of by the shell's rules, and a separator swallowed by the open quote is no
+#     separator, so the run behind it is lost: `echo it's && pytest` stays one
+#     segment, is anchored on `echo` and is given up. Such a segment is kept at
+#     all — and a runner at its front still matches, as in `pytest -k "slow` —
+#     only when the whole command line *is* that one segment. A segment the scan
+#     split off and then left with an open quote is dropped entirely (see the
+#     module docstring), so `make lint; pytest -k "slow` is given up too.
 #   - A here-document is given up with its body (see the module docstring), so a
 #     real run written after the body's delimiter is lost with it.
 
