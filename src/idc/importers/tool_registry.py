@@ -261,17 +261,15 @@ class ToolSpec(_RegistryModel):
         category: What a call to the tool does to the workspace.
         subagent: Whether the tool delegates work to a subagent, so that T3.3
             can lift that work into a chunk of its own. Orthogonal to the
-            category: a delegating call itself neither reads nor writes.
+            category: a delegating call itself neither reads nor writes. Read
+            strictly, because pydantic's lax mode would take `subagent = "yes"`
+            for `True` while the rest of this file refuses to guess at a typo.
     """
 
     category: ToolCategory = Field(description="What a call to this tool does to the workspace.")
     subagent: bool = Field(
-        default=False,
-        strict=True,
-        description="Whether the tool spawns a subagent.",
+        default=False, strict=True, description="Whether the tool spawns a subagent."
     )
-    """Strict on purpose: in pydantic's lax mode `subagent = "yes"` would be read
-    as `True`, and the rest of this file rejects a typo rather than guessing."""
 
 
 class VerificationPattern(_RegistryModel):
