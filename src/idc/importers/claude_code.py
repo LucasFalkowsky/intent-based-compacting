@@ -22,6 +22,12 @@ resolving tool categories, logging unknown tools and validating the result are
 - `system` with a non-empty `content` -> one injected `system` message.
 - anything else -> skipped, and noted by its record type.
 
+A `user` record whose `content` is neither text nor a block list — a number, an
+object, an absent `message` — yields **no** message either, and is noted twice:
+by its record type and by the shape of the value that was lost. Importing it as
+an empty `user` turn would not only drop the value, it would fabricate an intent
+boundary, because that is what T3.1 splits chunks on and T4 classifies.
+
 Two rules decide the rest.
 
 **Identifiers come from the transcript.** A message keeps the record's `uuid`,
@@ -197,6 +203,49 @@ def _text(value: Any) -> str:
     )
 
 
+def _shape(value: Any) -> str:
+    """Return the JSON shape of a value, to name something that has no kind.
+
+    Args:
+        value: The value a note is about.
+
+    Returns:
+        Its JSON type name — `object`, `array`, `string`, `number`, `boolean`,
+        `null`. A note about a block names the block's kind; a value that is not
+        a block has none, so its shape is the only honest thing to report.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int | float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, Mapping):
+        return "object"
+    if isinstance(value, list):
+        return "array"
+    return type(value).__name__
+
+
+def _note_unreadable_content(builder: SessionBuilder, content: Any, *, prefix: str = "") -> None:
+    """Note a content value that is neither text nor a block list.
+
+    Args:
+        builder: The session being assembled, for the notes.
+        content: The content value the record carried.
+        prefix: What to put in front of the note's detail, as in `_noted_text`.
+
+    An absent content (`None`) is not noted: the record carried nothing, so
+    nothing was lost. Anything else — a number, an object — did carry something
+    this importer cannot read, and the note is what keeps that from being a
+    silent loss in a tool whose output is a measurement.
+    """
+    if content is not None and not isinstance(content, str | list):
+        builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<content: {_shape(content)}>")
+
+
 def _noted_text(builder: SessionBuilder, content: Any, *, prefix: str = "") -> str:
     """Return a content value as text, noting every block it drops.
 
@@ -215,6 +264,7 @@ def _noted_text(builder: SessionBuilder, content: Any, *, prefix: str = "") -> s
     """
     if isinstance(content, str):
         return content
+    _note_unreadable_content(builder, content, prefix=prefix)
     texts: list[str] = []
     for block in _blocks(content):
         if block.get("type") == BLOCK_TEXT:
@@ -239,8 +289,10 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
 
     Returns:
         Whether the record yielded at least one canonical message. A record
-        whose blocks hold neither text nor a result yields none, and is then
-        noted as skipped like any other record that carries no message.
+        whose blocks hold neither text nor a result yields none, and so does one
+        whose content is neither text nor a block list; both are then noted as
+        skipped like any other record that carries no message, rather than
+        becoming an empty user turn the user never took.
 
     Raises:
         TranscriptImportError: If a `tool_result` block names no `tool_use_id`,
@@ -262,7 +314,10 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
         return True
     injected = record.get(INJECTED_FLAG) is True
     if not isinstance(content, list):
-        text = _text(content)
+        if not isinstance(content, str):
+            _note_unreadable_content(builder, content)
+            return False
+        text = content
         builder.add_message(
             message_id=_record_id(line),
             role=Role.USER,
