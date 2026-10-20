@@ -30,8 +30,9 @@ expected = NATIVE.expected_text("claude-code", "golden_session")  # the canonica
 - Record identifiers are readable (`u01`, `a01`, `t01`, `toolu_01`) rather than UUIDs, so
   that a canonical golden file shows at a glance that the importer **takes** the
   transcript's identifiers instead of renumbering them.
-- A fixture named `<name>.jsonl` may be accompanied by `<name>.expected.json`: the exact
-  bytes `idc.schema.dump` writes for the canonical session it imports to — the golden file.
+- A fixture may be accompanied by `<name>.expected.json`, whatever its own suffix is: the
+  exact bytes `idc.schema.dump` writes for the canonical session it imports to — the golden
+  file.
   Only the one full-coverage fixture per agent carries one; the edge-case fixtures are
   asserted on the single property they exist for.
 - No fixture is larger than it has to be, and none of them is a recording of a real
@@ -101,30 +102,45 @@ differently, the fix touches only that importer and this directory.
   follows it.
 ## `gemini-cli/`
 
-Gemini CLI appends one JSON object per line to
-`~/.gemini/tmp/<project_hash>/chats/session-<timestamp>-<short id>.jsonl`: one metadata
-record, then one record per message, plus the two log operations `$set` (a metadata update,
-which may replace the whole message list) and `$rewindTo`. The records below were modelled
-on that writer — `packages/core/src/services/chatRecordingService.ts` of the installed
-Gemini CLI 0.46.0 — and on its tool reference (`docs/reference/tools.md`), which is where
-the argument spellings come from.
+Gemini CLI records a session under `~/.gemini/tmp/<project_hash>/chats/` in **two shapes**,
+and reads both back, so there are fixtures in both:
 
-- `golden_session.jsonl` — the full-coverage session: the metadata record, the injected
-  `<session_context>` turn, a typed prompt, a `gemini` record appended **twice** (once
-  while its call is still running, once with the result — the later record is the
-  message), a record with two calls and two results, a `$set` metadata update, an `info`
-  record, a model turn in its raw-history shape (a `thought` part, text, and the call as a
-  `functionCall` part), a `user` record that only reports a `functionResponse`, a pasted
-  image, and a closing model turn. `golden_session.expected.json` is its canonical form.
-- `truncated_front.jsonl` — a transcript cut off at the front: the first record reports a
-  `functionResponse` whose call is not in the file. The canonical schema deliberately does
-  not require referential completeness, so this must import as a valid session.
-- `interrupted_turn.jsonl` — a call whose result never arrives: the file ends with the
+- `*.json` — one JSON document: `sessionId`, `projectHash`, `startTime`, `lastUpdated`, an
+  optional `summary` and a `messages` array, pretty-printed over many lines. **This is the
+  shape every session on the machine this was written on has**, and it is not JSONL.
+- `*.jsonl` — the append log of the current version: the metadata as the first record, one
+  record per message, and the two operations `$set` (a metadata update, which may replace
+  the whole message list) and `$rewindTo`. A message is appended again whenever it changes,
+  so one identifier occurs on several lines and the last one wins.
+
+The keys, record types, tool names and argument spellings of the `*.json` fixtures come
+from a **structure-only survey** of the 56 real sessions on this machine (key names only,
+never content). The `*.jsonl` fixtures and three markers — `<state_snapshot>`,
+`<session_context>` and the shell tool's `Exit Code:` line — are absent from those
+sessions, which all predate the installed version; they are taken from the installed Gemini
+CLI 0.46.0 itself (`packages/core/src/services/chatRecordingService.ts`,
+`context/chatCompressionService.ts`, the compression prompt, `getEnvironmentContext`, and
+`docs/reference/tools.md`) and the fixture that carries each one says so below.
+
+- `golden_session.json` — the full-coverage session in the surveyed shape: a prompt with
+  `displayContent`, a model turn with `thoughts`, `tokens` and a completed `read_file`
+  call, a turn with two calls and two results, an `info` notice, a plain-string prompt, a
+  `replace` whose `status` is `error`, an `error` notice, and a closing model turn.
+  `golden_session.expected.json` is its canonical form, written by hand.
+- `truncated_front.json` — a transcript cut off at the front. Gemini CLI records a call and
+  its result in **one** record, so this leaves no dangling result: it leaves a model turn
+  with no user turn in front of it.
+- `unknown_tool.json` — one declared subagent call (`invoke_agent`, from the installed
+  agent's policy-engine documentation) next to a tool the registry does not declare.
+- `log_session.jsonl` — the append log: the same model message appended twice, once while
+  its call is still running and once with the result, plus a `$set` metadata update.
+- `interrupted_turn.jsonl` — a call whose result never arrives: the log ends with the
   record that still has `result: null`.
-- `unknown_tool.jsonl` — one declared subagent call (`invoke_agent`) next to a tool the
-  registry does not declare.
-- `native_compaction.jsonl` — the native compaction flow: the `<state_snapshot>` the
-  compression writes back as a user turn, its acknowledgement, and the `$set.messages`
-  record that replaces the history with what was kept.
 - `rewound_turn.jsonl` — `$rewindTo`, which drops the message it names and everything
   recorded after it.
+- `history_parts.jsonl` — the content parts a turn rewritten from the live history carries:
+  the injected `<session_context>`, a `thought` part, a `functionCall` part and a
+  `functionResponse` part on a user turn.
+- `native_compaction.jsonl` — the native compaction: the `<state_snapshot>` the compression
+  writes back as a user turn, its acknowledgement, and the `$set.messages` record that
+  replaces the history with what was kept.

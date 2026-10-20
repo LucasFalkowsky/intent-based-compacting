@@ -32,8 +32,13 @@ SESSION_ID = "3f8c1d2e-0000-4000-8000-000000000011"
 PROJECT_HASH = "a1b2c3d4e5f6a7b8"
 
 
-def native(name: str) -> Path:
-    return NATIVE.path("gemini-cli", name)
+def native(name: str, suffix: str = ".jsonl") -> Path:
+    return NATIVE.path("gemini-cli", name, suffix)
+
+
+def document(name: str) -> Path:
+    """Resolve a fixture recorded in the single-JSON-document shape."""
+    return native(name, ".json")
 
 
 def write_jsonl(tmp_path: Path, records: list[dict], name: str = "session-tmp.jsonl") -> Path:
@@ -119,13 +124,13 @@ def messages_by_id(session: Session) -> dict[str, Message]:
 
 
 def test_the_sample_session_imports_to_the_golden_canonical_document():
-    imported = import_gemini_cli(native("golden_session"))
+    imported = import_gemini_cli(document("golden_session"))
 
     assert dumps(imported.session) + "\n" == NATIVE.expected_text("gemini-cli", "golden_session")
 
 
 def test_the_imported_session_is_a_valid_canonical_document():
-    imported = import_gemini_cli(native("golden_session"))
+    imported = import_gemini_cli(document("golden_session"))
 
     revalidated = validate_document(Session, json.loads(dumps(imported.session)))
 
@@ -133,8 +138,8 @@ def test_the_imported_session_is_a_valid_canonical_document():
 
 
 def test_the_import_is_deterministic():
-    first = import_gemini_cli(native("golden_session"))
-    second = import_gemini_cli(native("golden_session"))
+    first = import_gemini_cli(document("golden_session"))
+    second = import_gemini_cli(document("golden_session"))
 
     assert dumps(first.session) == dumps(second.session)
     assert first.notes == second.notes
@@ -144,20 +149,20 @@ def test_the_import_is_deterministic():
 
 
 def test_the_session_takes_its_identifier_and_agent_from_the_transcript():
-    session = import_gemini_cli(native("golden_session")).session
+    session = import_gemini_cli(document("golden_session")).session
 
     assert session.id == SESSION_ID
     assert session.agent is Agent.GEMINI_CLI
 
 
 def test_the_model_is_taken_from_the_first_model_message():
-    assert import_gemini_cli(native("golden_session")).session.model == "gemini-2.5-pro"
+    assert import_gemini_cli(document("golden_session")).session.model == "gemini-2.5-pro"
 
 
 def test_created_at_is_the_earliest_timestamp_of_the_transcript():
-    session = import_gemini_cli(native("golden_session")).session
+    session = import_gemini_cli(document("golden_session")).session
 
-    assert session.created_at == datetime(2026, 9, 12, 8, 30, 0, 112000, tzinfo=UTC)
+    assert session.created_at == datetime(2026, 9, 12, 8, 30, 12, 4000, tzinfo=UTC)
     assert session.created_at == min(
         message.timestamp for message in session.messages if message.timestamp is not None
     )
@@ -279,7 +284,7 @@ def test_a_damaged_jsonl_line_is_fatal_and_names_its_line(tmp_path):
 
 
 def test_a_user_prompt_becomes_a_user_message():
-    message = messages_by_id(import_gemini_cli(native("golden_session")).session)["u01"]
+    message = messages_by_id(import_gemini_cli(document("golden_session")).session)["u01"]
 
     assert message.role is Role.USER
     assert message.content.startswith("The CSV importer drops every row")
@@ -302,25 +307,16 @@ def test_several_text_parts_are_joined_by_a_blank_line(tmp_path):
 
 
 def test_the_environment_context_is_marked_as_system_injected():
-    message = messages_by_id(import_gemini_cli(native("golden_session")).session)["env01"]
+    message = messages_by_id(import_gemini_cli(native("history_parts")).session)["env01"]
 
     assert message.role is Role.USER
     assert message.is_system_injected is True
     assert message.content.startswith("<session_context>")
 
 
-def test_a_user_turn_whose_parts_hold_no_text_still_imports_as_that_turn():
+def test_a_pasted_image_alone_still_yields_the_user_turn(tmp_path):
     # A pasted image is a turn the user took, and T3.1 splits chunks on exactly
     # that boundary: losing it would fabricate the chain structure.
-    imported = import_gemini_cli(native("golden_session"))
-
-    message = messages_by_id(imported.session)["u04"]
-    assert message.role is Role.USER
-    assert message.content == ""
-    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["inlineData"]
-
-
-def test_a_pasted_image_alone_still_yields_the_user_turn(tmp_path):
     path = write_jsonl(tmp_path, [metadata_record(), user_record("u1", [PASTED_IMAGE])])
 
     imported = import_gemini_cli(path)
@@ -332,12 +328,12 @@ def test_a_pasted_image_alone_still_yields_the_user_turn(tmp_path):
 def test_a_user_record_that_only_reports_a_result_yields_no_user_turn():
     # The opposite guard: an empty user turn in front of every tool result
     # would be an invented intent boundary.
-    session = import_gemini_cli(native("golden_session")).session
+    session = import_gemini_cli(native("history_parts")).session
 
-    message = messages_by_id(session)["u03"]
+    message = messages_by_id(session)["u61"]
     assert message.role is Role.TOOL
     assert message.tool_result is not None
-    assert message.tool_result.call_id == "call-04"
+    assert message.tool_result.call_id == "call-60"
 
 
 def test_a_user_record_with_a_result_and_text_yields_both(tmp_path):
@@ -378,9 +374,7 @@ def test_an_unreadable_content_is_noted_by_its_shape(tmp_path):
 
     imported = import_gemini_cli(path)
 
-    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
-        "<content: object>"
-    ]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
 
 
 def test_a_part_that_is_not_an_object_is_noted_by_its_shape(tmp_path):
@@ -404,7 +398,7 @@ def test_an_absent_content_is_not_noted(tmp_path):
 
 
 def test_a_model_record_becomes_an_assistant_message_with_its_calls():
-    session = import_gemini_cli(native("golden_session")).session
+    session = import_gemini_cli(document("golden_session")).session
 
     message = messages_by_id(session)["g01#0"]
     assert message.role is Role.ASSISTANT
@@ -415,18 +409,19 @@ def test_a_model_record_becomes_an_assistant_message_with_its_calls():
 
 
 def test_the_arguments_are_kept_exactly_as_the_agent_sent_them():
-    session = import_gemini_cli(native("golden_session")).session
+    session = import_gemini_cli(document("golden_session")).session
 
     call = messages_by_id(session)["g02#0"].tool_calls[0]
     assert call.args == {
         "file_path": "/repo/src/imports/csv.py",
         "old_string": "    if not amount:\n        continue",
         "new_string": '    amount = amount or "0"',
+        "instruction": "Replace the falsy guard with a zero fallback.",
     }
 
 
 def test_each_result_of_one_record_becomes_a_tool_message_of_its_own():
-    session = import_gemini_cli(native("golden_session")).session
+    session = import_gemini_cli(document("golden_session")).session
 
     assert [m.id for m in session.messages if m.id.startswith("g02")] == [
         "g02#0",
@@ -466,24 +461,32 @@ def test_a_result_takes_the_timestamp_the_call_records(tmp_path):
     )
 
 
-def test_a_thought_part_and_the_thoughts_field_are_dropped_and_noted():
-    imported = import_gemini_cli(native("golden_session"))
+def test_the_thoughts_of_a_model_message_are_dropped_and_noted():
+    imported = import_gemini_cli(document("golden_session"))
 
-    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
-        "inlineData",
-        "thought",
-        "thoughts",
+    assert [(note.detail, note.count) for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        ("thoughts", 2)
     ]
-    assert messages_by_id(imported.session)["g03"].content == (
-        "Checking which tests touch the importer."
-    )
+
+
+def test_an_empty_thoughts_list_is_not_noted(tmp_path):
+    path = write_jsonl(tmp_path, [metadata_record(), gemini_record("g1", "done", thoughts=[])])
+
+    assert import_gemini_cli(path).notes_of(NOTE_DROPPED_BLOCK) == ()
+
+
+def test_a_thought_part_is_dropped_and_noted():
+    imported = import_gemini_cli(native("history_parts"))
+
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["thought"]
+    assert messages_by_id(imported.session)["g60"].content == "Looking for them."
 
 
 def test_a_function_call_part_is_read_as_a_tool_call():
-    session = import_gemini_cli(native("golden_session")).session
+    session = import_gemini_cli(native("history_parts")).session
 
-    call = messages_by_id(session)["g03"].tool_calls[0]
-    assert (call.id, call.name, call.args) == ("call-04", "glob", {"pattern": "tests/**/*csv*.py"})
+    call = messages_by_id(session)["g60"].tool_calls[0]
+    assert (call.id, call.name, call.args) == ("call-60", "glob", {"pattern": "tests/**/*csv*.py"})
 
 
 def test_a_function_call_part_repeating_a_recorded_call_is_not_imported_twice(tmp_path):
@@ -535,15 +538,9 @@ def test_a_call_without_a_tool_name_is_rejected_by_its_line(tmp_path):
 
 
 def test_arguments_that_are_not_an_object_are_dropped_and_noted(tmp_path):
-    path = write_jsonl(
-        tmp_path,
-        [
-            metadata_record(),
-            gemini_record(
-                "g1", "x", toolCalls=[tool_call("c1", "run_shell_command", {}, args=["ls"])]
-            ),
-        ],
-    )
+    entry = tool_call("c1", "run_shell_command", {})
+    entry["args"] = ["ls"]
+    path = write_jsonl(tmp_path, [metadata_record(), gemini_record("g1", "x", toolCalls=[entry])])
 
     imported = import_gemini_cli(path)
 
@@ -553,15 +550,38 @@ def test_arguments_that_are_not_an_object_are_dropped_and_noted(tmp_path):
     ]
 
 
-# --- an `info` record -------------------------------------------------------
+# --- the agent's own notices ------------------------------------------------
 
 
-def test_an_info_record_becomes_an_injected_system_message():
-    message = messages_by_id(import_gemini_cli(native("golden_session")).session)["info01"]
+def test_an_error_record_becomes_an_injected_system_message():
+    message = messages_by_id(import_gemini_cli(document("golden_session")).session)["err01"]
 
     assert message.role is Role.SYSTEM
     assert message.is_system_injected is True
-    assert message.content == "Binary content received. Proceeding with analysis."
+    assert message.content == "Edit failed: the file changed since it was read."
+
+
+def test_a_notice_without_text_is_skipped_and_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [metadata_record(), user_record("u1", "hi"), {"id": "i1", "type": "info", "content": ""}],
+    )
+
+    imported = import_gemini_cli(path)
+
+    assert [m.id for m in imported.session.messages] == ["u1"]
+    assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == [
+        "<metadata>",
+        "info",
+    ]
+
+
+def test_an_info_record_becomes_an_injected_system_message():
+    message = messages_by_id(import_gemini_cli(document("golden_session")).session)["info01"]
+
+    assert message.role is Role.SYSTEM
+    assert message.is_system_injected is True
+    assert message.content == "Switched to gemini-2.5-flash for the remainder of this turn."
 
 
 def test_a_record_type_this_importer_does_not_know_is_skipped_and_noted(tmp_path):
@@ -591,9 +611,7 @@ def test_a_record_without_a_usable_identifier_is_skipped_and_noted(tmp_path):
     imported = import_gemini_cli(path)
 
     assert [m.id for m in imported.session.messages] == ["u1"]
-    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
-        "<id: empty string>"
-    ]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<id: empty string>"]
     assert [(note.detail, note.count) for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == [
         ("<metadata>", 1),
         ("user", 2),
@@ -604,7 +622,7 @@ def test_a_record_without_a_usable_identifier_is_skipped_and_noted(tmp_path):
 
 
 def test_a_successful_result_is_not_an_error():
-    session = import_gemini_cli(native("golden_session")).session
+    session = import_gemini_cli(document("golden_session")).session
 
     result = messages_by_id(session)["g01#1"].tool_result
     assert result.is_error is False
@@ -612,12 +630,34 @@ def test_a_successful_result_is_not_an_error():
     assert result.output.startswith("    11\tfor row in reader:")
 
 
-def test_a_non_zero_exit_status_is_read_out_of_a_shell_result():
+def test_a_non_zero_exit_status_is_read_out_of_a_shell_result(tmp_path):
     # Gemini CLI appends `Exit Code: <n>` to a shell result only when the
     # command failed, and the call itself still counts as a success.
-    session = import_gemini_cli(native("golden_session")).session
+    path = write_jsonl(
+        tmp_path,
+        [
+            metadata_record(),
+            gemini_record(
+                "g1",
+                "x",
+                toolCalls=[
+                    tool_call(
+                        "c1",
+                        "run_shell_command",
+                        {"command": "uv run pytest -q"},
+                        result=output(
+                            "c1",
+                            "run_shell_command",
+                            "Output: 1 failed, 3 passed\nE   assert len(rows) == 4\nExit Code: 1",
+                        ),
+                        status="success",
+                    )
+                ],
+            ),
+        ],
+    )
 
-    result = messages_by_id(session)["g02#2"].tool_result
+    result = messages_by_id(import_gemini_cli(path).session)["g1#1"].tool_result
     assert result.exit_code == 1
     assert result.is_error is False
 
@@ -675,6 +715,15 @@ def test_an_exit_status_in_the_middle_of_the_output_is_not_read_as_one(tmp_path)
     )
 
     assert messages_by_id(import_gemini_cli(path).session)["g1#1"].tool_result.exit_code is None
+
+
+def test_a_failed_result_of_the_golden_session_is_an_error():
+    result = messages_by_id(import_gemini_cli(document("golden_session")).session)[
+        "g03#1"
+    ].tool_result
+
+    assert result.is_error is True
+    assert result.output.startswith("Failed to edit, 0 occurrences found")
 
 
 def test_a_call_the_agent_reports_as_failed_is_an_error(tmp_path):
@@ -838,11 +887,32 @@ def test_a_result_part_without_a_call_reference_is_rejected(tmp_path):
 
 
 def test_a_front_truncated_transcript_imports_as_the_session_it_is():
-    imported = import_gemini_cli(native("truncated_front"))
+    # Gemini CLI records a call and its result in one record, so a transcript
+    # cut off at the front does not leave a dangling result — it leaves a model
+    # turn with no user turn in front of it, which T3.1 has to cope with.
+    session = import_gemini_cli(document("truncated_front")).session
 
-    session = imported.session
-    assert session.messages[0].role is Role.TOOL
-    assert session.messages[0].tool_result.call_id == "call-10"
+    assert [(message.id, message.role) for message in session.messages] == [
+        ("g10#0", Role.ASSISTANT),
+        ("g10#1", Role.TOOL),
+        ("u10", Role.USER),
+    ]
+
+
+def test_a_result_whose_call_is_not_in_the_transcript_imports_all_the_same(tmp_path):
+    # The canonical schema deliberately does not require referential
+    # completeness; a rewritten history can start with a response part.
+    path = write_jsonl(
+        tmp_path,
+        [
+            metadata_record(),
+            user_record("u1", [function_response("gone", "read_file", {"output": "body"})]),
+        ],
+    )
+
+    session = import_gemini_cli(path).session
+
+    assert session.messages[0].tool_result.call_id == "gone"
     assert [call.id for message in session.messages for call in message.tool_calls] == []
 
 
@@ -883,15 +953,15 @@ def test_a_rewind_to_an_unknown_message_drops_every_message_before_it(tmp_path):
 def test_a_repeated_record_supersedes_the_earlier_one_in_place():
     # Gemini CLI appends the whole message again when its tool call completes,
     # so the same identifier occurs twice and the later record is the message.
-    session = import_gemini_cli(native("golden_session")).session
+    session = import_gemini_cli(native("log_session")).session
 
-    assert [message.id for message in session.messages][:4] == [
-        "env01",
-        "u01",
-        "g01#0",
-        "g01#1",
+    assert [message.id for message in session.messages] == [
+        "u40",
+        "g40#0",
+        "g40#1",
+        "u41",
     ]
-    assert messages_by_id(session)["g01#1"].tool_result is not None
+    assert messages_by_id(session)["g40#1"].tool_result.output.startswith("    11\tfor row")
 
 
 def test_a_metadata_update_replaces_the_message_list(tmp_path):
@@ -904,9 +974,33 @@ def test_a_metadata_update_replaces_the_message_list(tmp_path):
         ],
     )
 
-    session = import_gemini_cli(path).session
+    imported = import_gemini_cli(path)
 
-    assert [(m.id, m.content) for m in session.messages] == [("u2", "kept")]
+    assert [(m.id, m.content) for m in imported.session.messages] == [("u2", "kept")]
+    assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == [
+        "$set",
+        "<metadata>",
+    ]
+
+
+def test_a_rewind_record_carries_no_message_and_is_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            metadata_record(),
+            user_record("u1", "kept"),
+            user_record("u2", "dropped"),
+            {"$rewindTo": "u2"},
+        ],
+    )
+
+    imported = import_gemini_cli(path)
+
+    assert [message.id for message in imported.session.messages] == ["u1"]
+    assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == [
+        "$rewindTo",
+        "<metadata>",
+    ]
 
 
 # --- the native compaction summary ------------------------------------------
@@ -930,11 +1024,11 @@ def test_the_state_snapshot_is_an_injected_system_message_not_a_user_turn():
 def test_the_compaction_keeps_only_the_messages_the_agent_kept():
     session = import_gemini_cli(native("native_compaction")).session
 
-    assert [message.id for message in session.messages] == ["c40", "c41", "u41"]
+    assert [message.id for message in session.messages] == ["c40", "c41", "u71"]
 
 
 def test_an_uncompacted_transcript_stays_raw():
-    assert import_gemini_cli(native("golden_session")).session.source is SessionSource.RAW
+    assert import_gemini_cli(document("golden_session")).session.source is SessionSource.RAW
 
 
 def test_a_snapshot_is_recognised_wherever_it_sits_in_the_message(tmp_path):
@@ -959,23 +1053,23 @@ def test_a_snapshot_is_recognised_wherever_it_sits_in_the_message(tmp_path):
 
 
 def test_every_call_of_the_golden_session_carries_a_category():
-    session = import_gemini_cli(native("golden_session")).session
+    session = import_gemini_cli(document("golden_session")).session
 
     categories = {
         call.name: call.category for message in session.messages for call in message.tool_calls
     }
     assert categories == {
         "read_file": ToolCategory.READ,
-        "glob": ToolCategory.READ,
+        "grep_search": ToolCategory.READ,
         "replace": ToolCategory.WRITE,
-        "run_shell_command": ToolCategory.EXEC,
     }
 
 
 def test_an_undeclared_tool_resolves_to_other_and_is_noted():
-    imported = import_gemini_cli(native("unknown_tool"))
+    imported = import_gemini_cli(document("unknown_tool"))
 
     assert imported.unknown_tools == ("teleport_file",)
+    assert [note.kind for note in imported.notes_of(NOTE_UNKNOWN_TOOL)] == [NOTE_UNKNOWN_TOOL]
     calls = {
         call.name: call.category
         for message in imported.session.messages
@@ -986,7 +1080,7 @@ def test_an_undeclared_tool_resolves_to_other_and_is_noted():
 
 def test_an_undeclared_tool_is_logged_once_per_name(caplog):
     with caplog.at_level(logging.WARNING, logger="idc.importers"):
-        import_gemini_cli(native("unknown_tool"))
+        import_gemini_cli(document("unknown_tool"))
 
     warnings = [record for record in caplog.records if "teleport_file" in record.getMessage()]
     assert len(warnings) == 1
@@ -995,7 +1089,7 @@ def test_an_undeclared_tool_is_logged_once_per_name(caplog):
 
 def test_a_declared_tool_is_not_logged(caplog):
     with caplog.at_level(logging.WARNING, logger="idc.importers"):
-        import_gemini_cli(native("golden_session"))
+        import_gemini_cli(document("golden_session"))
 
     assert [record for record in caplog.records if record.levelno >= logging.WARNING] == []
 
@@ -1009,7 +1103,17 @@ def test_the_subagent_tool_is_declared_and_marked():
 
 def test_the_tools_the_corpus_and_the_fixtures_use_are_all_declared():
     registry = tool_registry()
-    names = ("read_file", "write_file", "replace", "run_shell_command", "glob", "invoke_agent")
+    names = (
+        "read_file",
+        "write_file",
+        "replace",
+        "run_shell_command",
+        "list_directory",
+        "glob",
+        "grep_search",
+        "google_web_search",
+        "invoke_agent",
+    )
 
     assert [name for name in names if not registry.knows(Agent.GEMINI_CLI, name)] == []
 
@@ -1018,14 +1122,14 @@ def test_the_tools_the_corpus_and_the_fixtures_use_are_all_declared():
 
 
 def test_import_transcript_dispatches_to_this_importer():
-    through_dispatcher = import_transcript(Agent.GEMINI_CLI, native("golden_session"))
-    directly = import_gemini_cli(native("golden_session"))
+    through_dispatcher = import_transcript(Agent.GEMINI_CLI, document("golden_session"))
+    directly = import_gemini_cli(document("golden_session"))
 
     assert dumps(through_dispatcher.session) == dumps(directly.session)
 
 
 def test_import_transcript_accepts_the_agents_wire_string():
-    assert import_transcript("gemini-cli", native("golden_session")).session.agent is (
+    assert import_transcript("gemini-cli", document("golden_session")).session.agent is (
         Agent.GEMINI_CLI
     )
 
@@ -1045,7 +1149,7 @@ def test_a_caller_may_pass_its_own_registry(tmp_path):
 
     source = tmp_path / "registry.toml"
     source.write_text(
-        'version = 1\nrunner_prefixes = []\n'
+        "version = 1\nrunner_prefixes = []\n"
         '[agents.claude-code.tools]\nRead = { category = "read" }\n'
         '[agents.gemini-cli.tools]\nread_file = { category = "exec" }\n'
         '[agents.opencode.tools]\nread = { category = "read" }\n'
