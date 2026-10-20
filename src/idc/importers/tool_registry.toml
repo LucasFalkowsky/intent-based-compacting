@@ -124,6 +124,25 @@ bash = { category = "exec" }
 # whose meaning is this runner's own: `-n` is make's dry run but pytest-xdist's
 # process count, and `-l` is tox's env listing but pytest's `--showlocals`.
 # Those must never be global — they would throw away real runs.
+#
+# Accepted limitations. All of them are *misses*: the command ran a verification
+# and the matcher does not see it, which costs one summary line, where a false
+# positive would corrupt the resolved solution. They are not fixed on purpose.
+#
+#   - Shell constructs are not parsed, so the runner is not the command word:
+#     `if pytest; then …`, `for f in …; do pytest; done`, `(make test)`,
+#     `{ make test; }`, `! pytest`, and a `$(…)`/backtick substitution.
+#   - Windows-style paths are not reduced to their file name: the command word
+#     is reduced with POSIX path semantics, so `C:\Python\Scripts\pytest.exe`
+#     stays one token and matches nothing. The three agents record POSIX paths.
+#   - A backslash-escaped line continuation is not joined: `make \` followed by
+#     a newline and `test` is scanned as two segments, neither of which is a
+#     pattern.
+#   - A segment whose quoting is unbalanced is tokenized by whitespace instead
+#     of by the shell's rules, which can lose a real run behind the apostrophe:
+#     `echo it's && pytest` is given up.
+#   - A here-document is given up with its body (see the module docstring), so a
+#     real run written after the body's delimiter is lost with it.
 
 [[verification_patterns]]
 id = "pytest"

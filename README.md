@@ -82,7 +82,13 @@ where no transcript has shown a spelling yet, because an invented entry would re
 wrongly instead of merely being coarse. Verification matching is **anchored** on the
 command word (after `NAME=value` assignments and runner prefixes such as `uv run` are
 stripped, and a leading path is reduced to its file name), so a command that only mentions
-a test runner in an argument never counts as one.
+a test runner in an argument never counts as one — not in a quoted string, not behind a
+`#` comment, and not when the runner is merely asked for its version, its help or what it
+*would* run (`pytest --collect-only`, `make test -n`: the data file's `non_running_flags`).
+
+A command the matcher cannot read — a runner inside a shell construct, a Windows path, an
+unbalanced quote — is **missed**, never mis-matched; those accepted limitations are listed
+in the data file next to the patterns.
 
 The file is validated when it is read — an unknown agent, an unknown category, an unknown
 field or a missing section raises one `ToolRegistryError` naming the file and the offending
