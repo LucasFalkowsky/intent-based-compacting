@@ -25,6 +25,8 @@ resolving tool categories, logging unknown tools and validating the result are
 - `system` with a non-empty `content` -> one injected `system` message.
 - anything else -> skipped, and noted by its record type; a record that names
   no type is noted as `<no type>`, one whose type is `null` as `<null type>`.
+  A dropped *block* is named the same way, by `_type_name`, so a block kind
+  spelled `None` and a damaged block are not the same note.
 
 A `user` record whose `content` is neither text nor a block list — a number, an
 object, a `message` that is not an object — yields **no** message, and is noted
@@ -127,14 +129,14 @@ INJECTED_FLAG = "isMeta"
 """Field Claude Code sets on a user record the harness wrote, not the user."""
 
 NO_TYPE = "<no type>"
-"""How a record that names no `type` at all is reported in the notes."""
+"""How a record or block that names no `type` at all is reported in the notes."""
 
 NULL_TYPE = "<null type>"
-"""How a record whose `type` is `null` is reported in the notes.
+"""How a record or block whose `type` is `null` is reported in the notes.
 
-Distinct from `NO_TYPE`: a missing field is a record shape this importer does
-not know, a `null` one is a damaged record, and `str(None)` reads the same for
-both.
+Distinct from `NO_TYPE`: a missing field is a shape this importer does not know,
+a `null` one is damaged, and `str(None)` reads the same for both — and the same
+as a kind genuinely spelled `"None"`.
 """
 
 
@@ -208,27 +210,33 @@ def import_claude_code(
             session_id = named
         elif named is not None and named != session_id:
             builder.note(NOTE_DROPPED_BLOCK, SECOND_SESSION)
-        kind = _record_type(record)
+        kind = _type_name(record)
         reader = READERS.get(kind)
         if reader is None or not reader(builder, line):
             builder.note(NOTE_SKIPPED_RECORD, kind)
     return builder.build(session_id=session_id)
 
 
-def _record_type(record: Mapping[str, Any]) -> str:
-    """Return the record's type as the notes name it.
+def _type_name(holder: Mapping[str, Any]) -> str:
+    """Return the `type` of a record or a content block as the notes name it.
 
     Args:
-        record: One transcript record.
+        holder: One transcript record, or one of its content blocks.
 
     Returns:
-        The `type` field as a string, or `NO_TYPE` when the record names none
-        and `NULL_TYPE` when it names `null`. Those two are different problems
-        and `str(None)` would report them as the same one.
+        The `type` field as a string, or `NO_TYPE` when it names none and
+        `NULL_TYPE` when it names `null`. Those two are different problems — a
+        shape this importer does not know versus a damaged one — and `str(None)`
+        would report them as the same one, which is also how a kind that is
+        genuinely spelled `"None"` would become indistinguishable from both. A
+        type that is present and not a string keeps its own spelling (`7`).
+
+        One function for both levels on purpose: the collision was first fixed
+        for records and then found again for blocks.
     """
-    if "type" not in record:
+    if "type" not in holder:
         return NO_TYPE
-    kind = record["type"]
+    kind = holder["type"]
     return NULL_TYPE if kind is None else str(kind)
 
 
@@ -381,7 +389,7 @@ def _noted_text(builder: SessionBuilder, content: Any, *, prefix: str = "") -> s
         if block.get("type") == BLOCK_TEXT:
             texts.append(_block_text(builder, block, prefix=prefix))
         else:
-            builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{block.get('type')}")
+            builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{_type_name(block)}")
     return joined_text(texts)
 
 
@@ -515,7 +523,7 @@ def _user_parts(
         elif kind == BLOCK_TOOL_RESULT:
             found.append((index, Role.TOOL, "", _tool_result(builder, line, block)))
         else:
-            builder.note(NOTE_DROPPED_BLOCK, str(kind))
+            builder.note(NOTE_DROPPED_BLOCK, _type_name(block))
     text = joined_text(texts)
     if text or not found:
         found.append((text_index if text_index is not None else 0, Role.USER, text, None))
@@ -611,7 +619,7 @@ def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
         elif kind == BLOCK_TOOL_USE:
             calls.append(_tool_call(builder, line, block))
         else:
-            builder.note(NOTE_DROPPED_BLOCK, str(kind))
+            builder.note(NOTE_DROPPED_BLOCK, _type_name(block))
     builder.add_message(
         message_id=_record_id(builder, line),
         role=Role.ASSISTANT,
@@ -694,7 +702,7 @@ READERS: dict[str, Callable[[SessionBuilder, JsonLine], bool]] = {
 
 A reader returns whether the record yielded a canonical message; everything
 else — a record type that is not in this table, and one that is but held no
-message — is noted as skipped by its type, as `_record_type` spells it. That is
+message — is noted as skipped by its type, as `_type_name` spells it. That is
 what keeps a new Claude Code record type a line in the import's notes instead of
 a crash or a silent loss.
 """
