@@ -18,7 +18,7 @@ from idc.schema import (
     loads,
     validate_document,
 )
-from schema_samples import SAMPLES
+from schema_samples import CREATED_AT, SAMPLES
 
 
 def document(name: str) -> dict:
@@ -133,6 +133,23 @@ def test_tool_message_without_a_result_is_rejected():
         loads(Message, json.dumps(invalid))
 
 
+def test_tool_result_whose_call_id_has_no_tool_call_is_accepted_on_purpose():
+    """Referential completeness is deliberately not enforced (see the decision on #3).
+
+    A transcript can be truncated at the front, so a result whose call was cut
+    off is still valid data that the measurement (T9) has to count.
+    """
+    orphan = document("Session")
+    orphan["messages"][3]["tool_result"]["call_id"] = "call-cut-off"
+
+    restored = loads(Session, json.dumps(orphan))
+
+    declared = {call.id for message in restored.messages for call in message.tool_calls}
+    assert "call-cut-off" not in declared
+    assert restored.messages[3].tool_result is not None
+    assert restored.messages[3].tool_result.call_id == "call-cut-off"
+
+
 def test_duplicate_chain_ids_in_a_block_are_rejected():
     invalid = document("CompactedBlock")
     invalid["chains"][1]["id"] = invalid["chains"][0]["id"]
@@ -204,8 +221,53 @@ def test_validate_document_rejects_invalid_data():
 def test_assignment_is_validated_too():
     chunk = SAMPLES["Chunk"]()
 
-    with pytest.raises(ValueError, match="origin"):
+    with pytest.raises(SchemaValidationError, match="origin"):
         chunk.origin = "agent"
+
+
+def test_construction_raises_the_same_located_error_as_the_load_path():
+    with pytest.raises(SchemaValidationError) as excinfo:
+        Chunk(id="K1", start_index=5, end_index=2)
+
+    assert "invalid Chunk document: 1 problem" in str(excinfo.value)
+    assert [location for location, _ in excinfo.value.errors] == ["end_index"]
+    assert excinfo.value.model == "Chunk"
+    assert excinfo.value.source is None
+
+
+def test_construction_reports_nested_fields_with_their_dotted_path():
+    with pytest.raises(SchemaValidationError) as excinfo:
+        Session(
+            id="s-1",
+            agent="claude-code",
+            created_at=CREATED_AT,
+            messages=[
+                {
+                    "id": "m-0",
+                    "role": "assistant",
+                    "tool_calls": [{"id": "call-1", "name": "", "category": "read"}],
+                }
+            ],
+        )
+
+    assert "messages.0.tool_calls.0.name" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "construct",
+    [
+        pytest.param(lambda: Chunk(id="K1", start_index=5, end_index=2), id="construction"),
+        pytest.param(lambda: setattr(SAMPLES["Chunk"](), "origin", "agent"), id="assignment"),
+    ],
+)
+def test_construction_and_assignment_hide_the_pydantic_internals(construct):
+    with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - the subclass is asserted below
+        construct()
+
+    assert isinstance(excinfo.value, SchemaValidationError)
+    message = str(excinfo.value)
+    assert "pydantic" not in message.lower()
+    assert "errors.pydantic.dev" not in message
 
 
 def test_chunk_exposes_its_message_count():
