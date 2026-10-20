@@ -61,7 +61,9 @@ Known limitations, all of them deliberate:
   as a message.
 - `ToolResult.exit_code` stays `null`: Claude Code records no process status for
   a `Bash` call, only whether the tool reported an error. The resolver's
-  verification check therefore reads `is_error`, not an exit code.
+  verification check therefore reads `is_error`, not an exit code — and an
+  `is_error` this importer cannot read as a boolean counts as an error rather
+  than silently as a success (see `_is_error`).
 - `isSidechain` is ignored. A subagent's own records are imported as the
   messages they are; lifting them into a chunk of their own is T3.3's job, which
   works on the canonical session.
@@ -494,8 +496,34 @@ def _tool_result(builder: SessionBuilder, line: JsonLine, block: Mapping[str, An
     return ToolResult(
         call_id=call_id,
         output=_noted_text(builder, block.get("content"), prefix=f"{BLOCK_TOOL_RESULT}/"),
-        is_error=block.get("is_error") is True,
+        is_error=_is_error(builder, block.get("is_error")),
     )
+
+
+def _is_error(builder: SessionBuilder, flag: Any) -> bool:
+    """Return whether a `tool_result` block reports a failure.
+
+    Args:
+        builder: The session being assembled, for the notes.
+        flag: The block's `is_error` field.
+
+    Returns:
+        `True` and `False` as the transcript spells them; `False` for a flag
+        that is absent or `null`, which is how Claude Code records a result
+        that succeeded. A flag that is present but not a boolean is **taken as
+        an error** and noted by its shape: the canonical schema has no third
+        state, T6 resolves the last *passing* verification command from this
+        one field, and the expensive direction is the wrong `False` — it would
+        make a run the importer cannot certify as passing part of the accepted
+        solution. A result that cannot be read as passing therefore does not
+        pass, and the note says why.
+    """
+    if isinstance(flag, bool):
+        return flag
+    if flag is not None:
+        builder.note(NOTE_DROPPED_BLOCK, f"{BLOCK_TOOL_RESULT}/<is_error: {_shape(flag)}>")
+        return True
+    return False
 
 
 def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
