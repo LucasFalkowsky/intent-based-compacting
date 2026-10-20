@@ -189,6 +189,9 @@ def test_a_non_running_flag_added_to_the_data_file_disqualifies_without_a_code_c
 
     assert registry.is_verification("pytest -q")
     assert registry.is_verification("pytest --explain") is False
+    # including in its `=`-joined spelling: that is handled for every entry of
+    # the list, not for a set of flags named in the matcher
+    assert registry.is_verification("pytest --explain=why") is False
     assert tool_registry().is_verification("pytest --explain")
 
 

@@ -66,6 +66,9 @@ MATCHING = [
     "pytest -q || echo failed",
     "make lint; make test",
     "pytest -q 2>&1 | tee pytest.log",
+    # bash's ANSI-C quoting `$'…'` ends where bash ends it, so a real run
+    # behind such a string is still seen
+    "echo $'a\\'b' && pytest -q",
     # a comment ends its line, not the scan: the run on the next line counts
     "# run the suite\nmake test",
     "make build # make test\npytest -q",
@@ -115,6 +118,18 @@ NOT_MATCHING = [
     'echo "quote \\" then | jest --ci"',
     'echo "print(\\"hi\\"); pytest -q" > x.py',
     'python -c "print(1)" && echo "a\\"b; pytest -q x"',
+    # in bash's ANSI-C quoting `$'…'` a `\'` is an *escaped* quote, so the
+    # string runs on to the closing one and the separator inside it is part of
+    # an argument — reading the escaped quote as the closing one split the line
+    # there and made the next word a command
+    "echo $'quote \\' then; pytest -q'",
+    "git commit -m $'fix \\' bug; make test passes'",
+    "python -c $'print(\"x\") \\' ; jest --ci'",
+    "echo $'don\\'t; go test ./...'",
+    # a segment that was split off and then left with an open quote is given up:
+    # the scan was not following the shell's quoting there, and bash itself runs
+    # nothing at all on a command line whose quote is never closed
+    "echo \\'; pytest -q'",
     # an unquoted `#` comments out the rest of its line, so nothing behind it runs
     "echo done # note; make test",
     "echo done #&& make test",
@@ -138,6 +153,16 @@ NOT_MATCHING = [
     "make check --dry-run",
     "cargo test --list",
     "uv run pytest --version",
+    # the `=`-joined spelling of those flags is the same non-running flag, and
+    # for several of them it is the spelling the tool's own docs use
+    "ctest --show-only=json-v1",
+    "go test -list=.",
+    "pytest --collect-only=x",
+    "jest --listTests=true",
+    "make test --just-print=1",
+    "gradle test --dry-run=true",
+    # tox's short spelling of --listenvs-all
+    "tox -a",
     # not a test command at all
     "git status",
     "ls -la",
@@ -207,6 +232,34 @@ def test_an_escaped_quote_does_not_end_the_string_it_is_in():
     assert registry.is_verification("echo 'a\\' && pytest -q")
 
 
+def test_ansi_c_quoting_escapes_the_quote_it_contains():
+    # In `$'…'` — bash's ANSI-C quoting — `\'` is an escaped quote, not the
+    # closing one. Closing the string there scanned the rest of the argument as
+    # unquoted shell, where a `;` opened a segment and the next word became a
+    # command.
+    registry = tool_registry()
+
+    assert registry.match_verification("echo $'quote \\' then; pytest -q'") is None
+    assert registry.match_verification("echo $'don\\'t; go test ./...'") is None
+    # the string ends where bash ends it, so the run behind it still counts
+    assert registry.is_verification("echo $'a\\'b' && pytest -q")
+
+
+def test_a_segment_left_with_an_open_quote_is_given_up():
+    # Structural guard behind the two quoting fixes: if the scan reaches the end
+    # of a *split* command line with a quote still open, it was not following
+    # the shell's quoting, so the separator it split at was probably inside a
+    # string. Giving the segment up fails into a miss, never into a wrong
+    # verification — and bash runs nothing at all on an unterminated quote.
+    registry = tool_registry()
+
+    assert registry.match_verification("echo \\'; pytest -q'") is None
+    # only a segment the scan *split off* is given up; a command line that is
+    # one segment was split by nothing, so an unbalanced quote there still
+    # matches on its command word (see test_an_unbalanced_quote_does_not_raise)
+    assert registry.is_verification('pytest -k "slow')
+
+
 def test_a_comment_ends_its_line_and_not_the_scan():
     registry = tool_registry()
 
@@ -223,6 +276,20 @@ def test_a_runner_that_is_only_asked_what_it_would_do_is_no_verification():
     assert registry.match_verification("make test -n") is None
     assert registry.is_verification("pytest -q")
     assert registry.is_verification("make test")
+
+
+def test_a_non_running_flag_also_disqualifies_in_its_joined_spelling():
+    # `--show-only=json-v1` is the spelling CMake's own docs use, and it proves
+    # exactly as little as `--show-only json-v1`.
+    registry = tool_registry()
+
+    assert registry.match_verification("ctest --show-only=json-v1") is None
+    assert registry.match_verification("pytest --collect-only=x") is None
+    # without a value the token is still compared whole, so a longer flag that
+    # merely starts with a listed one is not disqualified
+    assert registry.is_verification("pytest --help-all")
+    # and `--` stays the argument separator of a real run
+    assert registry.is_verification("npm test -- --runInBand")
 
 
 def test_an_unbalanced_quote_does_not_raise():
