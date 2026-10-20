@@ -84,3 +84,40 @@ def test_a_file_that_is_not_utf8_is_rejected(tmp_path):
 def test_a_directory_is_reported_as_unreadable(tmp_path):
     with pytest.raises(TranscriptImportError, match=str(tmp_path)):
         read_json_lines(tmp_path)
+
+
+# --- what counts as a line break -------------------------------------------
+
+LINE_BREAK_CHARACTERS = [
+    ("line separator", chr(0x2028)),
+    ("paragraph separator", chr(0x2029)),
+    ("next line", chr(0x85)),
+]
+# The characters `str.splitlines()` breaks on and JSON does not escape, written
+# as code points because they are invisible: a record whose content holds one of
+# them is a valid line of a valid transcript.
+
+
+@pytest.mark.parametrize(("name", "character"), LINE_BREAK_CHARACTERS)
+def test_a_line_break_character_inside_a_record_does_not_split_the_line(tmp_path, name, character):
+    text = f"minified{character}javascript"
+    path = write(tmp_path / "s.jsonl", json.dumps({"text": text}, ensure_ascii=False) + "\n")
+
+    assert read_json_lines(path) == [JsonLine(1, {"text": text})]
+
+
+@pytest.mark.parametrize(("name", "character"), LINE_BREAK_CHARACTERS)
+def test_a_line_break_character_does_not_shift_the_following_line_numbers(
+    tmp_path, name, character
+):
+    first = json.dumps({"text": f"a{character}b"}, ensure_ascii=False)
+    path = write(tmp_path / "s.jsonl", f"{first}\nnot json\n")
+
+    with pytest.raises(TranscriptImportError, match="line 2"):
+        read_json_lines(path)
+
+
+def test_windows_line_endings_are_read_as_line_endings(tmp_path):
+    path = write(tmp_path / "s.jsonl", '{"type":"a"}\r\n{"type":"b"}\r\n')
+
+    assert read_json_lines(path) == [JsonLine(1, {"type": "a"}), JsonLine(2, {"type": "b"})]

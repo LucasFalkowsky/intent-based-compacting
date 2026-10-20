@@ -302,6 +302,16 @@ def test_a_system_record_with_content_becomes_an_injected_system_message(tmp_pat
     )
 
 
+def test_a_line_break_character_in_a_message_does_not_break_the_import(tmp_path):
+    text = f"const a=1;{chr(0x2028)}const b=2;{chr(0x2029)}const c=3;{chr(0x85)}done"
+    path = tmp_path / "session.jsonl"
+    path.write_text(
+        json.dumps(user_record("u1", text), ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    assert import_claude_code(path).session.messages[0].content == text
+
+
 # --- timestamps -------------------------------------------------------------
 
 
