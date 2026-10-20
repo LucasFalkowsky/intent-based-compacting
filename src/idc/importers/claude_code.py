@@ -568,6 +568,7 @@ READERS: dict[str, Callable[[SessionBuilder, JsonLine], bool]] = {
 
 A reader returns whether the record yielded a canonical message; everything
 else — a record type that is not in this table, and one that is but held no
-message — is noted as skipped by its type (see `_record_type`). That is what keeps a new Claude Code
-record type a line in the import's notes instead of a crash or a silent loss.
+message — is noted as skipped by its type, as `_record_type` spells it. That is
+what keeps a new Claude Code record type a line in the import's notes instead of
+a crash or a silent loss.
 """
