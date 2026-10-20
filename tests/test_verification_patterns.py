@@ -33,8 +33,11 @@ MATCHING = [
     "npm test -- --runInBand",
     "npm run test",
     "yarn test",
+    "yarn run test",
     "pnpm test",
+    "pnpm run test",
     "bun test",
+    "bun run test",
     "npx jest",
     "vitest run",
     "mocha tests",
@@ -92,6 +95,9 @@ NOT_MATCHING = [
     "uv run ruff check .",
     "uv sync --all-groups",
     "mypy src",
+    # a here-document body is data the command writes, not a command
+    "python - <<'EOF'\npytest\nEOF",
+    'cat > Makefile <<"EOF"\ntest:\n\tmake test\nEOF',
     # not a test command at all
     "git status",
     "ls -la",
@@ -152,6 +158,15 @@ def test_an_unbalanced_quote_does_not_raise():
 
     assert registry.is_verification('pytest -k "slow')
     assert registry.match_verification('git commit -m "add pytest') is None
+
+
+def test_a_here_document_does_not_hide_a_command_in_its_body():
+    # `python - <<EOF` runs Python, not the lines it is fed; a body line that
+    # happens to read like a test run must not become the chain's verification.
+    registry = tool_registry()
+
+    assert registry.match_verification("python - <<'EOF'\nmake test\nEOF") is None
+    assert registry.is_verification("pytest -q <<'EOF'\nEOF")
 
 
 def test_the_patterns_are_exposed_with_stable_ids():
