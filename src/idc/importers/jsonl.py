@@ -15,6 +15,14 @@ line that is not JSON means the file was damaged, and quietly dropping it would
 silently change what the measurement counts. Trimming such a file is the
 researcher's decision, not this tool's.
 
+That is also why a line ends at a newline and nowhere else. `str.splitlines()`
+breaks on U+2028, U+2029 and U+0085 as well, and those three are legal
+*unescaped* inside a JSON string — neither `JSON.stringify` nor `json.dumps`
+escapes them. A message holding one (minified JavaScript, pasted text) would be
+split mid-string, and the fatal-line rule would then reject the whole session
+over a file that is perfectly valid. A carriage return before the newline is
+dropped, so a transcript written on Windows reads the same.
+
 ```python
 for line in read_json_lines("session.jsonl"):
     line.number      # 1, 2, 3, …
@@ -49,8 +57,11 @@ def read_json_lines(path: str | Path) -> list[JsonLine]:
     """Read a JSONL transcript into one mapping per line.
 
     Args:
-        path: The transcript file, read as UTF-8. Blank lines are skipped; the
-            line numbers of the remaining records are unaffected by them.
+        path: The transcript file, read as UTF-8. A line ends at a newline — a
+            carriage return before it is dropped — and not at every character
+            Unicode calls a line break, because U+2028, U+2029 and U+0085 occur
+            unescaped inside JSON strings. Blank lines are skipped; the line
+            numbers of the remaining records are unaffected by them.
 
     Returns:
         One `JsonLine` per non-blank line, in file order.
@@ -71,11 +82,12 @@ def read_json_lines(path: str | Path) -> list[JsonLine]:
     except UnicodeDecodeError:
         raise TranscriptImportError(f"invalid transcript {source}: not valid UTF-8") from None
     lines: list[JsonLine] = []
-    for number, raw in enumerate(text.splitlines(), start=1):
-        if not raw.strip():
+    for number, raw in enumerate(text.split("\n"), start=1):
+        line = raw.rstrip("\r")
+        if not line.strip():
             continue
         try:
-            record = json.loads(raw)
+            record = json.loads(line)
         except json.JSONDecodeError as exc:
             raise TranscriptImportError(
                 f"invalid transcript {source}: line {number} is not valid JSON ({exc.msg})"
