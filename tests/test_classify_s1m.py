@@ -418,6 +418,18 @@ def test_a_score_that_is_no_probability_is_a_failure_of_the_stage(answer):
     assert raised.value.chunk_id == "K1"
 
 
+def test_an_integer_score_is_accepted_and_kept_as_a_float():
+    # The one number a *binary* judgment reports most naturally: 1 or 0 rather
+    # than 1.0 or 0.0. It is accepted and normalized, which is exactly the line
+    # `True` falls on the other side of — a bool carries no probability to rank.
+    adapter = S1MAdapter(TableScorer({"C1": 1, "C2": 0}))
+
+    decision = adapter.decide(subject(), candidates("C1", "C2"))
+
+    assert decision == Decision.extend("C1", confidence=1.0)
+    assert [type(score) for _, score in adapter.calls[0].scores] == [float, float]
+
+
 def test_a_broken_score_names_the_chunk_and_the_candidate_it_came_from():
     adapter = S1MAdapter(TableScorer({"C2": 2.0}))
 
@@ -451,6 +463,9 @@ def test_an_exception_the_scorer_raised_reaches_the_caller_unwrapped():
 
     assert scorer.calls == ["C1", "C2"]
     assert adapter.calls == ()
+    # The attempt still cost two calls. `score_calls` is the run's cost, so it
+    # counts what was spent and not what came back.
+    assert adapter.score_calls == 2
 
 
 # ---------------------------------------------------------------------------
