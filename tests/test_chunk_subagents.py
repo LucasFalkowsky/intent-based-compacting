@@ -552,6 +552,50 @@ def test_a_command_before_the_report_keeps_its_reduction_across_the_boundary():
     assert flat_notes(session, chunks) == flat_notes(session, chunk_session(session))
 
 
+def test_a_continuation_of_nothing_but_noise_keeps_the_noise_reduce_session_drops():
+    # The limit of the composition, pinned instead of described: the two
+    # stages do **not** commute when the continuation piece this stage splits
+    # off consists of nothing but reducible harness noise. `reduce_chunks` must
+    # not empty a chunk — a `Chunk` spans at least one message — so on that
+    # one-message chunk the guard fires, the reminder survives and no note is
+    # written, where `reduce_session` sees the same message inside the one
+    # chunk the user turn spans and drops it.
+    #
+    # Nothing is lost and nothing raises: what differs is an injected reminder
+    # and the note about it, never a command's result text — that is what
+    # `test_an_inserted_boundary_never_follows_a_reducible_message` pins, and
+    # it holds structurally. Relaxing the guard to "the only chunk" would make
+    # the stages commute, but the guard belongs to #13 and changing it is a
+    # ticket of its own.
+    session = synthetic_session(
+        [
+            {"role": "user", "content": "Delegate the sweep."},
+            delegating("c01"),
+            {"role": "assistant", "content": "Searching."},
+            reporting("c01"),
+            {"role": "user", "content": "Reminder.", "is_system_injected": True},
+        ]
+    )
+    chunks = chunk_with_subagents(session, is_subagent_tool)
+
+    lifted = reduce_chunks(session, chunks)
+    alone = reduce_session(session)
+
+    assert ranges(chunks) == [(0, 2, "user"), (2, 4, "subagent"), (4, 5, "user")]
+    # Both sides, so a change to either stage has to confront the difference
+    # rather than silently move it.
+    assert [message.id for message in lifted.session.messages] == [
+        "m00",
+        "m01",
+        "m02",
+        "m03",
+        "m04",
+    ]
+    assert flat_notes(session, chunks) == []
+    assert [message.id for message in alone.session.messages] == ["m00", "m01", "m02", "m03"]
+    assert flat_notes(session, chunk_session(session)) == [("m04", "system-injected", ())]
+
+
 # --- the shapes the corpus does not hold -----------------------------------
 
 
@@ -583,6 +627,28 @@ def test_a_result_before_its_call_is_not_a_span():
             reporting("c01"),
             delegating("c01", content="Delegating again."),
             {"role": "assistant", "content": "Searching."},
+        ]
+    )
+
+    assert subagent_spans(session, is_subagent_tool) == []
+    assert chunk_with_subagents(session, is_subagent_tool) == chunk_session(session)
+
+
+def test_a_message_that_answers_its_own_call_is_not_a_span():
+    # The schema does not forbid one message both issuing `Task c01` and
+    # reporting c01's result (#3), and the result lookup is strict about it:
+    # the span would start behind the call and end at the call, which is no
+    # span at all. A lookup that accepted the call's own index instead would
+    # build a reversed span and make `subagent_spans` raise.
+    session = synthetic_session(
+        [
+            {"role": "user", "content": "Delegate the sweep."},
+            reporting(
+                "c01",
+                output="Report.",
+                tool_calls=[{"id": "c01", "name": "Task", "category": "other", "args": {}}],
+            ),
+            {"role": "assistant", "content": "Acting on the report."},
         ]
     )
 
