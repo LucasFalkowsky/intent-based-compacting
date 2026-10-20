@@ -13,8 +13,9 @@ resolving tool categories, logging unknown tools and validating the result are
 - `user`, content a string -> one `user` message.
 - `user`, content a block list -> one `user` message carrying its text, plus
   one `tool` message per `tool_result` block.
-- `user` with `isCompactSummary` -> an injected `system` message, and the
-  session's `source` becomes `native-compaction`.
+- `user` with `isCompactSummary` -> an injected `system` message carrying the
+  summary's text, and the session's `source` becomes `native-compaction`; any
+  other block of that record is dropped and noted like anywhere else.
 - `user` with `isMeta` -> a `user` message marked `is_system_injected`.
 - `assistant` -> one `assistant` message with its text and every `tool_use`
   block it issued.
@@ -196,6 +197,33 @@ def _text(value: Any) -> str:
     )
 
 
+def _noted_text(builder: SessionBuilder, content: Any, *, prefix: str = "") -> str:
+    """Return a content value as text, noting every block it drops.
+
+    Args:
+        builder: The session being assembled, for the notes.
+        content: A message's content: a string, or the Messages API's block list.
+        prefix: What to put in front of a note's detail, so that a block dropped
+            inside a `tool_result` is reported as `tool_result/<kind>`.
+
+    Returns:
+        The text: a string as it is, a block list joined from its `text` blocks.
+        Every other block of the list is noted as dropped rather than vanishing,
+        which is what every path that reads content has to do — the schema has no
+        field for a `thinking` block, and a reader must still be able to see that
+        the transcript held one.
+    """
+    if isinstance(content, str):
+        return content
+    texts: list[str] = []
+    for block in _blocks(content):
+        if block.get("type") == BLOCK_TEXT:
+            texts.append(str(block.get("text") or ""))
+        else:
+            builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{block.get('type')}")
+    return joined_text(texts)
+
+
 def _is_command(content: str) -> bool:
     """Return whether a user message is a slash command or its output."""
     stripped = content.lstrip()
@@ -227,7 +255,7 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
         builder.add_message(
             message_id=_record_id(line),
             role=Role.SYSTEM,
-            content=_text(content),
+            content=_noted_text(builder, content),
             timestamp=timestamp,
             is_system_injected=True,
         )
