@@ -13,7 +13,8 @@ summary that is rendered and parsed back). Their closed value sets live in
 
 Load and dump canonical documents through this package rather than with `json`
 directly — every load validates, and every failure is one `SchemaValidationError`
-that names the type and the offending field path:
+that names the type and the offending field path. Construction and attribute
+assignment report the same way, so pydantic's own error never escapes:
 
 ```python
 from idc.schema import Session, dump, load
@@ -28,6 +29,7 @@ it with `make schema`.
 """
 
 from idc.schema.enums import Agent, ChunkOrigin, Role, SessionSource, ToolCategory
+from idc.schema.errors import SchemaValidationError
 from idc.schema.json_schema import (
     SCHEMA_DIALECT,
     SCHEMA_PATH,
@@ -49,7 +51,6 @@ from idc.schema.models import (
     ToolResult,
 )
 from idc.schema.serialization import (
-    SchemaValidationError,
     dump,
     dumps,
     load,

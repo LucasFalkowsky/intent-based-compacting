@@ -2,10 +2,10 @@
 
 Nothing in the pipeline parses a canonical document by hand: a stage calls
 `load`/`loads` and either gets a valid object or a `SchemaValidationError` that
-names the type, the offending field path and what was wrong. Pydantic's own
-`ValidationError` is deliberately not allowed to escape — stages (and the CLI)
-should handle one error type, and its message should read like a tool's
-diagnostic rather than like a library traceback.
+names the type, the offending field path and what was wrong. The error type and
+its formatting live in `idc.schema.errors`, because construction and assignment
+report the same way (see `idc.schema.models`); the only thing the load path adds
+is the source file.
 
 The dumped form is plain, indented JSON with a trailing newline: it is
 committed as study material and read in diffs, so stability of the text matters
@@ -19,62 +19,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from idc.schema.errors import SchemaValidationError, as_schema_error
 from idc.schema.models import CanonicalModel
 
 INDENT = 2
 """Indentation of the dumped JSON; fixed so that dumps are byte-comparable."""
-
-
-class SchemaValidationError(ValueError):
-    """A document does not satisfy the canonical schema.
-
-    Attributes:
-        model: Name of the canonical type the document was validated against.
-        source: Where the document came from (a path, or `None` for text).
-        errors: One `(location, message)` pair per problem found, with the
-            location given as a dotted field path such as `messages.0.role`.
-    """
-
-    def __init__(
-        self,
-        model: str,
-        reason: str,
-        *,
-        source: str | None = None,
-        errors: tuple[tuple[str, str], ...] = (),
-    ) -> None:
-        """Build the error and render its message.
-
-        Args:
-            model: Name of the canonical type.
-            reason: Summary line, e.g. `2 problems` or `not valid JSON`.
-            source: Origin of the document, included in the message when given.
-            errors: The located problems, listed one per line after the summary.
-        """
-        self.model = model
-        self.source = source
-        self.errors = errors
-        origin = f" from {source}" if source else ""
-        lines = [f"invalid {model} document{origin}: {reason}"]
-        lines += [f"  {location}: {message}" for location, message in errors]
-        super().__init__("\n".join(lines))
-
-
-def _location(loc: tuple[Any, ...]) -> str:
-    """Render a pydantic error location as a dotted field path."""
-    return ".".join(str(part) for part in loc) or "<document>"
-
-
-def _as_schema_error(
-    exc: ValidationError, model: type[CanonicalModel], source: str | None
-) -> SchemaValidationError:
-    """Translate a pydantic `ValidationError` into a `SchemaValidationError`."""
-    errors = tuple(
-        (_location(error["loc"]), error["msg"].removeprefix("Value error, "))
-        for error in exc.errors()
-    )
-    problems = f"{len(errors)} problem{'s' if len(errors) != 1 else ''}"
-    return SchemaValidationError(model.__name__, problems, source=source, errors=errors)
 
 
 def validate_document[M: CanonicalModel](
@@ -96,7 +45,7 @@ def validate_document[M: CanonicalModel](
     try:
         return model.model_validate(data)
     except ValidationError as exc:
-        raise _as_schema_error(exc, model, source) from None
+        raise as_schema_error(exc, model, source) from None
 
 
 def loads[M: CanonicalModel](model: type[M], data: str | bytes, *, source: str | None = None) -> M:

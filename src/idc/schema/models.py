@@ -6,7 +6,7 @@ the chunked session (`Chunk`), the classified session (`Chain`) and the
 compacted output (`CompactedBlock`). Agent-specific shapes exist only inside
 `idc.importers` and `idc.render`; everything in between sees these types.
 
-Three conventions hold throughout and are enforced, not documented only:
+Four conventions hold throughout and are enforced, not documented only:
 
 - **No unknown fields.** Every model forbids extras, so a field an importer
   invents is an error instead of silent data that no later stage reads.
@@ -17,6 +17,10 @@ Three conventions hold throughout and are enforced, not documented only:
   `Chunk`'s message range and `Chain.chunk_ids` are references; the containers
   reject duplicate message and tool-call identifiers so that resolving a
   reference can never be ambiguous.
+- **Only one error type leaves the package.** Construction and assignment are
+  translated into `SchemaValidationError` exactly like the load path, so an
+  importer that builds a `Message` from a malformed transcript cannot surface a
+  pydantic traceback at the CLI.
 
 What is *not* enforced: that every `ToolResult.call_id` has a matching
 `ToolCall` in the same session. Transcripts can be truncated at the front, and
@@ -26,9 +30,11 @@ a result whose call was cut off is still data the measurement needs.
 from collections.abc import Iterable
 from typing import Annotated, Any, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from idc.schema.enums import Agent, ChunkOrigin, Role, SessionSource, ToolCategory
+from idc.schema.errors import as_schema_error
 
 Identifier = Annotated[str, Field(min_length=1)]
 """A non-empty identifier taken from the transcript or assigned by a stage."""
@@ -37,19 +43,89 @@ CHAIN_ID_PATTERN = r"^C[1-9][0-9]*$"
 """`C<n>` with `n` counted from 1 — the stable chain ID the summary blocks use."""
 
 
-class CanonicalModel(BaseModel):
+_ModelMetaclass: type = type(BaseModel)
+"""Pydantic's own model metaclass, read off `BaseModel`.
+
+Taken this way rather than imported from `pydantic._internal`, which is private
+and may move between pydantic releases.
+"""
+
+
+class _CanonicalMeta(_ModelMetaclass):
+    """Metaclass that reports a failed construction as a `SchemaValidationError`.
+
+    The translation sits on the metaclass, not on `__init__`, and that placement
+    is the whole point: pydantic calls a model's `__init__` again for every
+    nested model it builds, so wrapping `__init__` would turn the one located
+    error of `Session(messages=[{...}])` into an error about `messages.0` with a
+    second error nested inside its text — and it would do the same on the load
+    path, which must keep reporting exactly as it does today. A metaclass
+    `__call__` runs only for an explicit `Model(...)` from Python: pydantic
+    builds nested models and `model_validate` without going through it.
+    """
+
+    def __call__(cls, *args: Any, **kwargs: Any) -> Any:  # noqa: N805 - metaclass method
+        """Construct an instance, reporting invalid input as a schema error."""
+        try:
+            return super().__call__(*args, **kwargs)
+        except ValidationError as exc:
+            raise as_schema_error(exc, cls) from None
+
+
+class CanonicalModel(BaseModel, metaclass=_CanonicalMeta):
     """Base class carrying the configuration every canonical type shares.
 
     Unknown fields are rejected, assignments are validated like constructor
     arguments (a stage cannot mutate an object into an invalid one), and enum
     members are kept as enum members in Python while serializing to their wire
     strings.
+
+    Invalid input is reported as a `SchemaValidationError` whichever way it
+    arrives — `load`/`loads`/`validate_document`, construction, or assignment —
+    so no stage and no CLI user ever sees a pydantic traceback.
     """
 
     model_config = ConfigDict(
         extra="forbid",
         validate_assignment=True,
         use_enum_values=False,
+    )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Assign a field, reporting an invalid value as a schema error."""
+        try:
+            super().__setattr__(name, value)
+        except ValidationError as exc:
+            raise as_schema_error(exc, type(self)) from None
+
+
+def _field_error(model: type[BaseModel], field: str, value: Any, message: str) -> ValidationError:
+    """Build a pydantic error located at one field instead of at the document.
+
+    A `model_validator` sees the whole object, so the error it raises carries no
+    field location and would be reported as `<document>`. An invariant that is
+    *about* one field raises this instead, so that construction, assignment and
+    the load path all name that field — one dotted field path per problem.
+
+    Args:
+        model: The canonical type the invariant belongs to.
+        field: Name of the field the problem is reported against.
+        value: The offending value, echoed as the error's input.
+        message: The complete message; it is used verbatim, so it must not
+            contain `{}` placeholders.
+
+    Returns:
+        The pydantic error to raise from the validator.
+    """
+    return ValidationError.from_exception_data(
+        model.__name__,
+        [
+            InitErrorDetails(
+                type=PydanticCustomError("value_error", message),
+                loc=(field,),
+                input=value,
+            )
+        ],
     )
 
 
@@ -213,11 +289,14 @@ class Chunk(CanonicalModel):
 
     @model_validator(mode="after")
     def _check_range(self) -> Self:
-        """Reject an empty or reversed message range."""
+        """Reject an empty or reversed message range, reported against `end_index`."""
         if self.end_index <= self.start_index:
-            raise ValueError(
+            raise _field_error(
+                type(self),
+                "end_index",
+                self.end_index,
                 f"end_index ({self.end_index}) must be greater than "
-                f"start_index ({self.start_index}); a chunk holds at least one message"
+                f"start_index ({self.start_index}); a chunk holds at least one message",
             )
         return self
 
