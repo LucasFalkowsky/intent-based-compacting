@@ -1,16 +1,46 @@
-"""The shared fixture corpus directory exists and is discoverable."""
+"""Corpus-wide invariants of the shared transcript fixture corpus.
 
+The nine cases the corpus has to cover are listed in `REQUIRED_CASES`; every
+`*.json` file in `tests/fixtures/` is *discovered*, not listed, so a fixture
+added later cannot silently skip validation.
+"""
+
+from datetime import datetime
 from pathlib import Path
 
+import pytest
+
+from idc.schema import Agent, Session, dumps, load
+
 TESTS_DIR = Path(__file__).parent.resolve()
+FIXTURES_DIR = TESTS_DIR / "fixtures"
+README_PATH = FIXTURES_DIR / "README.md"
+
+REQUIRED_CASES = (
+    "single_intent",
+    "two_sequential_intents",
+    "interleaved_intents",
+    "slash_command",
+    "system_injected_message",
+    "subagent_result",
+    "failed_then_passing_command",
+    "write_then_two_edits",
+    "already_compacted_block",
+)
+"""The nine cases of the ticket's scope list, one fixture file each."""
+
+FIXTURE_PATHS = sorted(FIXTURES_DIR.glob("*.json"))
+"""Every fixture on disk, discovered at collection time."""
+
+FIXTURE_NAMES = [path.stem for path in FIXTURE_PATHS]
 
 
 def test_fixtures_dir_exists_and_is_a_directory():
-    assert (TESTS_DIR / "fixtures").is_dir()
+    assert FIXTURES_DIR.is_dir()
 
 
 def test_fixtures_dir_fixture_points_at_the_corpus(fixtures_dir):
-    assert fixtures_dir == TESTS_DIR / "fixtures"
+    assert fixtures_dir == FIXTURES_DIR
     assert fixtures_dir.is_dir()
 
 
@@ -19,3 +49,116 @@ def test_fixtures_dir_is_absolute_and_survives_a_chdir(fixtures_dir, monkeypatch
 
     assert fixtures_dir.is_absolute()
     assert fixtures_dir.is_dir()
+
+
+def test_the_corpus_is_not_empty():
+    # Guards the parametrized tests below: an empty corpus would turn them into
+    # zero test cases instead of into failures.
+    assert FIXTURE_PATHS, f"no *.json fixtures found in {FIXTURES_DIR}"
+
+
+def test_every_required_case_has_a_fixture():
+    assert set(REQUIRED_CASES) <= set(FIXTURE_NAMES)
+
+
+def test_the_corpus_holds_nothing_but_fixtures_and_its_readme():
+    unexpected = [
+        path.name
+        for path in sorted(FIXTURES_DIR.iterdir())
+        if path.name != README_PATH.name and path.suffix != ".json"
+    ]
+
+    assert unexpected == []
+
+
+@pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
+def test_every_fixture_validates_against_the_schema(path):
+    # `load` validates and raises SchemaValidationError; nothing else to assert.
+    assert isinstance(load(Session, path), Session)
+
+
+@pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
+def test_every_fixture_round_trips_through_the_schema(path):
+    session = load(Session, path)
+
+    assert Session.model_validate_json(dumps(session)) == session
+
+
+@pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
+def test_every_fixture_is_stored_in_canonical_dump_format(path):
+    # The corpus is study material that is read in diffs, so the files are kept
+    # byte-identical to what the tool itself writes.
+    assert path.read_text(encoding="utf-8") == dumps(load(Session, path)) + "\n"
+
+
+@pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
+def test_every_fixture_has_a_readme_line(path):
+    lines = [
+        line
+        for line in README_PATH.read_text(encoding="utf-8").splitlines()
+        if f"`{path.name}`" in line
+    ]
+
+    assert len(lines) == 1, f"{path.name} needs exactly one README line, found {len(lines)}"
+    description = lines[0].split("—", 1)[-1].strip()
+    assert len(description) >= 30, f"README line for {path.name} does not say what it exercises"
+
+
+@pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
+def test_every_fixture_has_a_non_trivial_conversation(path):
+    session = load(Session, path)
+
+    assert len(session.messages) >= 5
+    assert any(message.tool_calls for message in session.messages)
+
+
+@pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
+def test_every_fixture_names_itself_after_its_file(path):
+    session = load(Session, path)
+
+    assert session.id == "sess-" + path.stem.replace("_", "-")
+
+
+def test_session_ids_are_unique_across_the_corpus():
+    ids = [load(Session, path).id for path in FIXTURE_PATHS]
+
+    assert len(set(ids)) == len(ids)
+
+
+@pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
+def test_every_tool_call_has_exactly_one_later_result(path):
+    session = load(Session, path)
+    calls = {
+        call.id: index
+        for index, message in enumerate(session.messages)
+        for call in message.tool_calls
+    }
+    results = [
+        (index, message.tool_result.call_id)
+        for index, message in enumerate(session.messages)
+        if message.tool_result is not None
+    ]
+    answered = [call_id for _, call_id in results]
+
+    assert len(set(answered)) == len(answered), "a call is answered twice"
+    assert set(answered) == set(calls), "every call is answered, every result answers a call"
+    for index, call_id in results:
+        assert index > calls[call_id], f"result of {call_id} precedes its call"
+
+
+@pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
+def test_every_message_is_timestamped_in_transcript_order(path):
+    session = load(Session, path)
+    timestamps: list[datetime] = []
+    for message in session.messages:
+        assert message.timestamp is not None, f"{message.id} has no timestamp"
+        timestamps.append(message.timestamp)
+
+    assert timestamps == sorted(timestamps)
+    assert session.created_at <= timestamps[0]
+
+
+def test_the_corpus_covers_every_agent():
+    agents = {load(Session, path).agent for path in FIXTURE_PATHS}
+
+    assert agents == set(Agent)
