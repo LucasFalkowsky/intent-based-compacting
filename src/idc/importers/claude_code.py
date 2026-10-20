@@ -20,7 +20,8 @@ resolving tool categories, logging unknown tools and validating the result are
 - `assistant` -> one `assistant` message with its text and every `tool_use`
   block it issued.
 - `system` with a non-empty `content` -> one injected `system` message.
-- anything else -> skipped, and noted by its record type.
+- anything else -> skipped, and noted by its record type; a record that names
+  no type is noted as `<no type>`, one whose type is `null` as `<null type>`.
 
 A `user` record whose `content` is neither text nor a block list — a number, an
 object, an absent `message` — yields **no** message either, and is noted twice:
@@ -108,6 +109,17 @@ SUMMARY_FLAG = "isCompactSummary"
 INJECTED_FLAG = "isMeta"
 """Field Claude Code sets on a user record the harness wrote, not the user."""
 
+NO_TYPE = "<no type>"
+"""How a record that names no `type` at all is reported in the notes."""
+
+NULL_TYPE = "<null type>"
+"""How a record whose `type` is `null` is reported in the notes.
+
+Distinct from `NO_TYPE`: a missing field is a record shape this importer does
+not know, a `null` one is a damaged record, and `str(None)` reads the same for
+both.
+"""
+
 
 class _UserPart(NamedTuple):
     """One canonical message a block-list `user` record yields.
@@ -165,11 +177,28 @@ def import_claude_code(
         record = line.data
         if session_id is None:
             session_id = record.get("sessionId")
-        kind = record.get("type")
-        reader = READERS.get(str(kind))
+        kind = _record_type(record)
+        reader = READERS.get(kind)
         if reader is None or not reader(builder, line):
-            builder.note(NOTE_SKIPPED_RECORD, str(kind))
+            builder.note(NOTE_SKIPPED_RECORD, kind)
     return builder.build(session_id=session_id)
+
+
+def _record_type(record: Mapping[str, Any]) -> str:
+    """Return the record's type as the notes name it.
+
+    Args:
+        record: One transcript record.
+
+    Returns:
+        The `type` field as a string, or `NO_TYPE` when the record names none
+        and `NULL_TYPE` when it names `null`. Those two are different problems
+        and `str(None)` would report them as the same one.
+    """
+    if "type" not in record:
+        return NO_TYPE
+    kind = record["type"]
+    return NULL_TYPE if kind is None else str(kind)
 
 
 def _record_id(line: JsonLine) -> str:
@@ -539,6 +568,6 @@ READERS: dict[str, Callable[[SessionBuilder, JsonLine], bool]] = {
 
 A reader returns whether the record yielded a canonical message; everything
 else — a record type that is not in this table, and one that is but held no
-message — is noted as skipped by its type. That is what keeps a new Claude Code
+message — is noted as skipped by its type (see `_record_type`). That is what keeps a new Claude Code
 record type a line in the import's notes instead of a crash or a silent loss.
 """
