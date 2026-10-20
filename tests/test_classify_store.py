@@ -123,11 +123,18 @@ def test_an_explicit_label_replaces_the_provisional_one():
     assert chain.label == "timezone in the CSV export"
 
 
-def test_an_explicit_label_may_not_be_empty():
+@pytest.mark.parametrize("label", ["", "   ", "\n\t "])
+def test_an_explicit_label_must_hold_a_word(label):
+    # The *store's* guard, not the schema's: `Chain(label="")` raises a
+    # `SchemaValidationError` — itself a `ValueError` whose message contains
+    # "label" — so the match has to name the sentence only this guard writes.
+    # A blank label is refused for the same reason an empty one is: it is the
+    # absence `provisional_label` falls back on, and `"   "` would otherwise
+    # become a chain's name because the schema accepts any non-empty string.
     session, chunks = session_and_chunks("single_intent")
 
-    with pytest.raises(ValueError, match="label"):
-        ChainStore(session).open_chain(chunks[0], label="")
+    with pytest.raises(ValueError, match="omit it for a provisional one"):
+        ChainStore(session).open_chain(chunks[0], label=label)
 
 
 def test_appending_extends_the_chain_in_transcript_order():
