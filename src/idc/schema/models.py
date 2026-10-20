@@ -23,6 +23,7 @@ What is *not* enforced: that every `ToolResult.call_id` has a matching
 a result whose call was cut off is still data the measurement needs.
 """
 
+from collections.abc import Iterable
 from typing import Annotated, Any, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -52,15 +53,24 @@ class CanonicalModel(BaseModel):
     )
 
 
-def _duplicates(values: list[str]) -> list[str]:
-    """Return the values that occur more than once, in order of first repeat."""
+def _reject_duplicates(values: Iterable[str], what: str) -> None:
+    """Raise if a value occurs twice, naming every repeated one.
+
+    Args:
+        values: The identifiers to check, in document order.
+        what: What is repeated, used to build the message `duplicate <what>: …`.
+
+    Raises:
+        ValueError: If any value occurs more than once.
+    """
     seen: set[str] = set()
     duplicated: list[str] = []
     for value in values:
         if value in seen and value not in duplicated:
             duplicated.append(value)
         seen.add(value)
-    return duplicated
+    if duplicated:
+        raise ValueError(f"duplicate {what}: {', '.join(duplicated)}")
 
 
 class ToolCall(CanonicalModel):
@@ -140,9 +150,7 @@ class Message(CanonicalModel):
         """Reject a tool message without a result and repeated tool-call IDs."""
         if self.role is Role.TOOL and self.tool_result is None:
             raise ValueError("a message with role 'tool' must carry a tool_result")
-        duplicated = _duplicates([call.id for call in self.tool_calls])
-        if duplicated:
-            raise ValueError(f"duplicate tool-call id in one message: {', '.join(duplicated)}")
+        _reject_duplicates((call.id for call in self.tool_calls), "tool-call id in one message")
         return self
 
 
@@ -174,14 +182,11 @@ class Session(CanonicalModel):
     @model_validator(mode="after")
     def _check_identifiers_are_unique(self) -> Self:
         """Reject repeated message or tool-call IDs, which references rely on."""
-        duplicated = _duplicates([message.id for message in self.messages])
-        if duplicated:
-            raise ValueError(f"duplicate message id: {', '.join(duplicated)}")
-        duplicated = _duplicates(
-            [call.id for message in self.messages for call in message.tool_calls]
+        _reject_duplicates((message.id for message in self.messages), "message id")
+        _reject_duplicates(
+            (call.id for message in self.messages for call in message.tool_calls),
+            "tool-call id across messages",
         )
-        if duplicated:
-            raise ValueError(f"duplicate tool-call id across messages: {', '.join(duplicated)}")
         return self
 
 
@@ -252,9 +257,7 @@ class Chain(CanonicalModel):
     @model_validator(mode="after")
     def _check_chunks_and_compaction(self) -> Self:
         """Reject repeated chunk IDs and a compaction flag that contradicts the text."""
-        duplicated = _duplicates(list(self.chunk_ids))
-        if duplicated:
-            raise ValueError(f"duplicate id in chunk_ids: {', '.join(duplicated)}")
+        _reject_duplicates(self.chunk_ids, "id in chunk_ids")
         if self.compacted and not self.compacted_text:
             raise ValueError("a compacted chain must carry a non-empty compacted_text")
         if not self.compacted and self.compacted_text is not None:
@@ -283,9 +286,7 @@ class CompactedBlock(CanonicalModel):
     @model_validator(mode="after")
     def _check_chain_ids_are_unique(self) -> Self:
         """Reject two chains with the same ID in one block."""
-        duplicated = _duplicates([chain.id for chain in self.chains])
-        if duplicated:
-            raise ValueError(f"duplicate chain id: {', '.join(duplicated)}")
+        _reject_duplicates((chain.id for chain in self.chains), "chain id")
         return self
 
 
