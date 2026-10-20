@@ -82,6 +82,13 @@ def test_interleaved_intents_resume_the_first_intent_after_a_foreign_one():
     assert other.isdisjoint(resumed)
     assert "src/rates/sampler.py" in first & resumed
 
+    # Touching the same file is not enough: the resumed turn re-edits what the
+    # first turn wrote, which is what makes the last write per file ambiguous
+    # unless the two chunks end up in one chain.
+    written = [set(written_files(turn)) for turn in turns]
+    assert written[0] & written[2] == {"src/rates/sampler.py"}
+    assert written[1].isdisjoint(written[0] | written[2])
+
 
 # --- a slash command -------------------------------------------------------
 

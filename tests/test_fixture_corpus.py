@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from idc.schema import Agent, Session, dumps, load
+from idc.schema import Agent, Session, dumps, load, loads
 
 TESTS_DIR = Path(__file__).parent.resolve()
 FIXTURES_DIR = TESTS_DIR / "fixtures"
@@ -86,7 +86,7 @@ def test_every_fixture_validates_against_the_schema(path):
 def test_every_fixture_round_trips_through_the_schema(path):
     session = load(Session, path)
 
-    assert Session.model_validate_json(dumps(session)) == session
+    assert loads(Session, dumps(session)) == session
 
 
 @pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
