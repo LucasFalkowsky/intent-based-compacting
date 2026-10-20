@@ -173,8 +173,10 @@ def _segments(command: str) -> list[str]:
         what follows is the document's *body*, which the command writes or feeds
         to another program rather than runs. Treating it as commands made
         `python - <<EOF` with a `make test` line in its body look like a test
-        run. Commands after the body's delimiter are given up with it, which
-        only ever loses a match.
+        run. The run of separators a split skips over stops at that newline too,
+        so a separator written right before the body (`cat <<EOF;` + the body)
+        does not consume it and the scan still ends there. Commands after the
+        body's delimiter are given up with it, which only ever loses a match.
     """
     segments: list[str] = []
     current: list[str] = []
@@ -227,6 +229,8 @@ def _segments(command: str) -> list[str]:
             segments.append("".join(current))
             current = []
             while index < len(command) and command[index] in _SEGMENT_CHARS:
+                if heredoc and command[index] == "\n":
+                    break
                 index += 1
             word_start = True
         else:
