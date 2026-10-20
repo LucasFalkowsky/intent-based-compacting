@@ -36,6 +36,7 @@ from idc.classify import (
     ChunkAlreadyAssignedError,
     ChunkOrderError,
     ChunkUnderDecision,
+    ClassifyError,
     ForeignChunkError,
     UnknownChainError,
     chain_id,
@@ -385,26 +386,35 @@ def test_seeded_chains_must_arrive_in_the_order_they_were_opened():
     # "Ordered by opening" is what `candidates()` and `chains()` promise, and a
     # chain id *is* its opening position — so a caller handing them over in
     # another order states two contradicting orders. The store refuses instead
-    # of silently offering `C3` before `C1`.
+    # of silently offering `C3` before `C1` — and it refuses as a *failure of
+    # the stage*, because these chains were parsed out of a compacted block in a
+    # transcript file (#33) and not constructed by a programmer.
     session, _ = session_and_chunks("single_intent")
     seeded = [
         Chain(id="C3", label="the later intent", chunk_ids=["K8"]),
         Chain(id="C1", label="the earlier intent", chunk_ids=["K9"]),
     ]
 
-    with pytest.raises(ValueError, match="order"):
+    with pytest.raises(ClassifyError, match="order") as raised:
         ChainStore(session, seeded)
+
+    assert (raised.value.chain_id, raised.value.previous_chain_id) == ("C1", "C3")
 
 
 def test_two_seeded_chains_may_not_share_an_id():
+    # Untrusted input again, so the same family: a hand-edited summary block may
+    # hold the same chain twice, and T10's CLI catches it with the one `except`
+    # the stage promises instead of printing a traceback.
     session, _ = session_and_chunks("single_intent")
     seeded = [
         Chain(id="C1", label="an intent", chunk_ids=["K8"]),
         Chain(id="C1", label="another intent", chunk_ids=["K9"]),
     ]
 
-    with pytest.raises(ValueError, match="C1"):
+    with pytest.raises(ClassifyError, match="C1") as raised:
         ChainStore(session, seeded)
+
+    assert raised.value.chain_id == "C1"
 
 
 def test_a_chunk_id_a_seeded_chain_already_claims_cannot_be_assigned_again():
