@@ -68,9 +68,11 @@ Known limitations, all of them deliberate:
 - A value this importer cannot read is dropped **and noted by its shape**: a
   content entry that is not an object (`<entry: string>`), a content that is
   neither text nor a block list (`<content: object>`), a `tool_use.input` that
-  is not an object (`tool_use/Bash/<input: array>`). Nothing is guessed at, and
-  nothing leaves the import without a line in the notes — for `Bash` the lost
-  `input` would be the verification command T5.2 and T6 resolve.
+  is not an object (`tool_use/Bash/<input: array>`), the text of a `text` block
+  that is not a string (`text/<text: object>`). Nothing is guessed at, nothing
+  is coerced, and nothing leaves the import without a line in the notes — for
+  `Bash` the lost `input` would be the verification command T5.2 and T6 resolve,
+  and a coerced `text` would put a Python repr into canonical content.
 
 ```python
 from idc.importers import import_claude_code
@@ -296,6 +298,30 @@ def _note_unreadable_content(builder: SessionBuilder, content: Any, *, prefix: s
         builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<content: {_shape(content)}>")
 
 
+def _block_text(builder: SessionBuilder, block: Mapping[str, Any], *, prefix: str = "") -> str:
+    """Return the text a `text` block carries, noting one that is not text.
+
+    Args:
+        builder: The session being assembled, for the notes.
+        block: A block whose `type` is `text`.
+        prefix: What to put in front of a note's detail, as in `_noted_text`.
+
+    Returns:
+        The block's `text` when it is a string — the empty one included, since
+        the block did carry it — and the empty string otherwise. A `text` that
+        is not a string is dropped and noted by its shape: coercing it would
+        turn `0` and `[]` into `""` unnoticed and an object into a Python repr
+        that then *is* the canonical content. Inventing content is worse than
+        losing it, and a block without a `text` field carried nothing to lose.
+    """
+    value = block.get("text")
+    if isinstance(value, str):
+        return value
+    if value is not None:
+        builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{BLOCK_TEXT}/<text: {_shape(value)}>")
+    return ""
+
+
 def _noted_text(builder: SessionBuilder, content: Any, *, prefix: str = "") -> str:
     """Return a content value as text, noting every block it drops.
 
@@ -318,7 +344,7 @@ def _noted_text(builder: SessionBuilder, content: Any, *, prefix: str = "") -> s
     texts: list[str] = []
     for block in _blocks(builder, content, prefix=prefix):
         if block.get("type") == BLOCK_TEXT:
-            texts.append(str(block.get("text") or ""))
+            texts.append(_block_text(builder, block, prefix=prefix))
         else:
             builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{block.get('type')}")
     return joined_text(texts)
@@ -426,7 +452,7 @@ def _user_parts(
     for index, block in enumerate(blocks):
         kind = block.get("type")
         if kind == BLOCK_TEXT:
-            texts.append(str(block.get("text") or ""))
+            texts.append(_block_text(builder, block))
             text_index = index if text_index is None else text_index
         elif kind == BLOCK_TOOL_RESULT:
             found.append((index, Role.TOOL, "", _tool_result(builder, line, block)))
@@ -497,7 +523,7 @@ def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
     for block in _blocks(builder, content):
         kind = block.get("type")
         if kind == BLOCK_TEXT:
-            texts.append(str(block.get("text") or ""))
+            texts.append(_block_text(builder, block))
         elif kind == BLOCK_TOOL_USE:
             calls.append(_tool_call(builder, line, block))
         else:
