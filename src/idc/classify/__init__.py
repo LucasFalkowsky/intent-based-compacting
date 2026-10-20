@@ -29,8 +29,8 @@ The stage is split along what a model may decide and what it may not:
   last user message — nothing else, and nothing that reaches into the
   transcript. Switching the backend therefore changes no code outside the
   adapter, and `FakeAdapter` can produce everything a real backend can. The real
-  backends are T4.2 (#17) and T4.3 (#18); **nothing in this package calls a
-  model**, and no test ever does.
+  backends are T4.2 (#17) and T4.3 (#18); **nothing in it calls a model**, and
+  no test ever calls one.
 - `idc.classify.store` is everything the transcript already answers: the chain
   ids (`C<n>` by position, so a re-run over a transcript that only grew keeps
   them), the provisional labels, the candidate list, and the refusal of a
