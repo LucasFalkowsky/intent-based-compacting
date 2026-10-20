@@ -500,6 +500,56 @@ def test_an_unknown_record_type_is_skipped_and_noted_instead_of_failing(tmp_path
     assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == ["hologram-link"]
 
 
+@pytest.mark.parametrize(
+    "content", [7, 3.5, True, {"role": "user", "text": "lost"}, ["not a block"], None]
+)
+def test_a_user_record_whose_content_is_not_readable_invents_no_turn(tmp_path, content):
+    path = write_jsonl(
+        tmp_path, [user_record("u1", "fix the exporter"), user_record("u2", content)]
+    )
+
+    imported = import_claude_code(path)
+
+    assert [message.id for message in imported.session.messages] == ["u1"]
+    assert ("user", 1) in [
+        (note.detail, note.count) for note in imported.notes_of(NOTE_SKIPPED_RECORD)
+    ]
+
+
+def test_a_user_record_without_a_message_invents_no_turn(tmp_path):
+    record = user_record("u2", "")
+    del record["message"]
+    path = write_jsonl(tmp_path, [user_record("u1", "fix the exporter"), record])
+
+    imported = import_claude_code(path)
+
+    assert [message.id for message in imported.session.messages] == ["u1"]
+    assert [(note.detail, note.count) for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == [
+        ("user", 1)
+    ]
+
+
+def test_the_content_a_user_record_could_not_be_read_from_is_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [user_record("u1", "fix the exporter"), user_record("u2", {"text": "lost"})],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
+
+
+def test_a_user_record_whose_text_is_empty_is_still_the_turn_it_was(tmp_path):
+    path = write_jsonl(tmp_path, [user_record("u1", "")])
+
+    session = import_claude_code(path).session
+
+    assert [(message.id, message.role, message.content) for message in session.messages] == [
+        ("u1", Role.USER, "")
+    ]
+
+
 # --- a transcript that is cut off or interrupted -----------------------------
 
 
