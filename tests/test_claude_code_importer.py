@@ -954,6 +954,73 @@ def test_a_record_whose_type_is_a_number_keeps_the_number_in_the_note(tmp_path):
     assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == ["7"]
 
 
+# --- the error flag a result carries ----------------------------------------
+#
+# T6 resolves the last *passing* verification command from this flag, so a
+# wrong `False` is the expensive direction: it would make a run that failed the
+# accepted solution. `is True` silently produced exactly that for a
+# non-boolean, so an unreadable flag now counts as an error and is noted.
+
+
+def result_record(uuid: str, **flag) -> dict:
+    return user_record(
+        uuid, [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "out", **flag}]
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "shape"),
+    [("true", "string"), ("false", "string"), (1, "number"), ([], "array"), ({}, "object")],
+)
+def test_a_result_whose_error_flag_is_no_boolean_counts_as_an_error_and_is_noted(
+    tmp_path, value, shape
+):
+    path = write_jsonl(tmp_path, [result_record("u1", is_error=value)])
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].tool_result.is_error is True
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        f"tool_result/<is_error: {shape}>"
+    ]
+
+
+def test_a_result_flagged_as_an_error_stays_one_unnoted(tmp_path):
+    path = write_jsonl(tmp_path, [result_record("u1", is_error=True)])
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].tool_result.is_error is True
+    assert imported.notes == ()
+
+
+def test_a_result_flagged_as_no_error_stays_none_unnoted(tmp_path):
+    path = write_jsonl(tmp_path, [result_record("u1", is_error=False)])
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].tool_result.is_error is False
+    assert imported.notes == ()
+
+
+def test_a_result_without_an_error_flag_is_no_error_and_unnoted(tmp_path):
+    path = write_jsonl(tmp_path, [result_record("u1")])
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].tool_result.is_error is False
+    assert imported.notes == ()
+
+
+def test_a_result_whose_error_flag_is_null_is_no_error_and_unnoted(tmp_path):
+    path = write_jsonl(tmp_path, [result_record("u1", is_error=None)])
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].tool_result.is_error is False
+    assert imported.notes == ()
+
+
 # --- a transcript that is cut off or interrupted -----------------------------
 
 
