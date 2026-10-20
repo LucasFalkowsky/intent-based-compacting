@@ -66,26 +66,38 @@ class ChunkAlreadyAssignedError(ClassifyError):
     """A chunk was about to be assigned to a second chain.
 
     Every chunk belongs to exactly one chain — that is what makes the chains a
-    partition of the transcript and the summary complete.
+    partition of the transcript and the summary complete. The clash has two
+    causes, and the message names the one it is looking at: a chunk this run
+    already classified, or a chunk id a *carried-over* chain claims. The second
+    is the normal case once #33 seeds chains, because both runs number their
+    chunks positionally, and "every chunk belongs to exactly one chain" would be
+    a misleading thing to read there.
 
     Attributes:
         chunk_id: The chunk that is already assigned.
         chain_id: The chain it belongs to.
+        carried_over: Whether that chain came from an earlier run, which makes
+            a stale chunk id the likely cause.
     """
 
-    def __init__(self, chunk_id: str, chain_id: str) -> None:
+    def __init__(self, chunk_id: str, chain_id: str, *, carried_over: bool = False) -> None:
         """Build the error from the chunk and the chain that already holds it.
 
         Args:
             chunk_id: The chunk that is already assigned.
             chain_id: The chain it belongs to.
+            carried_over: Whether that chain was seeded from an earlier run.
         """
         self.chunk_id = chunk_id
         self.chain_id = chain_id
-        super().__init__(
-            f"chunk {chunk_id!r} is already assigned to chain {chain_id!r}; "
-            f"every chunk belongs to exactly one chain"
+        self.carried_over = carried_over
+        cause = (
+            "that chain was carried over from an earlier run, whose chunk ids are positions "
+            "in its own transcript and have to be re-mapped before seeding"
+            if carried_over
+            else "every chunk belongs to exactly one chain"
         )
+        super().__init__(f"chunk {chunk_id!r} is already assigned to chain {chain_id!r}; {cause}")
 
 
 class ChunkOrderError(ClassifyError):
@@ -125,11 +137,17 @@ class ChunkOrderError(ClassifyError):
 
 
 class ForeignChunkError(ClassifyError):
-    """A chunk is not a message range over the session the store was built on.
+    """A chunk's range reaches past the messages of the session it was offered to.
 
-    A chunk carries indices and no messages, so a range that reaches past the
-    transcript would otherwise resolve to no message at all — and the last user
-    message of the chain would silently come out empty.
+    A chunk carries indices and no messages, so such a range would otherwise
+    resolve to no message at all — and the last user message of the chain would
+    silently come out empty.
+
+    This is an **out-of-range** check and not more: a `Chunk` carries no session
+    id (#3), so a chunk of a *different* transcript whose range happens to fit
+    cannot be told apart from one of this transcript, and is accepted. Keeping
+    the chunks of one run together is the caller's job; what cannot be checked
+    here is documented rather than implied by the name.
 
     Attributes:
         chunk_id: The chunk that does not fit.

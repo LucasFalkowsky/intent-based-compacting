@@ -24,20 +24,26 @@ Four decisions are the store's own:
   grew keeps the ids of the chains that were already there — T6.3 (#28) writes
   them into the summary block and T8 (#33) reads them back (see
   `idc.classify.ids`).
-- **Every chain stays a candidate.** T4's goal says so: a chain is never closed
-  while the transcript runs, so the candidate list only grows, and it is ordered
-  by opening — which is transcript order of each chain's first chunk.
+- **Every chain stays a candidate, and the order is opening order.** T4's goal
+  says the first half: a chain is never closed while the transcript runs, so the
+  candidate list only grows. The second half is *checked*, not assumed — a chain
+  id is its opening position, so a seeded chain whose number goes backwards
+  would state two contradicting orders, and the store refuses it rather than
+  offering `C3` before `C1`.
 - **A chunk belongs to exactly one chain.** A second assignment is
-  `ChunkAlreadyAssignedError`, and so is a chunk a seeded chain already claims:
-  the chunk ids of a chain carried over from an earlier run are positions in
-  *that* run's transcript and can collide with this run's, which has to be
-  re-mapped where the block is parsed (#33) rather than papered over here.
+  `ChunkAlreadyAssignedError`, and so is a chunk a seeded chain already claims —
+  but the error says which of the two it is looking at: the chunk ids of a chain
+  carried over from an earlier run are positions in *that* run's transcript and
+  can collide with this run's, which has to be re-mapped where the block is
+  parsed (#33) rather than papered over here.
 - **A label is provisional and deterministic.** It is the chunk's own user
   message, collapsed and cut at a word boundary — never a model call, because
   the real label is written by the compactor (T6) from the compaction template.
 
 The store copies no message: a `Chunk` is a half-open range over
-`Session.messages`, and the store only reads through those ranges. That is also
+`Session.messages`, and the store only reads through those ranges — which is why
+a range that reaches past the transcript is `ForeignChunkError` instead of a
+range that silently resolves to nothing. That is also
 why both sides of an adapter's question are built here — the candidates *and*
 the `ChunkUnderDecision` the adapter decides about — and why the chunk's user
 message is resolved once: the subject and the provisional label are the same
@@ -69,7 +75,12 @@ PROVISIONAL_LABEL_ELLIPSIS = "…"
 """What marks a label that was cut short."""
 
 PROVISIONAL_LABEL_TRIM = " ,.;:"
-"""Characters dropped from the end of a cut label, before the ellipsis."""
+"""Characters dropped from the end of a cut label, before the ellipsis.
+
+A cut falls at a word boundary, so the character before it is as often a comma
+or a colon as a letter — and `with tests:…` reads as a truncated sentence twice
+over.
+"""
 
 
 def provisional_label(text: str, position: int) -> str:
@@ -105,7 +116,14 @@ def provisional_label(text: str, position: int) -> str:
 
 
 def require_chunk_of(session: Session, chunk: Chunk) -> None:
-    """Raise unless `chunk` is a message range over `session`.
+    """Raise unless `chunk`'s range fits the session's messages.
+
+    This is the whole of what is checkable: a `Chunk` carries indices and no
+    session id (#3), so a chunk of another run whose range happens to fit is
+    accepted and resolves against *this* session's messages. Only the caller
+    can keep that from happening; what the guard catches is the range that
+    reaches past the transcript and would otherwise resolve to no message at
+    all.
 
     Args:
         session: The transcript the chunk is supposed to range over.
@@ -126,6 +144,11 @@ def chunk_user_message(session: Session, chunk: Chunk) -> str | None:
     one definition (a `user` message the harness neither injected nor wrote as
     the echo of a slash command), and the classifier must not disagree with the
     chunker about it.
+
+    A chunk the chunker produced holds **at most one** real user turn, because
+    that is where T3.1 splits. This function does not rely on that invariant —
+    it takes any range, including one a later ticket builds by hand — so it
+    scans backwards and answers with the range's *last* user turn.
 
     Args:
         session: The transcript the chunk ranges over.
@@ -166,6 +189,9 @@ class _OpenChain:
         last_user_message: Content of the last user turn seen in this chain.
         last_start_index: Where this chain's last chunk starts, or `-1` when the
             chain was seeded and its chunks are not ranges over this transcript.
+        seeded: Whether the chain was carried over from an earlier run. Only
+            used to say so in a message: its chunk ids are positions in that
+            run's transcript, which is a different cause for the same clash.
     """
 
     id: str
@@ -175,6 +201,7 @@ class _OpenChain:
     compacted_text: str | None = None
     last_user_message: str = ""
     last_start_index: int = -1
+    seeded: bool = False
 
     def as_chain(self) -> Chain:
         """Return the canonical `Chain` this chain currently is.
@@ -212,10 +239,13 @@ class ChainStore:
             out of an existing summary block, so that they can be extended
             instead of being summarized a second time. They keep their ids,
             their labels and their summary text, and new chains are numbered
-            past the highest of them.
+            past the highest of them. They have to arrive in the order they
+            were opened, which is the order the summary block holds them in;
+            the numbers need not be contiguous.
 
     Raises:
-        ValueError: If two seeded chains share an id or a chunk id.
+        ValueError: If two seeded chains share an id or a chunk id, or if their
+            ids do not increase.
     """
 
     def __init__(self, session: Session, chains: Iterable[Chain] = ()) -> None:
@@ -301,12 +331,13 @@ class ChainStore:
             The new chain, holding that one chunk.
 
         Raises:
-            ValueError: If `label` is given and empty.
+            ValueError: If `label` is given and holds no word — empty or
+                whitespace only, which `provisional_label` reads as no text.
             ForeignChunkError: If the chunk is not a range over this session.
             ChunkAlreadyAssignedError: If the chunk is already in a chain.
         """
-        if label is not None and not label:
-            raise ValueError("a chain's label may not be empty; omit it for a provisional one")
+        if label is not None and not label.strip():
+            raise ValueError("a chain's label must hold a word; omit it for a provisional one")
         message = self._message_of(chunk)
         position = self._next_position()
         chain = _OpenChain(
@@ -355,7 +386,9 @@ class ChainStore:
         """
         owner = self._owner.get(chunk.id)
         if owner is not None:
-            raise ChunkAlreadyAssignedError(chunk.id, owner)
+            raise ChunkAlreadyAssignedError(
+                chunk.id, owner, carried_over=self._chains[owner].seeded
+            )
         if chunk.start_index < chain.last_start_index:
             raise ChunkOrderError(chunk.id, chain.id, chunk.start_index, chain.last_start_index)
         chain.chunk_ids.append(chunk.id)
@@ -401,11 +434,16 @@ class ChainStore:
             chain: The chain as the parser read it back.
 
         Raises:
-            ValueError: If another seeded chain has the same id, or claims one
-                of the same chunks.
+            ValueError: If another seeded chain has the same id, claims one of
+                the same chunks, or was opened later than this one.
         """
         if chain.id in self._chains:
             raise ValueError(f"two seeded chains share the id {chain.id!r}")
+        if self._order and chain_position(chain.id) < chain_position(self._order[-1]):
+            raise ValueError(
+                f"seeded chain {chain.id!r} is numbered before {self._order[-1]!r}, which was "
+                f"seeded first; chains arrive in the order they were opened"
+            )
         for chunk_id in chain.chunk_ids:
             owner = self._owner.get(chunk_id)
             if owner is not None:
@@ -424,5 +462,6 @@ class ChainStore:
             chunk_ids=list(chain.chunk_ids),
             compacted=chain.compacted,
             compacted_text=chain.compacted_text,
+            seeded=True,
         )
         self._order.append(chain.id)
