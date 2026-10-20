@@ -19,8 +19,10 @@ canonical fields alone — no model call, no agent-specific markup (that lives i
   definition.
 - **What its result is.** A command asks the harness something, so its result is
   what the harness answered: the run of injected messages that directly follows
-  it. Those are consumed — their text becomes the command message's content. An
-  injected message answers nothing, so it has no result and is dropped.
+  it, none of which is a command itself. Those are consumed — their text becomes
+  the command message's content. An injected message answers nothing, so it has
+  no result and is dropped; neither does a message the harness flagged as
+  command *and* injected, which is an echo and therefore noise of its own.
 - **What is exempt.** The preamble of a transcript that was compacted before
   (`Session.source` is not `raw`) is left alone: that is where a summary block
   sits — this tool's own, which the parser (T8) has to find again, or the
@@ -339,9 +341,13 @@ def _answer(
     """Return the indices of the harness's answer to the command at `index`.
 
     The answer is the run of reducible injected messages that directly follows
-    the command, inside the same chunk. The run can never reach beyond the
-    chunk: a chunk ends at the next real user turn, which is neither injected
-    nor part of an answer.
+    the command, inside the same chunk. A message that is itself a command ends
+    the run even when the harness also flagged it as injected: an echo is noise
+    by this module's own definition, so taking its text as the answer would
+    keep that noise and attribute it to a command it never answered. It is
+    reduced in its own right on the next turn of `_plan_chunk`'s loop. The run
+    can never reach beyond the chunk either: a chunk ends at the next real user
+    turn, which is neither injected nor part of an answer.
 
     Args:
         session: The session the chunk ranges over.
@@ -357,7 +363,12 @@ def _answer(
     following = index + 1
     while following < chunk.end_index:
         message = session.messages[following]
-        if following in exempt or not _is_reducible(message) or not message.is_system_injected:
+        if (
+            following in exempt
+            or not _is_reducible(message)
+            or not message.is_system_injected
+            or message.is_command
+        ):
             break
         answer.append(following)
         following += 1
