@@ -954,6 +954,112 @@ def test_a_record_whose_type_is_a_number_keeps_the_number_in_the_note(tmp_path):
     assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == ["7"]
 
 
+# --- a block whose type is missing, null, or the string "None" --------------
+#
+# The same collision the record level was fixed for, one level down: all three
+# read as `dropped-block: None`, so a block kind a future Claude Code version
+# spells `None` could not be told from a damaged one.
+
+
+def test_a_block_without_a_type_and_one_whose_type_is_null_are_noted_apart(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record("u1", "fix the exporter"),
+            assistant_record("a1", [{"data": "?"}, {"type": None}]),
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [(note.detail, note.count) for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        ("<no type>", 1),
+        ("<null type>", 1),
+    ]
+
+
+def test_a_block_whose_type_is_the_string_none_keeps_its_own_spelling(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [user_record("u1", "fix the exporter"), assistant_record("a1", [{"type": "None"}])],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["None"]
+
+
+def test_a_block_whose_type_is_a_number_keeps_the_number_in_the_note(tmp_path):
+    path = write_jsonl(
+        tmp_path, [user_record("u1", "fix the exporter"), assistant_record("a1", [{"type": 7}])]
+    )
+
+    imported = import_claude_code(path)
+
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["7"]
+
+
+def test_a_user_block_without_a_type_and_one_whose_type_is_null_are_noted_apart(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [user_record("u1", [{"data": "?"}, {"type": None}, {"type": "text", "text": "hi"}])],
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].content == "hi"
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        "<no type>",
+        "<null type>",
+    ]
+
+
+def test_a_result_block_without_a_type_is_noted_inside_its_result(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record(
+                "u1",
+                [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": [{"data": "?"}, {"type": None}],
+                    }
+                ],
+            )
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        "tool_result/<no type>",
+        "tool_result/<null type>",
+    ]
+
+
+def test_a_summary_block_without_a_type_is_noted_apart_from_a_null_one(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record(
+                "c1",
+                [{"data": "?"}, {"type": None}, {"type": "text", "text": "continued"}],
+                isCompactSummary=True,
+            )
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].content == "continued"
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        "<no type>",
+        "<null type>",
+    ]
+
+
 # --- record fields the importer cannot use ----------------------------------
 #
 # The identifier it falls back from, the session it keeps and the `message` it
