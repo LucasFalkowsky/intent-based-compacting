@@ -312,6 +312,15 @@ def test_a_line_break_character_in_a_message_does_not_break_the_import(tmp_path)
     assert import_claude_code(path).session.messages[0].content == text
 
 
+def test_a_transcript_written_with_a_byte_order_mark_imports(tmp_path):
+    path = tmp_path / "session.jsonl"
+    path.write_bytes(
+        b"\xef\xbb\xbf" + json.dumps(user_record("u1", "hello")).encode("utf-8") + b"\n"
+    )
+
+    assert import_claude_code(path).session.messages[0].content == "hello"
+
+
 # --- timestamps -------------------------------------------------------------
 
 

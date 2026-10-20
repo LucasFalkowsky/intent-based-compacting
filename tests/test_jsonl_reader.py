@@ -121,3 +121,24 @@ def test_windows_line_endings_are_read_as_line_endings(tmp_path):
     path = write(tmp_path / "s.jsonl", '{"type":"a"}\r\n{"type":"b"}\r\n')
 
     assert read_json_lines(path) == [JsonLine(1, {"type": "a"}), JsonLine(2, {"type": "b"})]
+
+
+# --- a byte-order mark ------------------------------------------------------
+
+BOM = b"\xef\xbb\xbf"
+# What an editor on Windows prepends to a UTF-8 file. It is not part of the
+# first record, so the first line is still JSON.
+
+
+def test_a_byte_order_mark_is_not_part_of_the_first_record(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_bytes(BOM + b'{"type":"a"}\n{"type":"b"}\n')
+
+    assert read_json_lines(path) == [JsonLine(1, {"type": "a"}), JsonLine(2, {"type": "b"})]
+
+
+def test_a_file_without_a_byte_order_mark_is_read_the_same_way(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_bytes(b'{"type":"a"}\n')
+
+    assert read_json_lines(path) == [JsonLine(1, {"type": "a"})]
