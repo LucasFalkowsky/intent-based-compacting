@@ -64,24 +64,27 @@ Milestones group the parents into the four phases of the study and exist only fo
 ### Status
 
 Status is expressed with labels, open/closed state, and the board column — and those three must
-always agree:
+always agree. The column additionally answers "is this building block currently being built":
+`Backlog` means the parent has not been activated yet, `Ready` means the ticket belongs to the
+parent that is being implemented right now (see "Activating a parent").
 
 | State | Meaning | Board column |
 |---|---|---|
-| open, no status label | todo, ready to be picked | `Ready` |
-| open + `blocked` | unmet dependency, or waiting on a decision; for a decision the reason is in the latest comment | `Backlog` |
+| open, no status label | todo; the next free ticket of the active parent | `Ready` if its parent is activated, else `Backlog` |
+| open + `blocked`, dependency | its `Depends on` issues are not all closed — usually a sibling earlier in the same parent | `Ready` if its parent is activated, else `Backlog` |
+| open + `blocked`, decision or scope problem | waiting on the user; the reason is in the latest comment | `Backlog` |
 | open + `in-progress` | one agent is working on it; assignee set | `In progress` |
 | open + `review` | implementation done, tests green, review pending | `In review` |
 | closed | done; the closing comment names the merge commit SHA | `Done` |
 
-`blocked` is also the dependency marker: a ticket whose `Depends on` issues are not all closed
-carries it. **Remove it from the dependants as part of closing a ticket** — see "Closing a ticket".
-An `epic` stays `Backlog` while any of its sub-tickets is open, even though it carries no status
-label; it moves to `Ready` when the last sub-ticket is closed and only its own acceptance criteria
-are left.
+`blocked` is therefore both the dependency marker and the "waiting on the user" marker; only the
+second kind pulls a card out of `Ready` back to `Backlog`. **Remove the dependency kind from the
+dependants as part of closing a ticket** — see "Closing a ticket".
 
-A parent is closed only after all its sub-tickets are closed and its own acceptance criteria hold
-on the parent branch.
+An `epic` is `Backlog` until it is activated, then `In progress` (label `in-progress`, assignee
+set) until it is closed — it stays there while its sub-tickets run, because the parent *is* the
+work being done. A parent is closed only after all its sub-tickets are closed and its own
+acceptance criteria hold on the parent branch.
 
 ### Board (mandatory)
 
@@ -105,6 +108,24 @@ it; verify with `gh project item-list` and set `Done` explicitly if it did not.
 
 New issues are picked up by the board's auto-add workflow. After creating a ticket, check that it
 landed on the board and set its column; `meta` issues are removed from the board again.
+
+#### Activating a parent
+
+Implementation starts per **parent**, not per sub-ticket. When a parent becomes the one being
+built, its whole scope is pulled onto the board in one step:
+
+1. Cut the parent branch `ticket/T<n>-<slug>` from `main`.
+2. Assign yourself the parent, add `in-progress`, move the parent card to `In progress`, and
+   comment with the branch name.
+3. **Move every sub-ticket of that parent from `Backlog` to `Ready`** — all of them, including the
+   ones that carry `blocked` because they depend on a sibling. `Ready` is the pool for this parent;
+   the labels, not the column, say which one may be picked.
+4. From there the sub-tickets are worked **one at a time** in ID order (see "Picking the next
+   ticket"); a ticket leaves `Ready` only into `In progress`, `In review` or `Done`.
+
+Only **one parent is activated at a time**. The next parent is activated after the current one is
+closed and merged into `main`. If a sub-ticket of the active parent turns out to need a decision,
+it goes back to `Backlog` with `blocked` (see "Status") — the rest of the parent keeps running.
 
 ### Recording decisions and process changes
 
@@ -130,15 +151,77 @@ Claude writes to the issues — that is where information is kept:
 
 ## Picking the next ticket
 
-1. `gh issue list --label epic --state open` → the parent with the lowest `n`.
-2. Within it, `gh issue list --label task --state open --search "T<n>."` → the sub-ticket with the
-   lowest `m` that carries **no** status label (`in-progress`, `review`, `blocked`). The `blocked`
-   label already encodes "dependencies not closed"; if you suspect it is stale, verify the
-   `Depends on` issues in the body and remove the label with a one-line comment.
+1. `gh issue list --label epic --state open` → the parent with the lowest `n`. If it is not
+   activated yet (card still in `Backlog`, no `in-progress`), **activate it first** — see
+   "Activating a parent"; its sub-tickets all move to `Ready` before any of them is touched.
+2. Within the active parent, `gh issue list --label task --state open --search "T<n>."` → the
+   sub-ticket with the lowest `m` that carries **no** status label (`in-progress`, `review`,
+   `blocked`). The `blocked` label already encodes "dependencies not closed"; if you suspect it is
+   stale, verify the `Depends on` issues in the body and remove the label with a one-line comment.
 3. If every sub-ticket of the parent is closed but the parent is open, the next job is the
    parent's own acceptance criteria on the parent branch, then its merge into `main`.
-4. Before writing code: assign yourself, add `in-progress`, move the card to `In progress`, and
-   comment with the branch name. One ticket per agent at a time.
+4. Before writing code: assign yourself, add `in-progress`, move the card from `Ready` to
+   `In progress`, and comment with the branch name. One ticket at a time.
+5. Hand the ticket to a **fresh implementation subagent** — see "One subagent per ticket". The
+   orchestrating session does not write the ticket's code itself.
+
+## One subagent per ticket
+
+Every ticket is implemented in its **own subagent with a fresh context**, and reviewed in a second
+one. Nothing but the ticket's own scope ever enters that context, and the exploration, the failed
+attempts and the tool output of one ticket never leak into the next — that is the same reason this
+tool exists, applied to its own development.
+
+**Roles**
+
+- **Orchestrating session** (this one): activates parents, picks tickets, sets labels, moves cards,
+  creates and edits issues, records decisions, opens/merges PRs, and closes tickets. It reads the
+  issue and the handover reports — it does **not** write the ticket's production code or run its
+  test loop.
+- **Implementation subagent**: one per ticket, started at step 5 of "Picking the next ticket",
+  general-purpose, full tool access. It does the Red/Green/Refactor loop on the ticket's branch and
+  returns a handover report.
+- **Review subagent**: one per ticket, started after the implementation reported green — see
+  "Review step". Never the context that wrote the code.
+
+**Starting the implementation subagent** — the prompt names the ticket and nothing else; the
+subagent fetches the scope itself:
+
+> *"Implement ticket T<id> (issue #<n>) in this repository. Read `CLAUDE.md` and
+> `gh issue view <n>` first — the issue body is the scope and the acceptance criteria. Work on
+> branch `<branch>`, which is already cut from `<base>`. Follow the mandatory TDD loop (failing
+> tests first, commits `test(T<id>): …` / `feat(T<id>): …` / `refactor(T<id>): …`), use the shared
+> fixture corpus, no network and no real model calls in tests. Do not touch any other ticket's
+> scope, do not edit issues, labels or the board, and do not open the PR. When `make test` is green,
+> return the handover report described in `CLAUDE.md` → "One subagent per ticket" and nothing
+> else."*
+
+**Handover report** (what the subagent returns — a compact summary, never raw file dumps):
+
+```
+Ticket:        T<id> (#<n>)        Branch: <branch> (base <base>)
+Commits:       <sha> <subject>  … (one line each)
+Tests:         make test → <pass/fail>, <n> tests, <relevant new fixtures>
+Criteria:      <criterion> → <test that covers it>   (one line per acceptance criterion)
+Decisions:     <decision + one-sentence reason>      (or: none)
+Scope/blocked: <what is wrong, missing or needs a user decision>  (or: none)
+Files:         <path> — <what changed in one phrase>
+```
+
+The orchestrating session then does what only it may do: post the `**Decision:**` comments on the
+issue (and the "Decision log" #44 entry for cross-cutting ones), open the PR, start the review
+subagent, and run "Closing a ticket". A `Scope/blocked` entry means: `blocked` label, card back to
+`Backlog`, question to the user — never a silent scope change.
+
+**Rules**
+
+- One implementation subagent at a time. Sub-tickets of a parent are not implemented in parallel:
+  they share the parent branch, they are stacked, and `Depends on` is sequential by design.
+- A subagent is never reused for a second ticket, and never for the review of its own work. If a
+  ticket comes back `changes-requested`, the fixes may run in a **new** implementation subagent
+  with the review findings in the prompt.
+- If a subagent needs something outside its ticket (a missing fixture is fine, another ticket's
+  scope is not), it stops and reports it under `Scope/blocked`.
 
 ## Closing a ticket
 
@@ -149,7 +232,9 @@ In this order, so that the board, the labels and the dependency graph stay consi
 3. Move the card to `Done` (verify, see "Board").
 4. Tick the entry in the parent's task list.
 5. For every issue listed under `Blocks:` in the closed ticket's `## Relations`: if all of its
-   `Depends on` issues are now closed, remove its `blocked` label and move its card to `Ready`.
+   `Depends on` issues are now closed, remove its `blocked` label. Siblings of the active parent
+   are already in `Ready` and stay there; tickets of a parent that is not activated yet keep their
+   card in `Backlog` until that parent is activated.
 ## Branching and stacked PRs
 
 ```
@@ -173,7 +258,8 @@ main
 
 ## Test-driven development (mandatory)
 
-Every ticket is a **self-contained, working building block with tests**. The loop:
+Every ticket is a **self-contained, working building block with tests**. The loop runs inside the
+ticket's implementation subagent (see "One subagent per ticket"):
 
 1. **Red** — write the failing test(s) that express the acceptance criteria. Commit:
    `test(T3.1): add failing tests for user-boundary chunking`.
@@ -199,7 +285,9 @@ Rules:
 - [ ] Public functions/classes have docstrings; `README.md` or the module docstring is
       updated when behavior visible to the CLI user changed.
 - [ ] No TODOs left that belong to this ticket's scope.
-- [ ] Decisions made on the way are recorded on the issue (see above).
+- [ ] Decisions made on the way are recorded on the issue (see above) — taken from the
+      implementation subagent's handover report.
+- [ ] Implementation ran in its own subagent, the review in a second one.
 - [ ] PR opened against the correct base branch, title `T3.1: <name>`, body `Closes #<issue>`.
 - [ ] Review passed (see below) and merged into the parent branch (sub-ticket) or `main`
       (parent ticket).
@@ -209,8 +297,8 @@ Rules:
 
 ## Review step (second agent, lightweight)
 
-When the implementation is done and `make test` is green, replace `in-progress` with `review`,
-move the card to `In review`, and run the review as a **separate subagent call** — never the same context that
+When the implementation subagent reports green, replace `in-progress` with `review`, move the card
+to `In review`, and run the review as a **second, separate subagent call** — never the context that
 wrote the code:
 
 - If the `tyler-review` skill is available, invoke it with the ticket ID (e.g.
