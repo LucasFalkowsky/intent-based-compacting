@@ -34,6 +34,12 @@ positive would make the resolver present an unrelated command as the chain's
 proof that its solution works, so `git commit -m "add pytest"` and
 `echo "go test"` must not match, while a runner this file has never heard of is
 merely missed.
+
+For the same reason a real runner that is only *asked something* does not match:
+an invocation carrying one of the data file's `non_running_flags`
+(`pytest --collect-only`, `tox -l`, `make test -n`) exits zero without running a
+test, and the resolver cannot tell that from a passing run. The accepted misses
+are listed in the data file.
 """
 
 import re
@@ -207,6 +213,27 @@ def _segments(command: str) -> list[str]:
     return [segment.strip() for segment in segments if segment.strip()]
 
 
+def _validated_flags(flags: tuple[str, ...]) -> tuple[str, ...]:
+    """Reject a non-running flag that is no command-line flag.
+
+    Args:
+        flags: The entries of a `non_running_flags` list, global or per pattern.
+
+    Returns:
+        The entries unchanged.
+
+    Raises:
+        ValueError: If an entry does not look like a flag. A bare word would
+            disqualify an argument (`pytest tests`), and a bare `--` would
+            disqualify the separator of `npm test -- --runInBand`, so both are
+            refused rather than silently throwing away real verification runs.
+    """
+    for flag in flags:
+        if flag != flag.strip() or not flag.startswith("-") or not flag.strip("-"):
+            raise ValueError(f"non-running flag {flag!r} is no command-line flag")
+    return flags
+
+
 def _tokens(segment: str) -> tuple[str, ...]:
     """Split one command segment into tokens the way a POSIX shell would.
 
@@ -238,7 +265,13 @@ class ToolSpec(_RegistryModel):
     """
 
     category: ToolCategory = Field(description="What a call to this tool does to the workspace.")
-    subagent: bool = Field(default=False, description="Whether the tool spawns a subagent.")
+    subagent: bool = Field(
+        default=False,
+        strict=True,
+        description="Whether the tool spawns a subagent.",
+    )
+    """Strict on purpose: in pydantic's lax mode `subagent = "yes"` would be read
+    as `True`, and the rest of this file rejects a typo rather than guessing."""
 
 
 class VerificationPattern(_RegistryModel):
@@ -249,10 +282,23 @@ class VerificationPattern(_RegistryModel):
         command: The pattern itself, written as the command line it stands for
             (`make test`); it is tokenized and normalized on load, and matched
             against the beginning of a command segment.
+        non_running_flags: Flags that disqualify *this* runner, on top of the
+            file's global ones — for flags whose meaning differs per runner
+            (`-n` is make's dry run but pytest-xdist's process count, `-l` is
+            tox's env listing but pytest's `--showlocals`).
     """
 
     id: str = Field(min_length=1, description="Stable identifier of the pattern.")
     command: str = Field(min_length=1, description="The command line the pattern stands for.")
+    non_running_flags: tuple[str, ...] = Field(
+        default=(), description="Flags that make this runner prove nothing."
+    )
+
+    @field_validator("non_running_flags")
+    @classmethod
+    def _check_non_running_flags(cls, flags: tuple[str, ...]) -> tuple[str, ...]:
+        """Reject an entry that is no flag, with the error on this field."""
+        return _validated_flags(flags)
 
 
 class _AgentTools(_RegistryModel):
@@ -275,6 +321,9 @@ class _RegistryFile(_RegistryModel):
     runner_prefixes: tuple[str, ...] = Field(
         default=(), description="Wrapper commands stripped before a pattern is matched."
     )
+    non_running_flags: tuple[str, ...] = Field(
+        default=(), description="Flags that disqualify any runner's invocation."
+    )
     agents: dict[Agent, _AgentTools] = Field(description="One tool table per agent of the study.")
     verification_patterns: tuple[VerificationPattern, ...] = Field(
         min_length=1, description="The command lines that count as a verification run."
@@ -294,6 +343,12 @@ class _RegistryFile(_RegistryModel):
             if not _tokens(prefix):
                 raise ValueError(f"runner prefix {prefix!r} names no command word")
         return prefixes
+
+    @field_validator("non_running_flags")
+    @classmethod
+    def _check_non_running_flags(cls, flags: tuple[str, ...]) -> tuple[str, ...]:
+        """Reject an entry that is no flag, with the error on this field."""
+        return _validated_flags(flags)
 
     @model_validator(mode="after")
     def _check_completeness(self) -> Self:
@@ -363,6 +418,7 @@ class ToolRegistry:
         self._prefixes = tuple(
             tokens for prefix in data.runner_prefixes if (tokens := _tokens(prefix))
         )
+        self._non_running_flags = frozenset(data.non_running_flags)
         self._patterns = self._normalized_patterns(data.verification_patterns)
 
     def _normalized_patterns(
@@ -535,9 +591,29 @@ class ToolRegistry:
             if not tokens:
                 continue
             for pattern, expected in self._patterns:
-                if tokens[: len(expected)] == expected:
-                    return VerificationMatch(pattern=pattern, command=segment, tokens=tokens)
+                if tokens[: len(expected)] != expected:
+                    continue
+                if self._proves_nothing(pattern, tokens[len(expected) :]):
+                    continue
+                return VerificationMatch(pattern=pattern, command=segment, tokens=tokens)
         return None
+
+    def _proves_nothing(self, pattern: VerificationPattern, arguments: tuple[str, ...]) -> bool:
+        """Return whether an argument turns the run into one that proves nothing.
+
+        Args:
+            pattern: The pattern that matched the command word.
+            arguments: The tokens behind it.
+
+        Returns:
+            `True` if one argument is a flag the data file declares as
+            non-running, globally or for this pattern — `pytest --collect-only`,
+            `make test -n`, `tox -l`. T5.2 sees only the command line and a zero
+            exit code, which these have without running a single test, so they
+            must not become a chain's proof.
+        """
+        flags = self._non_running_flags.union(pattern.non_running_flags)
+        return any(argument in flags for argument in arguments)
 
     def is_verification(self, command: str) -> bool:
         """Return whether a command line runs a verification."""

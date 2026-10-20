@@ -33,6 +33,27 @@ runner_prefixes = [
     "bunx",
 ]
 
+# Flags that turn a real runner into a command that proves nothing: it exits
+# zero without running a single test. The resolver (T5.2) sees only the command
+# line and that exit code, so without this list `pytest --version` could become
+# a chain's proof that its solution works.
+#
+# Only flags that mean the same thing for every runner belong here — asking for
+# a version, for help, or for what *would* be run. A flag whose meaning depends
+# on the runner belongs to its pattern below (`non_running_flags` there), and a
+# bare `--` is deliberately absent: it is the argument separator of
+# `npm test -- --runInBand`, a real run. Tokens are compared whole, so `--help`
+# never matches `--help-all`, and the list is extended here, not in code.
+non_running_flags = [
+    "--version",  # every runner prints it and exits
+    "--help",
+    "-h",
+    "--collect-only",  # pytest: collects, runs nothing
+    "--co",            # pytest's short spelling of the same
+    "--dry-run",       # make, gradle, rspec, npm: says what it would do
+    "--list",          # cargo test, nox, nextest: lists tests or sessions
+]
+
 # --- Claude Code -------------------------------------------------------------
 #
 # `Bash`, `Edit`, `Grep`, `Read` and `Task` are recorded in the fixture corpus
@@ -98,6 +119,11 @@ bash = { category = "exec" }
 # Tokens are compared whole, so a project-specific script name is a pattern of
 # its own: `npm run test` does not cover `npm run test:unit`, and `make test`
 # does not cover `make test-all`. Add the spelling the transcripts show.
+#
+# `non_running_flags` on a pattern adds to the global list above, for flags
+# whose meaning is this runner's own: `-n` is make's dry run but pytest-xdist's
+# process count, and `-l` is tox's env listing but pytest's `--showlocals`.
+# Those must never be global — they would throw away real runs.
 
 [[verification_patterns]]
 id = "pytest"
@@ -122,18 +148,26 @@ command = "python3 -m unittest"
 [[verification_patterns]]
 id = "tox"
 command = "tox"
+# `-l` lists the envs; pytest's `-l` is --showlocals, hence per pattern
+non_running_flags = ["-l", "--listenvs", "--listenvs-all"]
 
 [[verification_patterns]]
 id = "nox"
 command = "nox"
+# `-l` lists the sessions
+non_running_flags = ["-l", "--list-sessions"]
 
 [[verification_patterns]]
 id = "make-test"
 command = "make test"
+# make's dry run (`-n`) and question mode (`-q`) run no recipe
+non_running_flags = ["-n", "--just-print", "--recon", "-q", "--question"]
 
 [[verification_patterns]]
 id = "make-check"
 command = "make check"
+# as make-test
+non_running_flags = ["-n", "--just-print", "--recon", "-q", "--question"]
 
 [[verification_patterns]]
 id = "npm-test"
@@ -170,6 +204,8 @@ command = "bun run test"
 [[verification_patterns]]
 id = "jest"
 command = "jest"
+# lists the test files it would run
+non_running_flags = ["--listTests"]
 
 [[verification_patterns]]
 id = "vitest"
@@ -190,10 +226,14 @@ command = "cargo nextest run"
 [[verification_patterns]]
 id = "go-test"
 command = "go test"
+# `go test -list .` prints test names
+non_running_flags = ["-list"]
 
 [[verification_patterns]]
 id = "dotnet-test"
 command = "dotnet test"
+# `-t` is the short spelling of --list-tests
+non_running_flags = ["--list-tests", "-t"]
 
 [[verification_patterns]]
 id = "mvn-test"
@@ -202,14 +242,20 @@ command = "mvn test"
 [[verification_patterns]]
 id = "gradle-test"
 command = "gradle test"
+# gradle's short spelling of --dry-run
+non_running_flags = ["-m"]
 
 [[verification_patterns]]
 id = "gradlew-test"
 command = "gradlew test"
+# as gradle-test
+non_running_flags = ["-m"]
 
 [[verification_patterns]]
 id = "ctest"
 command = "ctest"
+# shows the tests instead of running them
+non_running_flags = ["-N", "--show-only"]
 
 [[verification_patterns]]
 id = "rspec"
