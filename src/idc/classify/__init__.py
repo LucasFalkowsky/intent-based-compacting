@@ -39,11 +39,16 @@ The stage is split along what a model may decide and what it may not:
 - `idc.classify.classifier` is the sequential loop over the chunks, and
   `idc.classify.fake` the scripted adapter that keeps every downstream test —
   the end-to-end one above all (#42) — free of a model and of the network.
-- `idc.classify.s1m` is the first of the real backends (T4.3): a binary scorer
+- `idc.classify.llm` is the LLM backend (T4.2, #17): a fixed prompt, a validated
+  JSON answer and a bounded retry, on top of a `ModelClient` **the caller
+  injects**. It ships no client, opens no connection and reads no credential.
+- `idc.classify.s1m` is the other real backend (T4.3, #18): a binary scorer
   asked once per candidate, thresholded and ranked into one decision. Its
-  scorer is **injected**, so that module holds no client, no transport and no
-  credential either — which is why the sentence above holds for the whole
-  package and not only for its test double.
+  scorer is **injected** too, so that module holds no client, no transport and
+  no credential either.
+
+Both backends take their model as an injected dependency, which is why **no
+test of this repository calls a model** even though two modules can ask one.
 
 Every refusal the stage itself raises is a `ClassifyError`, so a caller catches
 all of them with one `except` — an adapter answering a chain id of the wrong
@@ -96,6 +101,14 @@ from idc.classify.errors import (
 )
 from idc.classify.fake import FakeAdapter, FakeCall
 from idc.classify.ids import CHAIN_ID_PREFIX, chain_id, is_chain_id
+from idc.classify.llm import (
+    DEFAULT_MAX_ATTEMPTS,
+    LlmAdapter,
+    LlmCall,
+    ModelClient,
+    UnreadableAnswerError,
+    build_prompt,
+)
 from idc.classify.s1m import (
     DEFAULT_CONTINUATION_THRESHOLD,
     ContinuationScorer,
@@ -112,6 +125,7 @@ from idc.classify.store import (
 
 __all__ = [
     "CHAIN_ID_PREFIX",
+    "DEFAULT_MAX_ATTEMPTS",
     "NEW",
     "PROVISIONAL_LABEL_MAX_LENGTH",
     "AdapterContractError",
@@ -132,10 +146,15 @@ __all__ = [
     "FakeCall",
     "ForeignChunkError",
     "IntentAdapter",
+    "LlmAdapter",
+    "LlmCall",
+    "ModelClient",
     "NewChain",
     "ScriptExhaustedError",
     "UnknownChainError",
+    "UnreadableAnswerError",
     "as_decision",
+    "build_prompt",
     "chain_id",
     "chunk_user_message",
     "classify",
