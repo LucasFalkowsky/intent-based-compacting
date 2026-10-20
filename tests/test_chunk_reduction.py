@@ -325,6 +325,47 @@ def test_the_preamble_of_a_natively_compacted_transcript_is_exempt_too():
     assert [message.id for message in reduced.session.messages] == ["m00", "m01", "m02"]
 
 
+@pytest.mark.parametrize(
+    "source", [SessionSource.INTENT_COMPACTION, SessionSource.NATIVE_COMPACTION]
+)
+def test_only_the_preamble_of_a_compacted_transcript_is_exempt(source):
+    # The upper bound of the exemption, for both conditions of the study: what
+    # is protected is the summary block the transcript opens with, not the
+    # transcript. Noise *after* the first real user turn is harness noise like
+    # any other and is reduced. Without this case the suite cannot tell
+    # "preamble exempt" from "everything exempt" — and the second would make
+    # reduction a no-op for exactly the inputs T8 (#33) and T9 (#36) measure,
+    # with the block surviving either way.
+    session = synthetic_session(
+        [
+            {
+                "role": "system",
+                "content": "## [C1] Rewrite the exporter\n\nThe exporter was rewritten.",
+                "is_system_injected": True,
+            },
+            {"role": "user", "content": "Now add the CLI flag."},
+            {
+                "role": "system",
+                "content": "<system-reminder>Context left: 42%.</system-reminder>",
+                "is_system_injected": True,
+            },
+            {"role": "assistant", "content": "Done."},
+        ],
+        source=str(source),
+    )
+
+    reduced = reduce_session(session)
+
+    assert session.source is source, "precondition: the transcript was compacted before"
+    assert [(note.message_id, str(note.reason)) for note in reduced.notes] == [
+        ("m02", "system-injected")
+    ]
+    assert [message.id for message in reduced.session.messages] == ["m00", "m01", "m03"]
+    # The preamble is still the session's own message, carrying the block.
+    assert reduced.session.messages[0] is session.messages[0]
+    assert "[C1]" in reduced.session.messages[0].content
+
+
 def test_the_preamble_of_a_raw_transcript_is_not_exempt():
     session = synthetic_session(
         [
@@ -674,6 +715,50 @@ def test_an_injected_message_does_not_take_over_the_next_ones_text():
 
     assert [note.result_from for note in reduced.notes] == [(), ()]
     assert [message.id for message in reduced.session.messages] == ["m00"]
+
+
+def test_a_message_that_is_command_and_injected_is_not_another_commands_result():
+    # The adversarial shape: the harness marked one message as *both* a slash
+    # command and injected. A command echo is noise by this ticket's own
+    # definition, so taking its text as the preceding command's answer would
+    # keep that noise *and* label it as the harness's answer to a command it
+    # never answered. The answer run therefore stops at it, and it is reduced in
+    # its own right — it has no answer of its own, so it is dropped.
+    session = synthetic_session(
+        [
+            {"role": "user", "content": "Fix the exporter."},
+            {"role": "user", "content": "/model claude-opus-5", "is_command": True},
+            {
+                "role": "user",
+                "content": "/test tests/api",
+                "is_command": True,
+                "is_system_injected": True,
+            },
+            {"role": "assistant", "content": "Done."},
+        ]
+    )
+
+    reduced = reduce_session(session)
+
+    assert [(note.message_id, str(note.reason), note.result_from) for note in reduced.notes] == [
+        ("m01", "command", ()),
+        ("m02", "command", ()),
+    ]
+    assert [message.id for message in reduced.session.messages] == ["m00", "m03"]
+    contents = [message.content for message in reduced.session.messages]
+    assert "/test tests/api" not in contents, "the echo must not survive as a result"
+    assert "/model claude-opus-5" not in contents
+    # The invariants of the stage hold on this shape too: the chunk count, the
+    # partition over the reduced transcript, and idempotence.
+    assert len(reduced.chunks) == len(chunk_session(session)) == 1
+    assert [
+        index
+        for reduced_chunk in reduced.chunks
+        for index in range(reduced_chunk.chunk.start_index, reduced_chunk.chunk.end_index)
+    ] == list(range(len(reduced.session.messages)))
+    again = reduce_session(reduced.session)
+    assert again.notes == ()
+    assert again.session == reduced.session
 
 
 def test_a_command_answered_by_an_empty_message_is_dropped():
