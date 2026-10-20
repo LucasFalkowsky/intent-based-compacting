@@ -111,17 +111,46 @@ Artifact = { category = "other" }
 
 # --- Gemini CLI --------------------------------------------------------------
 #
-# All four entries are recorded in the fixture corpus. Gemini CLI's remaining
-# tools (directory listing, globbing, content search, multi-file read, web
-# access, memory) are deliberately absent: their exact spellings are not
-# established by any evidence in this repository, so T2.4 adds them from the
-# transcripts it imports.
+# The first four entries are recorded in the fixture corpus. The next four were
+# added by T2.4 from real sessions under `~/.gemini/tmp/*/chats/*.json`: a
+# structure-only survey of them turned up exactly six tool names, four of which
+# were not declared yet. That answers the directory listing, globbing and
+# content search T2.1 left open, and the web access in part.
+#
+# The last group is declared from the installed agent's own tool reference
+# (`docs/reference/tools.md` of Gemini CLI 0.46.0) rather than from a
+# transcript, and only for the tools whose category would otherwise resolve
+# *wrongly*: all four of them read something, so leaving them undeclared would
+# make a read look like an `other`. `invoke_agent` is the exception — it
+# resolves to `other` either way, and is declared for its `subagent` marker
+# (documented in `docs/reference/policy-engine.md`, which also names
+# `agent_name` as its argument).
+#
+# Deliberately still absent: the agent's planning, task-tracker, todo, skill,
+# MCP-resource and ask-user tools. They are documented but were not seen in any
+# transcript, and every one of them resolves to `other` without being
+# declared — which is the correct category for all of them, so declaring them
+# would add claims without fixing anything. A memory tool is absent because
+# 0.46.0 has none: its documentation says memories are written with `write_file`
+# and `replace`.
 
 [agents.gemini-cli.tools]
 read_file = { category = "read" }
 replace = { category = "write" }
 write_file = { category = "write" }
 run_shell_command = { category = "exec" }
+# Observed in real transcripts.
+list_directory = { category = "read" }
+glob = { category = "read" }
+grep_search = { category = "read" }
+google_web_search = { category = "read" }
+# Declared from the installed agent's tool reference. `search_file_content` is
+# documented there as the legacy alias of `grep_search`, so a transcript
+# recorded with either has to import.
+search_file_content = { category = "read" }
+read_many_files = { category = "read" }
+web_fetch = { category = "read" }
+invoke_agent = { category = "other", subagent = true }
 
 # --- OpenCode ----------------------------------------------------------------
 #

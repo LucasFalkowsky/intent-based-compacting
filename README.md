@@ -75,15 +75,19 @@ for note in imported.notes:
     print(note)  # 'skipped-record: attachment (x19)', 'dropped-block: thinking (x7)', …
 ```
 
-**Claude Code** (ticket T2.2) and **OpenCode** (T2.3) are implemented; Gemini CLI (T2.4)
-follows, and `import_transcript` names the ticket instead of failing obscurely. What is
-shared sits in `idc.importers.base` (assembling and validating the session, resolving tool
-categories, logging the unknown ones, reading timestamps) and `idc.importers.jsonl`
-(reading a line-delimited transcript); an agent module is only that agent's format. Those
-two formats differ in more than their field names: a Claude Code record carries one tool
-result per `tool_result` block of a *user* record, while an OpenCode tool call carries its
-own result in the same part of the *assistant* record, and OpenCode records an instant as
-epoch milliseconds rather than as an ISO-8601 string.
+All three agents are implemented: **Claude Code** (ticket T2.2), **OpenCode** (T2.3) and
+**Gemini CLI** (T2.4). What is shared sits in `idc.importers.base` (assembling and
+validating the session, resolving tool categories, logging the unknown ones, reading
+timestamps) and `idc.importers.jsonl` (reading a line-delimited transcript); an agent
+module is only that agent's format.
+
+The three formats differ in more than their field names. A Claude Code record carries one
+tool result per `tool_result` block of a *user* record, while an OpenCode tool call carries
+its own result in the same part of the *assistant* record, and OpenCode records an instant
+as epoch milliseconds rather than as an ISO-8601 string. Gemini CLI reads two shapes: the
+single JSON document a recorded session has, and a newer append log whose `$set` and
+`$rewindTo` operations are **replayed** rather than concatenated — without that, a
+natively compacted transcript would import the history the agent threw away.
 
 Four properties hold for every importer:
 
