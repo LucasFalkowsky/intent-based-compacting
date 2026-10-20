@@ -511,9 +511,11 @@ def test_an_unknown_record_type_is_skipped_and_noted_instead_of_failing(tmp_path
     assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == ["hologram-link"]
 
 
-@pytest.mark.parametrize(
-    "content", [7, 3.5, True, {"role": "user", "text": "lost"}, ["not a block"], None]
-)
+@pytest.mark.parametrize("content", [7, 3.5, True, {"role": "user", "text": "lost"}, None])
+# A list is deliberately not among them any more: a list *is* the block list this
+# importer reads, so a record carrying one is a turn whose blocks could not be
+# represented, not a content the importer cannot read. The case it used to cover
+# is pinned by `test_a_user_record_whose_only_entry_is_no_block_is_still_the_turn_it_was`.
 def test_a_user_record_whose_content_is_not_readable_invents_no_turn(tmp_path, content):
     path = write_jsonl(
         tmp_path, [user_record("u1", "fix the exporter"), user_record("u2", content)]
