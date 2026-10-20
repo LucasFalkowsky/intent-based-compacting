@@ -328,7 +328,17 @@ Rules:
 
 When the implementation subagent reports green, replace `in-progress` with `review`, move the card
 to `In review`, and run the review as a **second, separate subagent call** — never the context that
-wrote the code:
+wrote the code.
+
+**CI on the PR is the authoritative gate, not a handover report.** Run `gh pr checks <pr>` twice:
+once after opening the PR and **before** launching the review subagent, and again immediately
+before merging. A red run sends the ticket back to `in-progress` no matter what the handover report
+or the review said — this has already happened once (#45, PR #50), where two independent subagents
+reported `make test` green on a commit whose lint stage was failing. For the same reason, prefer
+verifying a claim in a **fresh clone or `git worktree`** rather than in the working checkout, where
+cache state and an editable install hide failures.
+
+The review itself:
 
 - If the `tyler-review` skill is available, invoke it with the ticket ID (e.g.
   `review T3.1`) and the branch name. It is read-only and returns a verdict.
@@ -370,6 +380,10 @@ the only ticket source. Do not re-create it — a new ticket is created directly
   A new dependency is justified on the ticket that introduces it, as a `**Decision:**` comment.
 - **Canonical schema** (T1.2) is the contract between all building blocks. Changing it is a
   ticket of its own, never a side effect.
+- **Validate through the package API:** stages load and validate with `loads` / `load` /
+  `validate_document`, **never** with pydantic's `model_validate`. Only the former raise
+  `SchemaValidationError`; `model_validate` surfaces pydantic's own error and would put a pydantic
+  traceback on the CLI. Construction and attribute assignment are contained too (#3).
 - **No agent integration, no git calls** inside the tool. The tool reads transcript files
   and writes transcript files. If a ticket seems to need either, stop and ask.
 - **Determinism first:** everything that can be computed from the transcript (solution
@@ -386,4 +400,9 @@ make run ARGS="compact --agent opencode --in session.jsonl --out compacted.jsonl
 ```
 
 Convenience targets that exist but are not the gate: `make help`, `make lint`, `make unit`,
-`make clean`.
+`make clean`, and `make schema` (regenerates `src/idc/schema/canonical.schema.json` from the
+models — a dev utility, deliberately not part of the CLI command surface).
+
+`make test` runs `ruff` with `--no-cache`: a warm `.ruff_cache` once reported a false green to two
+independent subagents while the lint stage was actually failing (#45, PR #50). A gate whose verdict
+depends on cache state is not a gate.
