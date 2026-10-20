@@ -289,6 +289,18 @@ def test_two_patterns_matching_the_same_command_are_rejected(tmp_path):
         load_tool_registry(path)
 
 
+def test_a_runner_prefix_without_a_command_word_is_rejected(tmp_path):
+    # The one malformed entry that would not mis-match but hang: an empty prefix
+    # is stripped from every command line, and stripping never terminates.
+    text = MINIMAL_REGISTRY.replace(
+        'runner_prefixes = ["uv run"]', 'runner_prefixes = ["uv run", ""]'
+    )
+    path = write_registry(tmp_path, text)
+
+    with pytest.raises(ToolRegistryError, match="runner prefix"):
+        load_tool_registry(path)
+
+
 def test_a_pattern_that_is_only_a_runner_prefix_is_rejected(tmp_path):
     text = MINIMAL_REGISTRY.replace('command = "pytest"', 'command = "uv run"')
     path = write_registry(tmp_path, text)

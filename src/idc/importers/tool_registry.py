@@ -247,6 +247,19 @@ class _RegistryFile(_RegistryModel):
     )
 
     @model_validator(mode="after")
+    def _check_runner_prefixes(self) -> Self:
+        """Reject a prefix that is no command word.
+
+        A prefix that tokenizes to nothing would be stripped from every command
+        line forever, so this is the one malformed entry that would hang the
+        matcher rather than mis-match.
+        """
+        for prefix in self.runner_prefixes:
+            if not _tokens(prefix):
+                raise ValueError(f"runner prefix {prefix!r} names no command word")
+        return self
+
+    @model_validator(mode="after")
     def _check_completeness(self) -> Self:
         """Reject an unsupported version, a missing agent or a duplicate pattern id."""
         if self.version != REGISTRY_VERSION:
@@ -311,7 +324,9 @@ class ToolRegistry:
             raise _as_registry_error(exc, self._source) from None
         self._version = data.version
         self._tools = {agent: dict(table.tools) for agent, table in data.agents.items()}
-        self._prefixes = tuple(_tokens(prefix) for prefix in data.runner_prefixes)
+        self._prefixes = tuple(
+            tokens for prefix in data.runner_prefixes if (tokens := _tokens(prefix))
+        )
         self._patterns = self._normalized_patterns(data.verification_patterns)
 
     def _normalized_patterns(
@@ -380,7 +395,8 @@ class ToolRegistry:
 
     def __repr__(self) -> str:
         """Return a representation naming the registry's source."""
-        return f"{type(self).__name__}(source={self._source and str(self._source)!r})"
+        source = None if self._source is None else str(self._source)
+        return f"{type(self).__name__}(source={source!r})"
 
     @property
     def source(self) -> Path | None:
