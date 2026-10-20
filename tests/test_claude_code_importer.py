@@ -71,6 +71,17 @@ def tool_use(call_id: str, name: str, **args) -> dict:
     return {"type": "tool_use", "id": call_id, "name": name, "input": dict(args)}
 
 
+PASTED_IMAGE = {
+    "type": "image",
+    "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="},
+}
+"""How Claude Code records a screenshot the user pasted into their prompt.
+
+The canonical schema has no field for an image, so the block is dropped and
+noted — but the user did take that turn, and T3.1 splits chunks on it.
+"""
+
+
 def messages_by_id(session: Session) -> dict[str, Message]:
     return {message.id: message for message in session.messages}
 
@@ -548,6 +559,141 @@ def test_a_user_record_whose_text_is_empty_is_still_the_turn_it_was(tmp_path):
     assert [(message.id, message.role, message.content) for message in session.messages] == [
         ("u1", Role.USER, "")
     ]
+
+
+# --- a block-list user record whose blocks carry no text --------------------
+#
+# The scalar path imports `""` as the turn it was, because the transcript did
+# record a user message there. These pin the same answer for a block list: a
+# pasted screenshot is a turn whose content the schema cannot hold, not a turn
+# that never happened — and T3.1 splits chunks on exactly that boundary.
+
+
+def test_a_pasted_screenshot_is_still_the_turn_the_user_took(tmp_path):
+    path = write_jsonl(tmp_path, [user_record("u1", [PASTED_IMAGE])])
+
+    imported = import_claude_code(path)
+
+    assert [
+        (message.id, message.role, message.content) for message in imported.session.messages
+    ] == [("u1", Role.USER, "")]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["image"]
+    assert imported.notes_of(NOTE_SKIPPED_RECORD) == ()
+
+
+def test_a_user_record_whose_only_text_block_is_empty_is_still_the_turn_it_was(tmp_path):
+    path = write_jsonl(tmp_path, [user_record("u1", [{"type": "text", "text": ""}])])
+
+    imported = import_claude_code(path)
+
+    assert [
+        (message.id, message.role, message.content) for message in imported.session.messages
+    ] == [("u1", Role.USER, "")]
+    assert imported.notes == ()
+
+
+def test_a_user_record_whose_block_list_is_empty_is_still_the_turn_it_was(tmp_path):
+    path = write_jsonl(tmp_path, [user_record("u1", [])])
+
+    imported = import_claude_code(path)
+
+    assert [
+        (message.id, message.role, message.content) for message in imported.session.messages
+    ] == [("u1", Role.USER, "")]
+    assert imported.notes == ()
+
+
+def test_a_user_record_whose_only_entry_is_no_block_is_still_the_turn_it_was(tmp_path):
+    path = write_jsonl(tmp_path, [user_record("u1", ["just a string"])])
+
+    imported = import_claude_code(path)
+
+    assert [
+        (message.id, message.role, message.content) for message in imported.session.messages
+    ] == [("u1", Role.USER, "")]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<entry: string>"]
+    assert imported.notes_of(NOTE_SKIPPED_RECORD) == ()
+
+
+def test_a_screenshot_next_to_a_typed_prompt_keeps_the_prompt(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [user_record("u1", [{"type": "text", "text": "what is wrong here?"}, PASTED_IMAGE])],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [
+        (message.id, message.role, message.content) for message in imported.session.messages
+    ] == [("u1", Role.USER, "what is wrong here?")]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["image"]
+
+
+def test_a_text_block_of_blanks_keeps_its_blanks(tmp_path):
+    path = write_jsonl(tmp_path, [user_record("u1", [{"type": "text", "text": "   "}])])
+
+    imported = import_claude_code(path)
+
+    assert [message.content for message in imported.session.messages] == ["   "]
+    assert imported.notes == ()
+
+
+def test_a_record_holding_only_a_result_is_a_tool_message_and_no_user_turn(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [user_record("u1", [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"}])],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [(message.id, message.role) for message in imported.session.messages] == [
+        ("u1", Role.TOOL)
+    ]
+    assert imported.notes == ()
+
+
+def test_a_dropped_block_next_to_a_result_adds_no_empty_user_turn(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record(
+                "u1",
+                [
+                    PASTED_IMAGE,
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"},
+                ],
+            )
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [(message.id, message.role) for message in imported.session.messages] == [
+        ("u1", Role.TOOL)
+    ]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["image"]
+
+
+def test_an_empty_text_block_next_to_a_result_adds_no_empty_user_turn(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record(
+                "u1",
+                [
+                    {"type": "text", "text": ""},
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"},
+                ],
+            )
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [(message.id, message.role) for message in imported.session.messages] == [
+        ("u1", Role.TOOL)
+    ]
+    assert imported.notes == ()
 
 
 def test_a_content_entry_that_is_not_an_object_is_dropped_and_noted(tmp_path):
