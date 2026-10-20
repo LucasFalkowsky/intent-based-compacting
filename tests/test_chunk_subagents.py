@@ -383,7 +383,17 @@ def test_is_latest_marks_the_last_chunk_that_is_not_subagent_work(name):
     latest = next(chunk for chunk in chunks if chunk.is_latest)
 
     assert latest.origin is ChunkOrigin.USER
-    assert all(chunk.origin is ChunkOrigin.SUBAGENT for chunk in chunks[chunks.index(latest) + 1 :])
+    # Stated as an identity against an independently computed expectation, so
+    # that it compares something on every fixture. The earlier spelling,
+    # `all(... for chunk in chunks[chunks.index(latest) + 1 :])`, iterated an
+    # empty slice for all nine, because no corpus transcript ends in a subagent
+    # span; that shape is pinned synthetically by
+    # `test_a_span_at_the_end_of_the_transcript_does_not_become_the_latest_chunk`.
+    last_of_the_main_agent = next(
+        chunk for chunk in reversed(chunks) if chunk.origin is ChunkOrigin.USER
+    )
+
+    assert latest is last_of_the_main_agent
 
 
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
