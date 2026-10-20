@@ -19,7 +19,9 @@ and `tests/test_chunk_reduction.py`:
   is covered by them without touching their code. They state what inserting a
   chunk must not break — the partition, the no-copy property, `is_latest` set
   exactly once, idempotence — and that the chunks this stage produces still
-  compose with the reduction of T3.2 (#13).
+  compose with the reduction of T3.2 (#13), up to the one exception the
+  synthetic cases pin: the two stages do not commute when a piece this stage
+  splits off is nothing but reducible noise.
 - **The synthetic cases**, for the shapes the corpus does not hold: a call
   whose result never arrives, nested and consecutive calls, a call in the
   latest chunk, a span that would swallow a user turn.
@@ -507,9 +509,41 @@ def test_an_inserted_boundary_never_follows_a_reducible_message(name):
 
 
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
-def test_the_reduction_of_the_subagent_chunks_is_the_reduction_of_the_session(name):
+def test_the_reduction_is_the_reduction_of_the_session_unless_a_piece_is_only_noise(name):
+    """Kept, with its one exception excluded explicitly rather than described.
+
+    The two stages do not compose in either order in general: when a piece
+    this stage splits off consists of nothing but reducible messages,
+    `reduce_chunks`'s never-empty-a-chunk guard keeps that noise while
+    `reduce_session` drops it — pinned by
+    `test_a_continuation_of_nothing_but_noise_keeps_the_noise_reduce_session_drops`.
+    The equality below is therefore guarded by the condition under which it
+    holds. No corpus fixture meets the exception, so the equality is asserted
+    for the whole corpus; a fixture added later that does meet it fails on the
+    guard, which names the offending chunks, instead of failing on an equality
+    that was never promised for it.
+
+    What holds without any condition is narrower: a command can never lose its
+    result text across a boundary this stage inserted, because every inserted
+    boundary sits behind a message carrying a tool call or a tool result and
+    such a message is never reducible. That is
+    `test_an_inserted_boundary_never_follows_a_reducible_message`.
+    """
     session = CORPUS.session(name)
     chunks = chunk_with_subagents(session, is_subagent_tool)
+    spanned = {(chunk.start_index, chunk.end_index) for chunk in chunk_session(session)}
+
+    noise_only = [
+        chunk.id
+        for chunk in chunks
+        if (chunk.start_index, chunk.end_index) not in spanned
+        and all(is_reducible(message) for message in spanned_messages(session, chunk))
+    ]
+
+    assert noise_only == [], (
+        f"the chunks {noise_only} this stage split off hold nothing but reducible "
+        "messages, which is the exception to the equality below"
+    )
 
     reduced = reduce_chunks(session, chunks)
 
