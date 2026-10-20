@@ -20,12 +20,13 @@ one `SchemaValidationError` naming the file, and no test ever sees an
 unvalidated transcript. The module has no dependency beyond the standard
 library and the canonical schema itself.
 
-The readers at the end of the module (`tool_calls`, `file_of`, `touched_files`,
-`written_files`, `results_by_call_id`, `exec_runs`) are mechanical: they only
-regroup the canonical fields a fixture already carries, which is what a test
-needs to state what it expects. They are **not** the pipeline's notions of a
-turn, a write or a verification — the chunker (T3) and the resolver (T5) derive
-those themselves, and a test must not use these helpers as their oracle.
+The readers at the end of the module (`tool_calls`, `file_of`, `command_of`,
+`touched_files`, `written_files`, `results_by_call_id`, `exec_runs`) are
+mechanical: they only regroup the canonical fields a fixture already carries,
+which is what a test needs to state what it expects. They are **not** the
+pipeline's notions of a turn, a write or a verification — the chunker (T3) and
+the resolver (T5) derive those themselves, and a test must not use these helpers
+as their oracle.
 """
 
 from collections.abc import Iterable
@@ -147,6 +148,16 @@ call's arguments exactly as the agent sent them, so the corpus carries all three
 spellings on purpose.
 """
 
+COMMAND_KEYS = ("command", "shellCommand")
+"""Argument keys an `exec` call may use for the command it runs.
+
+All three agents send `command` today (Claude Code's `Bash`, OpenCode's `bash`,
+Gemini CLI's `run_shell_command`), so the second spelling is the camelCase
+variant OpenCode's key style would produce — accepted for the same reason
+`FILE_PATH_KEYS` carries three spellings, and so that a fixture added later is
+read instead of crashing on a dict lookup.
+"""
+
 
 def tool_calls(messages: Iterable[Message]) -> list[ToolCall]:
     """Return every tool call of `messages`, in transcript order."""
@@ -156,6 +167,15 @@ def tool_calls(messages: Iterable[Message]) -> list[ToolCall]:
 def file_of(call: ToolCall) -> str | None:
     """Return the file a call works on, or `None` if its arguments name none."""
     for key in FILE_PATH_KEYS:
+        value = call.args.get(key)
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def command_of(call: ToolCall) -> str | None:
+    """Return the command a call runs, or `None` if its arguments name none."""
+    for key in COMMAND_KEYS:
         value = call.args.get(key)
         if isinstance(value, str):
             return value
@@ -186,10 +206,30 @@ def results_by_call_id(session: Session) -> dict[str, ToolResult]:
 
 
 def exec_runs(session: Session) -> list[tuple[str, ToolResult]]:
-    """Return `(command, result)` for every `exec` call, in transcript order."""
+    """Return `(command, result)` for every `exec` call, in transcript order.
+
+    Args:
+        session: The session to read the `exec` calls of.
+
+    Returns:
+        One `(command, result)` pair per `exec` call, in transcript order.
+
+    Raises:
+        ValueError: If an `exec` call names its command under none of
+            `COMMAND_KEYS` — a corpus problem, reported with the call it comes
+            from instead of as a bare `KeyError` from a dict lookup.
+    """
     results = results_by_call_id(session)
-    return [
-        (call.args["command"], results[call.id])
-        for call in tool_calls(session.messages)
-        if call.category is ToolCategory.EXEC
-    ]
+    runs: list[tuple[str, ToolResult]] = []
+    for call in tool_calls(session.messages):
+        if call.category is not ToolCategory.EXEC:
+            continue
+        command = command_of(call)
+        if command is None:
+            spellings = ", ".join(COMMAND_KEYS)
+            raise ValueError(
+                f"exec call {call.id!r} ({call.name}) of session {session.id!r} names no "
+                f"command; tried the argument keys {spellings}"
+            )
+        runs.append((command, results[call.id]))
+    return runs
