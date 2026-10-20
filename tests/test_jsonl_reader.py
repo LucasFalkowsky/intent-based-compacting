@@ -142,3 +142,49 @@ def test_a_file_without_a_byte_order_mark_is_read_the_same_way(tmp_path):
     path.write_bytes(b'{"type":"a"}\n')
 
     assert read_json_lines(path) == [JsonLine(1, {"type": "a"})]
+
+
+# --- a file delimited by carriage returns -----------------------------------
+#
+# An old-Mac `\r`-delimited file is one giant line here, and fatal is the right
+# class of answer — such a file is not JSONL. The diagnostic has to say that,
+# though, rather than blame the JSON of a line the reader invented.
+
+
+def test_a_file_delimited_by_carriage_returns_names_the_carriage_return(tmp_path):
+    path = write(tmp_path / "s.jsonl", '{"type":"a"}\r{"type":"b"}\r')
+
+    with pytest.raises(TranscriptImportError, match="carriage return") as error:
+        read_json_lines(path)
+
+    assert str(path) in str(error.value)
+    assert "line 1" in str(error.value)
+
+
+def test_a_file_delimited_by_carriage_returns_does_not_blame_the_json(tmp_path):
+    path = write(tmp_path / "s.jsonl", '{"type":"a"}\r{"type":"b"}\r')
+
+    with pytest.raises(TranscriptImportError) as error:
+        read_json_lines(path)
+
+    assert "Extra data" not in str(error.value)
+
+
+def test_a_literal_carriage_return_inside_a_record_names_the_carriage_return(tmp_path):
+    path = write(tmp_path / "s.jsonl", '{"text":"a\rb"}\n')
+
+    with pytest.raises(TranscriptImportError, match="carriage return"):
+        read_json_lines(path)
+
+
+def test_an_escaped_carriage_return_inside_a_record_survives(tmp_path):
+    path = write(tmp_path / "s.jsonl", json.dumps({"text": "a\rb"}) + "\n")
+
+    assert read_json_lines(path) == [JsonLine(1, {"text": "a\rb"})]
+
+
+def test_a_line_that_is_no_json_and_holds_no_carriage_return_still_blames_the_json(tmp_path):
+    path = write(tmp_path / "s.jsonl", '{"type":"a"}\nnot json\n')
+
+    with pytest.raises(TranscriptImportError, match="not valid JSON"):
+        read_json_lines(path)
