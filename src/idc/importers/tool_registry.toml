@@ -94,6 +94,10 @@ bash = { category = "exec" }
 # the pattern, written as the command line it stands for. Only test runners
 # belong here — a linter or a type checker passing is not the verification the
 # resolver (T5.2) looks for.
+#
+# Tokens are compared whole, so a project-specific script name is a pattern of
+# its own: `npm run test` does not cover `npm run test:unit`, and `make test`
+# does not cover `make test-all`. Add the spelling the transcripts show.
 
 [[verification_patterns]]
 id = "pytest"
@@ -144,12 +148,24 @@ id = "yarn-test"
 command = "yarn test"
 
 [[verification_patterns]]
+id = "yarn-run-test"
+command = "yarn run test"
+
+[[verification_patterns]]
 id = "pnpm-test"
 command = "pnpm test"
 
 [[verification_patterns]]
+id = "pnpm-run-test"
+command = "pnpm run test"
+
+[[verification_patterns]]
 id = "bun-test"
 command = "bun test"
+
+[[verification_patterns]]
+id = "bun-run-test"
+command = "bun run test"
 
 [[verification_patterns]]
 id = "jest"

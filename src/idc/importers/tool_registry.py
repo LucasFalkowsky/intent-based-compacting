@@ -25,9 +25,10 @@ registry.is_verification("uv run pytest -q")     # True
 ```
 
 **Matching is anchored.** A command line is split into segments at `&&`, `||`,
-`;`, `|` and newlines (quote-aware), each segment is tokenized the way a shell
-would, leading `NAME=value` assignments and the data file's `runner_prefixes`
-are dropped, and the command word is reduced to its file name. A pattern then
+`;`, `|` and newlines (quote-aware, and stopping at a here-document body), each
+segment is tokenized the way a shell would, leading `NAME=value` assignments and
+the data file's `runner_prefixes` are dropped, and the command word is reduced to
+its file name. A pattern then
 has to match the *beginning* of what is left. That is deliberate: a false
 positive would make the resolver present an unrelated command as the chain's
 proof that its solution works, so `git commit -m "add pytest"` and
@@ -129,10 +130,18 @@ def _segments(command: str) -> list[str]:
         One entry per segment, in order, stripped and without the empty ones.
         `&&`, `||`, `;`, `|` and newlines separate segments; the same characters
         inside single or double quotes do not.
+
+        Scanning stops at the newline after a here-document introducer (`<<`):
+        what follows is the document's *body*, which the command writes or feeds
+        to another program rather than runs. Treating it as commands made
+        `python - <<EOF` with a `make test` line in its body look like a test
+        run. Commands after the body's delimiter are given up with it, which
+        only ever loses a match.
     """
     segments: list[str] = []
     current: list[str] = []
     quote: str | None = None
+    heredoc = False
     index = 0
     while index < len(command):
         char = command[index]
@@ -148,7 +157,12 @@ def _segments(command: str) -> list[str]:
             current.append(char)
             current.append(command[index])
             index += 1
+        elif char == "<" and index < len(command) and command[index] == "<":
+            heredoc = True
+            current.append(char)
         elif char in _SEGMENT_CHARS:
+            if char == "\n" and heredoc:
+                break
             segments.append("".join(current))
             current = []
             while index < len(command) and command[index] in _SEGMENT_CHARS:
