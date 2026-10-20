@@ -167,8 +167,9 @@ command = "python3 -m unittest"
 [[verification_patterns]]
 id = "tox"
 command = "tox"
-# `-l` lists the envs; pytest's `-l` is --showlocals, hence per pattern
-non_running_flags = ["-l", "--listenvs", "--listenvs-all"]
+# `-l` lists the envs and `-a` lists all of them; pytest's `-l` is --showlocals
+# and its `-a` nothing at all, hence per pattern
+non_running_flags = ["-l", "-a", "--listenvs", "--listenvs-all"]
 
 [[verification_patterns]]
 id = "nox"

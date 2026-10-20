@@ -635,9 +635,23 @@ class ToolRegistry:
             `make test -n`, `tox -l`. T5.2 sees only the command line and a zero
             exit code, which these have without running a single test, so they
             must not become a chain's proof.
+
+            The `=`-joined spelling of a declared flag counts as that flag:
+            `ctest --show-only=json-v1` is the spelling CMake's own docs use and
+            proves exactly as little as `ctest --show-only json-v1`. This is the
+            one thing the data file cannot express, since it would have to
+            enumerate the values; everything else about the lists stays data.
+            Without a value the token is compared whole, so a longer flag that
+            merely begins with a declared one (`--help-all`) is not disqualified.
         """
         flags = self._non_running_flags.union(pattern.non_running_flags)
-        return any(argument in flags for argument in arguments)
+        for argument in arguments:
+            if argument in flags:
+                return True
+            flag, separator, _ = argument.partition("=")
+            if separator and flag in flags:
+                return True
+        return False
 
     def is_verification(self, command: str) -> bool:
         """Return whether a command line runs a verification."""
