@@ -5,7 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from fixture_corpus import COMMAND_KEYS, CORPUS, Corpus, command_of, exec_runs
+from fixture_corpus import (
+    COMMAND_KEYS,
+    CORPUS,
+    FILE_PATH_KEYS,
+    Corpus,
+    command_of,
+    exec_runs,
+    tool_calls,
+)
 from idc.schema import Agent, Message, Role, Session, ToolCall, ToolCategory, ToolResult
 
 TESTS_DIR = Path(__file__).parent.resolve()
@@ -142,4 +150,33 @@ def test_exec_runs_names_the_call_when_no_spelling_matches():
     with pytest.raises(ValueError, match="c01") as error:
         exec_runs(session)
 
-    assert "command" in str(error.value)
+    spellings = ", ".join(COMMAND_KEYS)
+    assert f"tried the argument key{'s' if len(COMMAND_KEYS) > 1 else ''} {spellings}" in str(
+        error.value
+    )
+
+
+# --- the documented spellings are the ones the corpus carries --------------
+#
+# T2.1 inherited an invented spelling (`shellCommand`) from the tuples below:
+# documenting a key no agent sends pins behaviour that was never observed. The
+# two tests keep the tuples tied to the evidence instead.
+
+
+def argument_keys() -> set[str]:
+    return {
+        key
+        for session in CORPUS.sessions().values()
+        for call in tool_calls(session.messages)
+        for key in call.args
+    }
+
+
+@pytest.mark.parametrize("key", COMMAND_KEYS)
+def test_every_documented_command_spelling_occurs_in_the_corpus(key):
+    assert key in argument_keys()
+
+
+@pytest.mark.parametrize("key", FILE_PATH_KEYS)
+def test_every_documented_file_path_spelling_occurs_in_the_corpus(key):
+    assert key in argument_keys()

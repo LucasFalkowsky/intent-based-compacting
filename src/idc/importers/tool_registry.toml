@@ -1,0 +1,345 @@
+# Tool category registry — the per-agent tool knowledge of this tool, as data.
+#
+# Read by `idc.importers.tool_registry`; see that module for the loading rules
+# and for the matching primitive. Adding a tool or a verification pattern is a
+# change to this file alone — no Python is involved, and the file is validated
+# on load, so a typo fails loudly instead of silently resolving to `other`.
+#
+# Evidence rule: an entry is only added when the spelling was *observed*, and
+# the comment above each group says where. A tool that is missing resolves to
+# `other` (honestly incomplete); an invented entry would resolve wrongly, which
+# is worse. The three importers (T2.2–T2.4) extend their agent's section from
+# the real transcripts they read.
+
+version = 1
+
+# Wrapper commands that are stripped from the front of a command line before a
+# verification pattern is matched against it, so that `uv run pytest -q` is the
+# same verification as `pytest -q`. Leading `NAME=value` assignments are
+# stripped as well, and a leading path is reduced to its file name
+# (`./.venv/bin/pytest` -> `pytest`). Everything after the command word is left
+# untouched.
+runner_prefixes = [
+    "uv run",
+    "uvx",
+    "poetry run",
+    "pipenv run",
+    "pdm run",
+    "hatch run",
+    "rye run",
+    "bundle exec",
+    "npx",
+    "pnpm exec",
+    "bunx",
+]
+
+# Flags that turn a real runner into a command that proves nothing: it exits
+# zero without running a single test. The resolver (T5.2) sees only the command
+# line and that exit code, so without this list `pytest --version` could become
+# a chain's proof that its solution works.
+#
+# Only flags that mean the same thing for every runner belong here — asking for
+# a version, for help, or for what *would* be run. A flag whose meaning depends
+# on the runner belongs to its pattern below (`non_running_flags` there), and a
+# bare `--` is deliberately absent: it is the argument separator of
+# `npm test -- --runInBand`, a real run. Tokens are compared whole, so `--help`
+# never matches `--help-all`; the one exception is a value joined with `=`, so
+# an entry listed here also disqualifies its `--show-only=json-v1` spelling (the
+# matcher does that for every entry — the list is still extended here, not in
+# code).
+non_running_flags = [
+    "--version",  # every runner prints it and exits
+    "--help",
+    "-h",
+    "--collect-only",  # pytest: collects, runs nothing
+    "--co",            # pytest's short spelling of the same
+    "--dry-run",       # make, gradle, rspec, npm: says what it would do
+    "--list",          # cargo test, nox, nextest: lists tests or sessions
+]
+
+# --- Claude Code -------------------------------------------------------------
+#
+# `Bash`, `Edit`, `Grep`, `Read` and `Task` are recorded in the fixture corpus
+# (`tests/fixtures/*.json`). `Glob`, `Write`, `NotebookEdit`, `WebFetch` and
+# `WebSearch` are the remaining tools of the agent's own tool set. Tools that
+# would be `other` anyway (plan mode, todo bookkeeping, MCP tools) are left out
+# on purpose: they resolve to `other` without an entry.
+
+[agents.claude-code.tools]
+Read = { category = "read" }
+Glob = { category = "read" }
+Grep = { category = "read" }
+WebFetch = { category = "read" }
+WebSearch = { category = "read" }
+Write = { category = "write" }
+Edit = { category = "write" }
+NotebookEdit = { category = "write" }
+Bash = { category = "exec" }
+# `subagent` marks the tool that delegates to a subagent (consumed by T3.3,
+# which lifts the subagent's work into a chunk of its own). The category stays
+# what the corpus records: a `Task` call itself neither reads nor writes.
+Task = { category = "other", subagent = true }
+
+# --- Gemini CLI --------------------------------------------------------------
+#
+# All four entries are recorded in the fixture corpus. Gemini CLI's remaining
+# tools (directory listing, globbing, content search, multi-file read, web
+# access, memory) are deliberately absent: their exact spellings are not
+# established by any evidence in this repository, so T2.4 adds them from the
+# transcripts it imports.
+
+[agents.gemini-cli.tools]
+read_file = { category = "read" }
+replace = { category = "write" }
+write_file = { category = "write" }
+run_shell_command = { category = "exec" }
+
+# --- OpenCode ----------------------------------------------------------------
+#
+# All three entries are recorded in the fixture corpus. OpenCode's remaining
+# tools are absent for the same reason as Gemini CLI's; T2.3 adds them. Note
+# that OpenCode spells its tools in lower case, so `read` here and `Read` under
+# Claude Code are different tools — lookup is case-sensitive per agent.
+
+[agents.opencode.tools]
+read = { category = "read" }
+edit = { category = "write" }
+bash = { category = "exec" }
+
+# --- Verification patterns ---------------------------------------------------
+#
+# An `exec` call counts as a verification when one segment of its command line
+# *starts* with one of these patterns (token by token, after the prefix
+# stripping described above). The anchoring is what keeps
+# `git commit -m "add pytest"` and `echo "go test"` out: a pattern never
+# matches a command that merely mentions a test runner in an argument.
+#
+# `id` is stable and may be referenced from a summary or a test; `command` is
+# the pattern, written as the command line it stands for. Only test runners
+# belong here — a linter or a type checker passing is not the verification the
+# resolver (T5.2) looks for.
+#
+# Tokens are compared whole, so a project-specific script name is a pattern of
+# its own: `npm run test` does not cover `npm run test:unit`, and `make test`
+# does not cover `make test-all`. Add the spelling the transcripts show.
+#
+# `non_running_flags` on a pattern adds to the global list above, for flags
+# whose meaning is this runner's own: `-n` is make's dry run but pytest-xdist's
+# process count, and `-l` is tox's env listing but pytest's `--showlocals`.
+# Those must never be global — they would throw away real runs.
+#
+# Accepted limitations. Nearly all of them are *misses*: the command ran a
+# verification and the matcher does not see it, which costs one summary line,
+# where a false positive would corrupt the resolved solution. The two entries
+# that go the other way say so, and both do it on a command line real bash
+# refuses to run at all (`unexpected EOF while looking for matching …`), so
+# nothing was verified behind them either. They are not fixed on purpose.
+#
+#   - Shell constructs are not parsed, so the runner is not the command word:
+#     `if pytest; then …`, `for f in …; do pytest; done`, `(make test)`,
+#     `{ make test; }`, `! pytest`, and a `$(…)`/backtick substitution.
+#   - Windows-style paths are not reduced to their file name: the command word
+#     is reduced with POSIX path semantics, so `C:\Python\Scripts\pytest.exe`
+#     stays one token and matches nothing. The three agents record POSIX paths.
+#   - A backslash-escaped line continuation is not joined. The scan keeps it in
+#     one segment (the backslash escapes the newline, so it is no separator),
+#     but `shlex` then hands the newline to the following token: `make \` + a
+#     newline + `test` tokenizes as `make`, `\ntest`, so the second word of the
+#     `make test` pattern is not there and the run is missed. A one-word pattern
+#     survives it, because only the arguments carry the newline: `pytest \` + a
+#     newline + `-q tests/` does match (tokens `pytest`, `\n-q`, `tests/`).
+#   - A `$(…)` substitution and the `$'…'` detection are not followed far
+#     enough to notice that bash would reject the line, and then a separator
+#     inside the construct splits where bash splits nothing — the other
+#     direction, a *false positive*: `echo $(date; pytest -q` is read as
+#     `echo $(date` plus a `pytest -q` run, and `echo $$'a\'b'; pytest -q` is
+#     read as `echo $$'a\'b'` plus one, because the scan takes the `$'` for
+#     ANSI-C quoting where bash reads `$$` and then a plain quote. Both lines
+#     are bash syntax errors, so nothing ran there and there is no verification
+#     result to corrupt; T5.2 (#22) sees the exit code and can tell such a
+#     recorded line from a real run, which the matcher on a string cannot.
+#   - A segment whose quoting is unbalanced is tokenized by whitespace instead
+#     of by the shell's rules, and a separator swallowed by the open quote is no
+#     separator, so the run behind it is lost: `echo it's && pytest` stays one
+#     segment, is anchored on `echo` and is given up. Such a segment is kept at
+#     all — and a runner at its front still matches, as in `pytest -k "slow` —
+#     only when the whole command line *is* that one segment. A segment the scan
+#     split off and then left with an open quote is dropped entirely (see the
+#     module docstring), so `make lint; pytest -k "slow` is given up too.
+#   - A here-document is given up with its body (see the module docstring), so a
+#     real run written after the body's delimiter is lost with it. A separator
+#     written right before the body (`cat <<EOF;` + the body) does not change
+#     that: the scan still stops at the body-opening newline.
+#   - `<<` is taken for that introducer without looking at what follows, so the
+#     two other bash operators beginning with it set the same flag and
+#     everything after the next newline is given up as a document body: a
+#     here-*string*, `grep -q x <<< "$out"` + a newline + `make test`, misses
+#     the `make test` bash really ran, and an arithmetic left shift,
+#     `x=$((1<<2))` + a newline + `pytest -q`, misses the `pytest -q`. Both are
+#     misses; the here-string is the one that plausibly turns up in a
+#     multi-line agent command.
+
+[[verification_patterns]]
+id = "pytest"
+command = "pytest"
+
+[[verification_patterns]]
+id = "pytest-module"
+command = "python -m pytest"
+
+[[verification_patterns]]
+id = "pytest-module-python3"
+command = "python3 -m pytest"
+
+[[verification_patterns]]
+id = "unittest"
+command = "python -m unittest"
+
+[[verification_patterns]]
+id = "unittest-python3"
+command = "python3 -m unittest"
+
+[[verification_patterns]]
+id = "tox"
+command = "tox"
+# `-l` lists the envs and `-a` lists all of them; pytest's `-l` is --showlocals
+# and its `-a` nothing at all, hence per pattern
+non_running_flags = ["-l", "-a", "--listenvs", "--listenvs-all"]
+
+[[verification_patterns]]
+id = "nox"
+command = "nox"
+# `-l` lists the sessions
+non_running_flags = ["-l", "--list-sessions"]
+
+[[verification_patterns]]
+id = "make-test"
+command = "make test"
+# make's dry run (`-n`) and question mode (`-q`) run no recipe
+non_running_flags = ["-n", "--just-print", "--recon", "-q", "--question"]
+
+[[verification_patterns]]
+id = "make-check"
+command = "make check"
+# as make-test
+non_running_flags = ["-n", "--just-print", "--recon", "-q", "--question"]
+
+[[verification_patterns]]
+id = "npm-test"
+command = "npm test"
+
+[[verification_patterns]]
+id = "npm-run-test"
+command = "npm run test"
+
+[[verification_patterns]]
+id = "yarn-test"
+command = "yarn test"
+
+[[verification_patterns]]
+id = "yarn-run-test"
+command = "yarn run test"
+
+[[verification_patterns]]
+id = "pnpm-test"
+command = "pnpm test"
+
+[[verification_patterns]]
+id = "pnpm-run-test"
+command = "pnpm run test"
+
+[[verification_patterns]]
+id = "bun-test"
+command = "bun test"
+
+[[verification_patterns]]
+id = "bun-run-test"
+command = "bun run test"
+
+[[verification_patterns]]
+id = "jest"
+command = "jest"
+# lists the test files it would run
+non_running_flags = ["--listTests"]
+
+[[verification_patterns]]
+id = "vitest"
+command = "vitest"
+
+[[verification_patterns]]
+id = "mocha"
+command = "mocha"
+
+[[verification_patterns]]
+id = "cargo-test"
+command = "cargo test"
+
+[[verification_patterns]]
+id = "cargo-nextest"
+command = "cargo nextest run"
+
+[[verification_patterns]]
+id = "go-test"
+command = "go test"
+# `go test -list .` prints test names
+non_running_flags = ["-list"]
+
+[[verification_patterns]]
+id = "dotnet-test"
+command = "dotnet test"
+# `-t` is the short spelling of --list-tests
+non_running_flags = ["--list-tests", "-t"]
+
+[[verification_patterns]]
+id = "mvn-test"
+command = "mvn test"
+
+[[verification_patterns]]
+id = "gradle-test"
+command = "gradle test"
+# gradle's short spelling of --dry-run
+non_running_flags = ["-m"]
+
+[[verification_patterns]]
+id = "gradlew-test"
+command = "gradlew test"
+# as gradle-test
+non_running_flags = ["-m"]
+
+[[verification_patterns]]
+id = "ctest"
+command = "ctest"
+# shows the tests instead of running them
+non_running_flags = ["-N", "--show-only"]
+
+[[verification_patterns]]
+id = "rspec"
+command = "rspec"
+
+[[verification_patterns]]
+id = "rake-test"
+command = "rake test"
+
+[[verification_patterns]]
+id = "phpunit"
+command = "phpunit"
+
+[[verification_patterns]]
+id = "swift-test"
+command = "swift test"
+
+[[verification_patterns]]
+id = "mix-test"
+command = "mix test"
+
+[[verification_patterns]]
+id = "deno-test"
+command = "deno test"
+
+[[verification_patterns]]
+id = "dart-test"
+command = "dart test"
+
+[[verification_patterns]]
+id = "flutter-test"
+command = "flutter test"
