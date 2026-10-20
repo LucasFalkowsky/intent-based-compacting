@@ -128,9 +128,12 @@ bash = { category = "exec" }
 # process count, and `-l` is tox's env listing but pytest's `--showlocals`.
 # Those must never be global — they would throw away real runs.
 #
-# Accepted limitations. All of them are *misses*: the command ran a verification
-# and the matcher does not see it, which costs one summary line, where a false
-# positive would corrupt the resolved solution. They are not fixed on purpose.
+# Accepted limitations. Nearly all of them are *misses*: the command ran a
+# verification and the matcher does not see it, which costs one summary line,
+# where a false positive would corrupt the resolved solution. The two entries
+# that go the other way say so, and both do it on a command line real bash
+# refuses to run at all (`unexpected EOF while looking for matching …`), so
+# nothing was verified behind them either. They are not fixed on purpose.
 #
 #   - Shell constructs are not parsed, so the runner is not the command word:
 #     `if pytest; then …`, `for f in …; do pytest; done`, `(make test)`,
@@ -145,6 +148,16 @@ bash = { category = "exec" }
 #     `make test` pattern is not there and the run is missed. A one-word pattern
 #     survives it, because only the arguments carry the newline: `pytest \` + a
 #     newline + `-q tests/` does match (tokens `pytest`, `\n-q`, `tests/`).
+#   - A `$(…)` substitution and the `$'…'` detection are not followed far
+#     enough to notice that bash would reject the line, and then a separator
+#     inside the construct splits where bash splits nothing — the other
+#     direction, a *false positive*: `echo $(date; pytest -q` is read as
+#     `echo $(date` plus a `pytest -q` run, and `echo $$'a\'b'; pytest -q` is
+#     read as `echo $$'a\'b'` plus one, because the scan takes the `$'` for
+#     ANSI-C quoting where bash reads `$$` and then a plain quote. Both lines
+#     are bash syntax errors, so nothing ran there and there is no verification
+#     result to corrupt; T5.2 (#22) sees the exit code and can tell such a
+#     recorded line from a real run, which the matcher on a string cannot.
 #   - A segment whose quoting is unbalanced is tokenized by whitespace instead
 #     of by the shell's rules, and a separator swallowed by the open quote is no
 #     separator, so the run behind it is lost: `echo it's && pytest` stays one
@@ -154,7 +167,17 @@ bash = { category = "exec" }
 #     split off and then left with an open quote is dropped entirely (see the
 #     module docstring), so `make lint; pytest -k "slow` is given up too.
 #   - A here-document is given up with its body (see the module docstring), so a
-#     real run written after the body's delimiter is lost with it.
+#     real run written after the body's delimiter is lost with it. A separator
+#     written right before the body (`cat <<EOF;` + the body) does not change
+#     that: the scan still stops at the body-opening newline.
+#   - `<<` is taken for that introducer without looking at what follows, so the
+#     two other bash operators beginning with it set the same flag and
+#     everything after the next newline is given up as a document body: a
+#     here-*string*, `grep -q x <<< "$out"` + a newline + `make test`, misses
+#     the `make test` bash really ran, and an arithmetic left shift,
+#     `x=$((1<<2))` + a newline + `pytest -q`, misses the `pytest -q`. Both are
+#     misses; the here-string is the one that plausibly turns up in a
+#     multi-line agent command.
 
 [[verification_patterns]]
 id = "pytest"

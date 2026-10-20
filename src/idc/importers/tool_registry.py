@@ -265,14 +265,19 @@ def _validated_flags(flags: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _tokens(segment: str) -> tuple[str, ...]:
-    """Split one command segment into tokens the way a POSIX shell would.
+    r"""Split one command segment into tokens the way a POSIX shell would.
 
     Quoted text stays one token, which is what keeps `echo "go test"` from
     looking like a `go test` run. A segment whose quoting is unbalanced cannot be
     tokenized that way; it falls back to splitting on whitespace, which is safe
-    because matching is anchored on the command word either way. `_segments`
-    only ever hands such a segment on when it is the whole command line
-    (`pytest -k "slow`); one it split off while its quote was open it drops.
+    because matching is anchored on the command word either way. That is not only
+    the last segment's case: `shlex` has no model of bash's `$'…'`, where `\'` is
+    an escaped quote, so a segment `_segments` split off with its own quoting
+    closed can still be unbalanced here — `echo $'a\'b' && pytest -q` splits into
+    two segments and the first one takes the fallback. What `_segments` drops is
+    a segment it split off and then left with an open quote by its own rules,
+    which is why `pytest -k "slow` reaches this function only as a whole
+    command line.
     """
     try:
         return tuple(shlex.split(segment, comments=False, posix=True))
