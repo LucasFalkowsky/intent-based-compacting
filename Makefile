@@ -15,8 +15,11 @@ setup:
 test: lint unit
 
 lint:
-	uv run ruff check .
-	uv run ruff format --check .
+	# --no-cache: a warm .ruff_cache has produced a false green here before, and the
+	# lint stage is the gate two independent review rounds trusted. The suite is small
+	# enough that the cache buys nothing.
+	uv run ruff check --no-cache .
+	uv run ruff format --check --no-cache .
 
 unit:
 	uv run pytest
