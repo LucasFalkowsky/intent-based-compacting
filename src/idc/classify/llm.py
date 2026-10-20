@@ -506,6 +506,34 @@ def _read_label(label: object) -> str | None:
     return " ".join(label.split()) or None
 
 
+def _decision_for(read: _ReadAnswer, candidates: Sequence[ChainCandidate]) -> Decision:
+    """Turn a readable answer into a decision, against the chains on offer.
+
+    Args:
+        read: What the answer said.
+        candidates: The chains that were offered.
+
+    Returns:
+        The decision.
+
+    Raises:
+        UnknownChainError: If the answer named a chain the candidates do not
+            hold — including any chain at all when none was offered.
+    """
+    if read.chain_id is None:
+        return Decision.new()
+    known = tuple(candidate.id for candidate in candidates)
+    if read.chain_id not in known:
+        raise UnknownChainError(read.chain_id, known)
+    # Through `as_decision` and not `Decision.extend`, although `_read_decision`
+    # already checked the shape: a model's answer must never be able to leave
+    # this stage as a plain `ValueError`, and that is exactly what constructing
+    # a `Decision` from a wrong-shaped id would be (see `Decision`'s docstring).
+    # The check above and this one are the same guard twice, on purpose — one of
+    # them may be refactored, and the family must not depend on which.
+    return as_decision(read.chain_id)
+
+
 class LlmAdapter:
     """An `IntentAdapter` that asks a model, through an injected client.
 
@@ -589,7 +617,7 @@ class LlmAdapter:
                 reason = unreadable.reason
                 reasons.append(reason)
                 continue
-            decision = _decide(read, offered)
+            decision = _decision_for(read, offered)
             self._calls.append(
                 LlmCall(
                     chunk_id=chunk.id,
@@ -602,31 +630,3 @@ class LlmAdapter:
             )
             return decision
         raise UnreadableAnswerError(chunk.id, answers, reasons)
-
-
-def _decide(read: _ReadAnswer, candidates: Sequence[ChainCandidate]) -> Decision:
-    """Turn a readable answer into a decision, against the chains on offer.
-
-    Args:
-        read: What the answer said.
-        candidates: The chains that were offered.
-
-    Returns:
-        The decision.
-
-    Raises:
-        UnknownChainError: If the answer named a chain the candidates do not
-            hold — including any chain at all when none was offered.
-    """
-    if read.chain_id is None:
-        return Decision.new()
-    known = tuple(candidate.id for candidate in candidates)
-    if read.chain_id not in known:
-        raise UnknownChainError(read.chain_id, known)
-    # Through `as_decision` and not `Decision.extend`, although `_read_decision`
-    # already checked the shape: a model's answer must never be able to leave
-    # this stage as a plain `ValueError`, and that is exactly what constructing
-    # a `Decision` from a wrong-shaped id would be (see `Decision`'s docstring).
-    # The check above and this one are the same guard twice, on purpose — one of
-    # them may be refactored, and the family must not depend on which.
-    return as_decision(read.chain_id)
