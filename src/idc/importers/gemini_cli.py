@@ -833,19 +833,15 @@ def _response_output(builder: SessionBuilder, response: Mapping[str, Any]) -> tu
                 f"{PART_FUNCTION_RESPONSE}/<response: {_shape(payload)}>",
             )
         return "", False
-    output = payload.get("output")
-    error = payload.get("error")
-    if isinstance(output, str):
-        return output, False
-    if isinstance(error, str):
-        return error, True
-    for key, value in (("output", output), ("error", error)):
-        if value is not None:
+    for key, failure in (("output", False), ("error", True)):
+        reported = payload.get(key)
+        if isinstance(reported, str):
+            return reported, failure
+        if reported is not None:
             builder.note(
-                NOTE_DROPPED_BLOCK,
-                f"{PART_FUNCTION_RESPONSE}/<{key}: {_shape(value)}>",
+                NOTE_DROPPED_BLOCK, f"{PART_FUNCTION_RESPONSE}/<{key}: {_shape(reported)}>"
             )
-            return "", key == "error"
+            return "", failure
     if payload:
         builder.note(NOTE_DROPPED_BLOCK, f"{PART_FUNCTION_RESPONSE}/<response: object>")
     return "", False
