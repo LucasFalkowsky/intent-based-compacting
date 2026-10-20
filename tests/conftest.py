@@ -4,11 +4,9 @@ from pathlib import Path
 
 import pytest
 
-TESTS_DIR = Path(__file__).parent.resolve()
-"""Absolute path of the `tests/` directory."""
+from fixture_corpus import CORPUS, FIXTURES_DIR, TESTS_DIR, Corpus
 
-FIXTURES_DIR = TESTS_DIR / "fixtures"
-"""Absolute path of the shared transcript fixture corpus (populated in T1.3)."""
+__all__ = ["FIXTURES_DIR", "TESTS_DIR"]
 
 
 @pytest.fixture(scope="session")
@@ -20,3 +18,14 @@ def fixtures_dir() -> Path:
     matter which working directory pytest is started from.
     """
     return FIXTURES_DIR
+
+
+@pytest.fixture(scope="session")
+def corpus() -> Corpus:
+    """Return the shared fixture corpus, addressed by fixture name.
+
+    The preferred way into the corpus: `corpus.session("interleaved_intents")`
+    loads and validates one transcript, `corpus.names()` discovers all of them.
+    See `tests/fixture_corpus.py` and `tests/fixtures/README.md`.
+    """
+    return CORPUS
