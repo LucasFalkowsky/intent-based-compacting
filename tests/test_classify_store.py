@@ -437,7 +437,25 @@ def test_two_seeded_chains_may_not_share_a_chunk():
     assert raised.value.carried_over is True
 
 
+@pytest.mark.parametrize("label", ["   ", "\n\t "])
+def test_a_seeded_chain_whose_label_holds_no_word_is_refused_where_it_arrives(label):
+    # `Chain.label` is only checked for being non-empty, so a hand-edited
+    # summary block can carry `"   "` as a chain's name — and `open_chain`
+    # already refuses exactly that for an explicit label. The store refuses it
+    # at the seam, as a failure of the stage, instead of letting it travel to
+    # `candidates()`, where the value object's own guard would raise the bare
+    # `ValueError` that seeding is no longer allowed to produce.
+    session, _ = session_and_chunks("single_intent")
+    seeded = [Chain(id="C1", label=label, chunk_ids=["K8"])]
+
+    with pytest.raises(ClassifyError, match="holds no word") as raised:
+        ChainStore(session, seeded)
+
+    assert (raised.value.chain_id, raised.value.label) == ("C1", label)
+
+
 BAD_SEEDS = {
+    "a label that holds no word": [Chain(id="C1", label="   ", chunk_ids=["K8"])],
     "a duplicate id": [
         Chain(id="C1", label="an intent", chunk_ids=["K8"]),
         Chain(id="C1", label="another intent", chunk_ids=["K9"]),

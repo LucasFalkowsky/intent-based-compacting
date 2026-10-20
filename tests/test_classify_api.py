@@ -23,6 +23,7 @@ from idc.classify import (
     PROVISIONAL_LABEL_MAX_LENGTH,
     AdapterContractError,
     Assignment,
+    BlankChainLabelError,
     ChainAlreadySeededError,
     ChainCandidate,
     ChainOrderError,
@@ -56,6 +57,7 @@ EXPECTED_EXPORTS = {
     "PROVISIONAL_LABEL_MAX_LENGTH",
     "AdapterContractError",
     "Assignment",
+    "BlankChainLabelError",
     "ChainAlreadySeededError",
     "ChainCandidate",
     "ChainOrderError",
@@ -103,6 +105,7 @@ module down with it, which is the point: the contract fails loudly.
 TYPE_EXPORTS = (
     AdapterContractError,
     Assignment,
+    BlankChainLabelError,
     ChainAlreadySeededError,
     ChainCandidate,
     ChainOrderError,
@@ -134,6 +137,7 @@ VALUE_EXPORTS = {
 
 ERROR_EXPORTS = (
     AdapterContractError,
+    BlankChainLabelError,
     ChainAlreadySeededError,
     ChainOrderError,
     ChunkAlreadyAssignedError,
