@@ -549,6 +549,33 @@ def _add_compaction_record(builder: SessionBuilder, line: JsonLine) -> bool:
     """
     record = line.data
     builder.set_provenance(SessionSource.NATIVE_COMPACTION)
+    content = _summary(builder, record)
+    _note_unread_references(builder, record.get("recent"))
+    builder.add_message(
+        message_id=_record_id(builder, line),
+        role=Role.SYSTEM,
+        content=content,
+        timestamp=_timestamp(builder, line),
+        is_system_injected=True,
+    )
+    return True
+
+
+def _summary(builder: SessionBuilder, record: Mapping[str, Any]) -> str:
+    """Return the text a compaction record carries as its summary.
+
+    Args:
+        builder: The session being assembled, for the notes.
+        record: The `compaction` record.
+
+    Returns:
+        Its `summary` field, joined with the text of its parts when it carries
+        parts as well — both are read, so that a summary stored as a field and
+        one stored as the record's own text are each kept rather than one of
+        them being dropped on the way. A `summary` that is present and not a
+        string is noted by its shape and yields nothing, as every unreadable
+        value does.
+    """
     texts: list[str] = []
     summary = record.get("summary")
     if isinstance(summary, str):
@@ -556,15 +583,7 @@ def _add_compaction_record(builder: SessionBuilder, line: JsonLine) -> bool:
     elif summary is not None:
         builder.note(NOTE_DROPPED_BLOCK, f"{RECORD_COMPACTION}/<summary: {_shape(summary)}>")
     texts.extend(_texts(builder, _parts(builder, record)))
-    _note_unread_references(builder, record.get("recent"))
-    builder.add_message(
-        message_id=_record_id(builder, line),
-        role=Role.SYSTEM,
-        content=joined_text(texts),
-        timestamp=_timestamp(builder, line),
-        is_system_injected=True,
-    )
-    return True
+    return joined_text(texts)
 
 
 def _note_unread_references(builder: SessionBuilder, recent: Any) -> None:
