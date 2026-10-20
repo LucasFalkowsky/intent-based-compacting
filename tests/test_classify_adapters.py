@@ -235,7 +235,7 @@ def test_an_invalid_value_object_is_not_a_failure_of_the_stage():
     # The other side of the same line: a `Decision` built with a wrong target is
     # a programming error in the caller's own construction, not an answer the
     # stage received, so it stays a plain `ValueError`.
-    with pytest.raises(ValueError) as raised:
+    with pytest.raises(ValueError, match="C<n>") as raised:
         Decision(target="K1")
 
     assert not isinstance(raised.value, ClassifyError)
