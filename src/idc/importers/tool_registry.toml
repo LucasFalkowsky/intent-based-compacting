@@ -1,0 +1,228 @@
+# Tool category registry — the per-agent tool knowledge of this tool, as data.
+#
+# Read by `idc.importers.tool_registry`; see that module for the loading rules
+# and for the matching primitive. Adding a tool or a verification pattern is a
+# change to this file alone — no Python is involved, and the file is validated
+# on load, so a typo fails loudly instead of silently resolving to `other`.
+#
+# Evidence rule: an entry is only added when the spelling was *observed*, and
+# the comment above each group says where. A tool that is missing resolves to
+# `other` (honestly incomplete); an invented entry would resolve wrongly, which
+# is worse. The three importers (T2.2–T2.4) extend their agent's section from
+# the real transcripts they read.
+
+version = 1
+
+# Wrapper commands that are stripped from the front of a command line before a
+# verification pattern is matched against it, so that `uv run pytest -q` is the
+# same verification as `pytest -q`. Leading `NAME=value` assignments are
+# stripped as well, and a leading path is reduced to its file name
+# (`./.venv/bin/pytest` -> `pytest`). Everything after the command word is left
+# untouched.
+runner_prefixes = [
+    "uv run",
+    "uvx",
+    "poetry run",
+    "pipenv run",
+    "pdm run",
+    "hatch run",
+    "rye run",
+    "bundle exec",
+    "npx",
+    "pnpm exec",
+    "bunx",
+]
+
+# --- Claude Code -------------------------------------------------------------
+#
+# `Bash`, `Edit`, `Grep`, `Read` and `Task` are recorded in the fixture corpus
+# (`tests/fixtures/*.json`). `Glob`, `Write`, `NotebookEdit`, `WebFetch` and
+# `WebSearch` are the remaining tools of the agent's own tool set. Tools that
+# would be `other` anyway (plan mode, todo bookkeeping, MCP tools) are left out
+# on purpose: they resolve to `other` without an entry.
+
+[agents.claude-code.tools]
+Read = { category = "read" }
+Glob = { category = "read" }
+Grep = { category = "read" }
+WebFetch = { category = "read" }
+WebSearch = { category = "read" }
+Write = { category = "write" }
+Edit = { category = "write" }
+NotebookEdit = { category = "write" }
+Bash = { category = "exec" }
+# `subagent` marks the tool that delegates to a subagent (consumed by T3.3,
+# which lifts the subagent's work into a chunk of its own). The category stays
+# what the corpus records: a `Task` call itself neither reads nor writes.
+Task = { category = "other", subagent = true }
+
+# --- Gemini CLI --------------------------------------------------------------
+#
+# All four entries are recorded in the fixture corpus. Gemini CLI's remaining
+# tools (directory listing, globbing, content search, multi-file read, web
+# access, memory) are deliberately absent: their exact spellings are not
+# established by any evidence in this repository, so T2.4 adds them from the
+# transcripts it imports.
+
+[agents.gemini-cli.tools]
+read_file = { category = "read" }
+replace = { category = "write" }
+write_file = { category = "write" }
+run_shell_command = { category = "exec" }
+
+# --- OpenCode ----------------------------------------------------------------
+#
+# All three entries are recorded in the fixture corpus. OpenCode's remaining
+# tools are absent for the same reason as Gemini CLI's; T2.3 adds them. Note
+# that OpenCode spells its tools in lower case, so `read` here and `Read` under
+# Claude Code are different tools — lookup is case-sensitive per agent.
+
+[agents.opencode.tools]
+read = { category = "read" }
+edit = { category = "write" }
+bash = { category = "exec" }
+
+# --- Verification patterns ---------------------------------------------------
+#
+# An `exec` call counts as a verification when one segment of its command line
+# *starts* with one of these patterns (token by token, after the prefix
+# stripping described above). The anchoring is what keeps
+# `git commit -m "add pytest"` and `echo "go test"` out: a pattern never
+# matches a command that merely mentions a test runner in an argument.
+#
+# `id` is stable and may be referenced from a summary or a test; `command` is
+# the pattern, written as the command line it stands for. Only test runners
+# belong here — a linter or a type checker passing is not the verification the
+# resolver (T5.2) looks for.
+
+[[verification_patterns]]
+id = "pytest"
+command = "pytest"
+
+[[verification_patterns]]
+id = "pytest-module"
+command = "python -m pytest"
+
+[[verification_patterns]]
+id = "pytest-module-python3"
+command = "python3 -m pytest"
+
+[[verification_patterns]]
+id = "unittest"
+command = "python -m unittest"
+
+[[verification_patterns]]
+id = "unittest-python3"
+command = "python3 -m unittest"
+
+[[verification_patterns]]
+id = "tox"
+command = "tox"
+
+[[verification_patterns]]
+id = "nox"
+command = "nox"
+
+[[verification_patterns]]
+id = "make-test"
+command = "make test"
+
+[[verification_patterns]]
+id = "make-check"
+command = "make check"
+
+[[verification_patterns]]
+id = "npm-test"
+command = "npm test"
+
+[[verification_patterns]]
+id = "npm-run-test"
+command = "npm run test"
+
+[[verification_patterns]]
+id = "yarn-test"
+command = "yarn test"
+
+[[verification_patterns]]
+id = "pnpm-test"
+command = "pnpm test"
+
+[[verification_patterns]]
+id = "bun-test"
+command = "bun test"
+
+[[verification_patterns]]
+id = "jest"
+command = "jest"
+
+[[verification_patterns]]
+id = "vitest"
+command = "vitest"
+
+[[verification_patterns]]
+id = "mocha"
+command = "mocha"
+
+[[verification_patterns]]
+id = "cargo-test"
+command = "cargo test"
+
+[[verification_patterns]]
+id = "cargo-nextest"
+command = "cargo nextest run"
+
+[[verification_patterns]]
+id = "go-test"
+command = "go test"
+
+[[verification_patterns]]
+id = "dotnet-test"
+command = "dotnet test"
+
+[[verification_patterns]]
+id = "mvn-test"
+command = "mvn test"
+
+[[verification_patterns]]
+id = "gradle-test"
+command = "gradle test"
+
+[[verification_patterns]]
+id = "gradlew-test"
+command = "gradlew test"
+
+[[verification_patterns]]
+id = "ctest"
+command = "ctest"
+
+[[verification_patterns]]
+id = "rspec"
+command = "rspec"
+
+[[verification_patterns]]
+id = "rake-test"
+command = "rake test"
+
+[[verification_patterns]]
+id = "phpunit"
+command = "phpunit"
+
+[[verification_patterns]]
+id = "swift-test"
+command = "swift test"
+
+[[verification_patterns]]
+id = "mix-test"
+command = "mix test"
+
+[[verification_patterns]]
+id = "deno-test"
+command = "deno test"
+
+[[verification_patterns]]
+id = "dart-test"
+command = "dart test"
+
+[[verification_patterns]]
+id = "flutter-test"
+command = "flutter test"

@@ -146,16 +146,20 @@ Claude Code and Gemini CLI's `write_file`/`replace` use `file_path`, OpenCode
 `filePath`, Gemini's `read_file` `absolute_path`. The canonical schema keeps a
 call's arguments exactly as the agent sent them, so the corpus carries all three
 spellings on purpose.
+
+Every spelling listed here occurs in the corpus, and
+`tests/test_fixture_access.py` keeps it that way: a key no agent sends would pin
+behaviour that was never observed.
 """
 
-COMMAND_KEYS = ("command", "shellCommand")
+COMMAND_KEYS = ("command",)
 """Argument keys an `exec` call may use for the command it runs.
 
-All three agents send `command` today (Claude Code's `Bash`, OpenCode's `bash`,
-Gemini CLI's `run_shell_command`), so the second spelling is the camelCase
-variant OpenCode's key style would produce — accepted for the same reason
-`FILE_PATH_KEYS` carries three spellings, and so that a fixture added later is
-read instead of crashing on a dict lookup.
+All three agents send `command` — Claude Code's `Bash`, OpenCode's `bash` and
+Gemini CLI's `run_shell_command` — and none of them sends anything else, so this
+is a one-element tuple and stays one until a transcript shows otherwise. It is
+written as a tuple because the lookup tolerates several spellings, the way
+`FILE_PATH_KEYS` has to; it is not a place for prospective ones.
 """
 
 
@@ -227,9 +231,10 @@ def exec_runs(session: Session) -> list[tuple[str, ToolResult]]:
         command = command_of(call)
         if command is None:
             spellings = ", ".join(COMMAND_KEYS)
+            plural = "s" if len(COMMAND_KEYS) > 1 else ""
             raise ValueError(
                 f"exec call {call.id!r} ({call.name}) of session {session.id!r} names no "
-                f"command; tried the argument keys {spellings}"
+                f"command; tried the argument key{plural} {spellings}"
             )
         runs.append((command, results[call.id]))
     return runs
