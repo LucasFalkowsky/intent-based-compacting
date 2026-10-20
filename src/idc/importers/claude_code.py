@@ -61,10 +61,10 @@ imported.unknown_tools         # ('mcp__server__thing',)
 ```
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from idc.importers.base import (
     NOTE_DROPPED_BLOCK,
@@ -94,6 +94,23 @@ SUMMARY_FLAG = "isCompactSummary"
 
 INJECTED_FLAG = "isMeta"
 """Field Claude Code sets on a user record the harness wrote, not the user."""
+
+
+class _UserPart(NamedTuple):
+    """One canonical message a block-list `user` record yields.
+
+    Attributes:
+        message_id: Identifier derived from the record's own.
+        role: `USER` for the record's text, `TOOL` for one of its results.
+        content: The message's text content.
+        result: The result it reports, for a `TOOL` part.
+    """
+
+    message_id: str
+    role: Role
+    content: str
+    result: ToolResult | None
+
 
 COMMAND_MARKERS = ("<command-name>", "<command-message>", "<local-command-stdout>")
 """How Claude Code records a slash command and its output in a user message.
@@ -136,19 +153,8 @@ def import_claude_code(
         if session_id is None:
             session_id = record.get("sessionId")
         kind = record.get("type")
-        if kind == RECORD_USER:
-            _add_user_record(builder, line)
-        elif kind == RECORD_ASSISTANT:
-            _add_assistant_record(builder, line)
-        elif kind == RECORD_SYSTEM and _text(record.get("content")):
-            builder.add_message(
-                message_id=_record_id(line),
-                role=Role.SYSTEM,
-                content=_text(record.get("content")),
-                timestamp=_timestamp(builder, line),
-                is_system_injected=True,
-            )
-        else:
+        reader = READERS.get(str(kind))
+        if reader is None or not reader(builder, line):
             builder.note(NOTE_SKIPPED_RECORD, str(kind))
     return builder.build(session_id=session_id)
 
@@ -196,12 +202,17 @@ def _is_command(content: str) -> bool:
     return any(stripped.startswith(marker) for marker in COMMAND_MARKERS)
 
 
-def _add_user_record(builder: SessionBuilder, line: JsonLine) -> None:
+def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
     """Import a `user` record: a prompt, injected text, tool results, a summary.
 
     Args:
         builder: The session being assembled.
         line: The record and its line number.
+
+    Returns:
+        Whether the record yielded at least one canonical message. A record
+        whose blocks hold neither text nor a result yields none, and is then
+        noted as skipped like any other record that carries no message.
 
     Raises:
         TranscriptImportError: If a `tool_result` block names no `tool_use_id`,
@@ -220,7 +231,7 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> None:
             timestamp=timestamp,
             is_system_injected=True,
         )
-        return
+        return True
     injected = record.get(INJECTED_FLAG) is True
     if not isinstance(content, list):
         text = _text(content)
@@ -232,22 +243,24 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> None:
             is_system_injected=injected,
             is_command=_is_command(text),
         )
-        return
-    for message_id, role, text, result in _user_parts(builder, line, _blocks(content)):
+        return True
+    parts = _user_parts(builder, line, _blocks(content))
+    for part in parts:
         builder.add_message(
-            message_id=message_id,
-            role=role,
-            content=text,
+            message_id=part.message_id,
+            role=part.role,
+            content=part.content,
             timestamp=timestamp,
-            is_system_injected=injected and role is Role.USER,
-            is_command=_is_command(text),
-            tool_result=result,
+            is_system_injected=injected and part.role is Role.USER,
+            is_command=_is_command(part.content),
+            tool_result=part.result,
         )
+    return bool(parts)
 
 
 def _user_parts(
     builder: SessionBuilder, line: JsonLine, blocks: list[Mapping[str, Any]]
-) -> list[tuple[str, Role, str, ToolResult | None]]:
+) -> list[_UserPart]:
     """Split a block-list `user` record into the canonical messages it holds.
 
     Args:
@@ -256,14 +269,15 @@ def _user_parts(
         blocks: The record's content blocks.
 
     Returns:
-        One `(message id, role, content, result)` tuple per canonical message,
-        in the order of the blocks they come from. All `text` blocks of the
-        record are joined into one message, placed where the first of them sat.
+        One part per canonical message, in the order of the blocks they come
+        from. All `text` blocks of the record are joined into one message,
+        placed where the first of them sat; every `tool_result` block becomes a
+        message of its own, because the schema holds one result per message.
 
     Raises:
         TranscriptImportError: If a `tool_result` block names no `tool_use_id`.
     """
-    parts: list[tuple[int, Role, str, ToolResult | None]] = []
+    found: list[tuple[int, Role, str, ToolResult | None]] = []
     texts: list[str] = []
     text_index: int | None = None
     for index, block in enumerate(blocks):
@@ -272,17 +286,17 @@ def _user_parts(
             texts.append(str(block.get("text") or ""))
             text_index = index if text_index is None else text_index
         elif kind == BLOCK_TOOL_RESULT:
-            parts.append((index, Role.TOOL, "", _tool_result(builder, line, block)))
+            found.append((index, Role.TOOL, "", _tool_result(builder, line, block)))
         else:
             builder.note(NOTE_DROPPED_BLOCK, str(kind))
     text = joined_text(texts)
     if text and text_index is not None:
-        parts.append((text_index, Role.USER, text, None))
-    parts.sort(key=lambda part: part[0])
-    only = len(parts) == 1
+        found.append((text_index, Role.USER, text, None))
+    found.sort(key=lambda part: part[0])
+    only = len(found) == 1
     return [
-        (block_message_id(_record_id(line), index, only=only), role, content, result)
-        for index, role, content, result in parts
+        _UserPart(block_message_id(_record_id(line), index, only=only), role, content, result)
+        for index, role, content, result in found
     ]
 
 
@@ -318,12 +332,16 @@ def _tool_result(builder: SessionBuilder, line: JsonLine, block: Mapping[str, An
     )
 
 
-def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> None:
+def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
     """Import an `assistant` record as one message with all its tool calls.
 
     Args:
         builder: The session being assembled.
         line: The record and its line number.
+
+    Returns:
+        `True`: an assistant record is always a turn, even when it carries
+        neither text nor a call, because the agent did take that turn.
 
     Raises:
         TranscriptImportError: If a `tool_use` block names no identifier or no
@@ -350,6 +368,32 @@ def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> None:
         timestamp=_timestamp(builder, line),
         tool_calls=calls,
     )
+    return True
+
+
+def _add_system_record(builder: SessionBuilder, line: JsonLine) -> bool:
+    """Import a `system` record, which is a message only when it has content.
+
+    Args:
+        builder: The session being assembled.
+        line: The record and its line number.
+
+    Returns:
+        Whether the record carried content. Most `system` records are pure
+        bookkeeping (`turn_duration`, `agents_killed`) and hold no text at all;
+        those are skipped like any other record without a message.
+    """
+    content = _text(line.data.get("content"))
+    if not content:
+        return False
+    builder.add_message(
+        message_id=_record_id(line),
+        role=Role.SYSTEM,
+        content=content,
+        timestamp=_timestamp(builder, line),
+        is_system_injected=True,
+    )
+    return True
 
 
 def _tool_call(builder: SessionBuilder, line: JsonLine, block: Mapping[str, Any]) -> ToolCall:
@@ -381,3 +425,17 @@ def _tool_call(builder: SessionBuilder, line: JsonLine, block: Mapping[str, Any]
         call_id=call_id,
         args=dict(arguments) if isinstance(arguments, Mapping) else {},
     )
+
+
+READERS: dict[str, Callable[[SessionBuilder, JsonLine], bool]] = {
+    RECORD_USER: _add_user_record,
+    RECORD_ASSISTANT: _add_assistant_record,
+    RECORD_SYSTEM: _add_system_record,
+}
+"""The record types that can carry a message, and what reads them.
+
+A reader returns whether the record yielded a canonical message; everything
+else — a record type that is not in this table, and one that is but held no
+message — is noted as skipped by its type. That is what keeps a new Claude Code
+record type a line in the import's notes instead of a crash or a silent loss.
+"""
