@@ -1,0 +1,91 @@
+"""Reading a line-delimited JSON transcript, the shape two of the agents use.
+
+One place reads a `*.jsonl` file, so that every importer reports a broken
+transcript the same way and none of them has to think about blank lines or
+encodings. The reader does exactly two things: it hands back one mapping per
+line together with that line's number, and it refuses a file it cannot read.
+
+The line number is the point. A transcript is thousands of lines of one-line
+JSON, so "the tenth record" is useless to the person holding the file while
+"line 412" is the line their editor jumps to; every error an importer raises
+about a single record carries it.
+
+A malformed line is **fatal**, not skipped. A transcript is the study's data: a
+line that is not JSON means the file was damaged, and quietly dropping it would
+silently change what the measurement counts. Trimming such a file is the
+researcher's decision, not this tool's.
+
+```python
+for line in read_json_lines("session.jsonl"):
+    line.number      # 1, 2, 3, …
+    line.data["type"]
+```
+"""
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from idc.importers.base import TranscriptImportError
+
+__all__ = ["JsonLine", "read_json_lines"]
+
+
+@dataclass(frozen=True, slots=True)
+class JsonLine:
+    """One record of a JSONL transcript, with the line it was read from.
+
+    Attributes:
+        number: The 1-based line number in the file, as an editor counts.
+        data: The parsed JSON object.
+    """
+
+    number: int
+    data: dict[str, Any]
+
+
+def read_json_lines(path: str | Path) -> list[JsonLine]:
+    """Read a JSONL transcript into one mapping per line.
+
+    Args:
+        path: The transcript file, read as UTF-8. Blank lines are skipped; the
+            line numbers of the remaining records are unaffected by them.
+
+    Returns:
+        One `JsonLine` per non-blank line, in file order.
+
+    Raises:
+        TranscriptImportError: If the file cannot be read, is not valid UTF-8,
+            holds a line that is not JSON or a line whose JSON is not an object,
+            or holds no record at all. Every message names the file, and the
+            per-line ones name the line.
+    """
+    source = Path(path)
+    try:
+        text = source.read_bytes().decode("utf-8")
+    except OSError as exc:
+        raise TranscriptImportError(
+            f"cannot read the transcript {source}: {exc.strerror or exc}"
+        ) from None
+    except UnicodeDecodeError:
+        raise TranscriptImportError(f"invalid transcript {source}: not valid UTF-8") from None
+    lines: list[JsonLine] = []
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if not raw.strip():
+            continue
+        try:
+            record = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise TranscriptImportError(
+                f"invalid transcript {source}: line {number} is not valid JSON ({exc.msg})"
+            ) from None
+        if not isinstance(record, dict):
+            raise TranscriptImportError(
+                f"invalid transcript {source}: line {number} is not a JSON object "
+                f"but a {type(record).__name__}"
+            )
+        lines.append(JsonLine(number, record))
+    if not lines:
+        raise TranscriptImportError(f"invalid transcript {source}: no records")
+    return lines
