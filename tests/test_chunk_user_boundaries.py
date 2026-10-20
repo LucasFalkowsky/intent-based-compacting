@@ -4,10 +4,15 @@ Two kinds of test live here and they check different things:
 
 - **The expectation table.** `EXPECTED_RANGES` is read off the fixtures by hand,
   not computed, so the per-fixture tests have an oracle the implementation
-  cannot agree with by accident.
+  cannot agree with by accident. Because it is the one oracle here that running
+  the code cannot reproduce, it is also the one that could silently disappear:
+  `test_the_expectation_table_covers_the_discovered_fixtures` therefore pins it
+  to the corpus in both directions, so a fixture added later fails loudly until
+  its ranges have been read off by hand.
 - **The corpus-wide invariants.** Everything parametrized over `FIXTURE_NAMES`
   is discovered from `tests/fixtures/` at collection time, so a fixture added
-  by a later ticket is covered without touching this module. The central one is
+  by a later ticket is covered by them without touching their code. The
+  central one is
   `test_chunk_ranges_partition_the_messages`: a `Chunk` is a half-open range
   over `Session.messages` and copies nothing (T1.2, #3), so chunking is
   lossless and duplicate-free exactly when the ranges *partition* the index
@@ -55,8 +60,11 @@ EXPECTED_RANGES: dict[str, list[tuple[int, int]]] = {
 """The chunk ranges each fixture must produce, read off the corpus by hand.
 
 Half-open, `start_index` included and `end_index` excluded, in transcript order.
-The table pins the fixtures that exist today; the invariants below are
-discovery-driven, so it does not have to list a fixture added later.
+The table has to name *every* fixture of the corpus, not just the ones that
+existed when it was written: a fixture added later without its hand-read ranges
+would quietly leave the three table-driven tests below with one case less, and
+`test_the_expectation_table_covers_the_discovered_fixtures` turns that into a
+failure instead.
 """
 
 CREATED_AT = "2026-10-20T09:00:00+00:00"
@@ -107,8 +115,19 @@ def test_the_corpus_was_discovered():
     assert FIXTURE_NAMES
 
 
-def test_the_expectation_table_names_existing_fixtures():
-    assert set(EXPECTED_RANGES) <= set(FIXTURE_NAMES)
+def test_the_expectation_table_covers_the_discovered_fixtures():
+    # Guards the three table-driven tests below — among them the only test in
+    # this suite whose oracle is not derived from the code under test. An empty
+    # or shrunken table would silently turn them into fewer test cases instead
+    # of into failures, so the table is pinned to the corpus in both
+    # directions: every discovered fixture needs its hand-read ranges, and a
+    # name the table invents has no fixture to read them from.
+    assert EXPECTED_RANGES, "the hand-read expectation table must not be empty"
+    missing = sorted(set(FIXTURE_NAMES) - set(EXPECTED_RANGES))
+    unknown = sorted(set(EXPECTED_RANGES) - set(FIXTURE_NAMES))
+
+    assert missing == [], f"fixtures without hand-read expected ranges: {missing}"
+    assert unknown == [], f"expected ranges for fixtures that do not exist: {unknown}"
 
 
 # --- the expectation table -------------------------------------------------
