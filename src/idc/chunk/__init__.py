@@ -29,7 +29,23 @@ message in place: `idc.chunk.reduction` returns a `ReducedSession` — a new
 transcript, the same chunks re-indexed onto it, and a `ReductionNote` per
 removal. `idc.chunk.subagents` works on the chunk list instead: it splits the
 chunk that delegated work to a subagent and puts that work into a chunk of its
-own, so the two stages compose in either order over the same session.
+own.
+
+Reduction therefore runs over a chunk list the subagent stage may have
+rewritten, and what that composition guarantees is this: **a command can never
+lose its result text across a boundary the subagent stage inserted.** It holds
+structurally, not by luck — a command's result is the run of injected messages
+directly behind it, every boundary that stage inserts sits behind a message
+carrying a tool call or a tool result, and such a message is never reducible,
+so no answer run can cross one.
+
+The two stages do **not** commute beyond that. When a piece the subagent stage
+splits off consists of nothing but reducible noise, `reduce_chunks` may not
+empty that chunk — a `Chunk` spans at least one message — so the noise survives
+there, while `reduce_session` over the unsplit session drops it and notes the
+removal. Nothing is lost either way and neither order raises; the two just do
+not produce the same chunk count or the same notes. Both sides of that
+exception are pinned in `tests/test_chunk_subagents.py`.
 """
 
 from idc.chunk.boundaries import (
