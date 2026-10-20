@@ -227,6 +227,31 @@ class StrayAdapter:
         return "K1"
 
 
+class ConstructingAdapter:
+    """An adapter that builds the decision itself, from a wrong-shaped id.
+
+    The path the docstrings steer #17 onto: a `Decision` is the normal form
+    because it is the only one that can carry a confidence (#19 wants it), so a
+    real backend parses its model's answer and writes
+    `Decision.extend(parsed["decision"])` — and a model asked for `C<n>` writes
+    `K1`. That is a *caller's* bad literal and deliberately stays a plain
+    `ValueError`, which is why `Decision`'s own docstring points an adapter
+    author at `as_decision` and `is_chain_id` first.
+    """
+
+    def decide(self, chunk: ChunkUnderDecision, candidates: Sequence[ChainCandidate]) -> Decision:
+        """Construct a decision from an answer that is not a chain id."""
+        return Decision.extend("K1", confidence=0.9)
+
+
+class ExplodingAdapter:
+    """An adapter whose own call fails — a backend error, not a stage error."""
+
+    def decide(self, chunk: ChunkUnderDecision, candidates: Sequence[ChainCandidate]) -> Decision:
+        """Raise the way a real backend's transport would."""
+        raise TimeoutError("the backend did not answer")
+
+
 class RecordingAdapter:
     """An adapter that keeps what it was handed and always opens a chain.
 
@@ -449,6 +474,44 @@ def test_an_adapter_answering_a_wrong_shaped_chain_id_fails_as_one_family():
 
     with pytest.raises(AdapterContractError, match="'K1'"):
         classify(session, chunks, StrayAdapter())
+
+
+def test_an_adapter_constructing_its_own_decision_wrongly_is_the_documented_carve_out():
+    # The other side of the test above, and the trap the docstrings now mark: the
+    # *short* form is read by `as_decision` and becomes an `AdapterContractError`,
+    # the *normal* form is constructed by the adapter and stays a caller's bad
+    # literal. #17 will write the second one, so the promise in `idc.classify`
+    # says so and `Decision` names the two helpers that avoid it.
+    session, chunks = session_and_chunks("single_intent")
+
+    with pytest.raises(ValueError, match="C<n>") as raised:
+        classify(session, chunks, ConstructingAdapter())
+
+    assert not isinstance(raised.value, ClassifyError)
+
+
+def test_an_exception_the_adapter_raised_itself_reaches_the_caller_unwrapped():
+    # Only the backend knows what its own failure means; a timeout turned into a
+    # `ClassifyError` would read as a classification problem. The second thing
+    # the one-`except` promise does not cover.
+    session, chunks = session_and_chunks("single_intent")
+
+    with pytest.raises(TimeoutError, match="did not answer") as raised:
+        classify(session, chunks, ExplodingAdapter())
+
+    assert not isinstance(raised.value, ClassifyError)
+
+
+def test_a_backend_that_is_no_adapter_fails_on_the_missing_decide():
+    # The third: `IntentAdapter` is `runtime_checkable`, but that compares
+    # attribute names only, so the classifier cannot guard this and does not
+    # claim to. Passing a non-adapter is a caller's programming error.
+    session, chunks = session_and_chunks("single_intent")
+
+    with pytest.raises(AttributeError, match="decide") as raised:
+        classify(session, chunks, object())
+
+    assert not isinstance(raised.value, ClassifyError)
 
 
 def test_a_script_that_runs_out_fails_loudly():

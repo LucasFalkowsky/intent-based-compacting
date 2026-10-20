@@ -150,6 +150,31 @@ refusal is a failure of the stage and not a programmer's bad literal.
 """
 
 
+PROMISE_CARVE_OUTS = {
+    "a value object built with a bad literal": "as_decision",
+    "an exception the adapter raised itself": "unwrapped",
+    "an object that is no adapter at all": "AttributeError",
+}
+"""What the package's one-`except` promise does **not** cover, and the word that
+has to name it.
+
+`except ClassifyError` is what T10's CLI is written against, so the sentence
+stating it is part of the surface and not prose: an unqualified "every failure
+of the stage is a `ClassifyError`" sent #17 at a trap — `Decision.extend` with
+a wrong-shaped id — with nothing in the docs marking it. The three behaviours
+are pinned in `tests/test_classify_assignment.py`; what is pinned here is that
+the documentation still names them, so the sentence cannot quietly widen again.
+"""
+
+
+def test_the_documented_promise_names_the_carve_outs_it_rests_on():
+    promise = importlib.import_module("idc.classify").__doc__ or ""
+
+    missing = sorted(name for name, marker in PROMISE_CARVE_OUTS.items() if marker not in promise)
+
+    assert missing == [], f"the promise in idc.classify does not name: {missing}"
+
+
 def test_public_exports_are_declared_and_importable():
     module = importlib.import_module("idc.classify")
 
