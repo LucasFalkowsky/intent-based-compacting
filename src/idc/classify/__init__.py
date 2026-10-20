@@ -40,10 +40,30 @@ The stage is split along what a model may decide and what it may not:
   `idc.classify.fake` the scripted adapter that keeps every downstream test —
   the end-to-end one above all (#42) — free of a model and of the network.
 
-Every failure of the stage is a `ClassifyError`, so a caller catches the whole
-stage with one `except` — an adapter answering a chain id of the wrong shape
-included, which is why `AdapterContractError` is a `ValueError` as well: the
-message says which mistake was made, but there is only one family to catch.
+Every refusal the stage itself raises is a `ClassifyError`, so a caller catches
+all of them with one `except` — an adapter answering a chain id of the wrong
+shape included, which is why `AdapterContractError` is a `ValueError` as well,
+and a chain seeded from an existing summary block included, because that chain
+was read out of a transcript file (#33) and is input rather than a programmer's
+literal. The message says which mistake was made; there is one family to catch.
+
+Three things are deliberately *outside* that family, so a caller that has to
+survive them handles them on their own:
+
+- **A value object built with a bad literal** — `Decision(target="K1")`,
+  `Decision.extend("K1")`, `ChainCandidate(id="K1", …)` — raises a plain
+  `ValueError`, like `SubagentSpan` in `idc.chunk`: the mistake is in the
+  caller's own construction, not in an answer the stage received. An adapter
+  that turns what a model wrote into a decision should therefore hand the
+  string to `as_decision`, or check it with `is_chain_id`, rather than
+  construct a `Decision` from it — `as_decision("K1")` *is* an
+  `AdapterContractError`, `Decision.extend("K1")` is not.
+- **An exception an adapter raised itself** reaches the caller unwrapped. Only
+  the backend knows what its own timeout or authentication failure means, and
+  presenting it as a `ClassifyError` would read as a classification problem.
+- **An object that is no adapter at all** fails with `AttributeError` on the
+  missing `decide`. `IntentAdapter` is `runtime_checkable`, but that compares
+  attribute names only, so nothing here checks the shape or claims to.
 """
 
 from idc.classify.adapters import (

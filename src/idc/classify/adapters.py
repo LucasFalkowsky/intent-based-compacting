@@ -180,6 +180,13 @@ class ChainCandidate:
 class Decision:
     """One adapter answer: a chain to extend or `NEW`, with a confidence.
 
+    An adapter that builds one from what a model wrote should read the id with
+    `as_decision` (or check it with `is_chain_id`) first: `as_decision("K1")` is
+    an `AdapterContractError` and so a failure of the stage, while
+    `Decision.extend("K1")` is a plain `ValueError` — constructing a value
+    object with a bad literal is the caller's own mistake, which is the one
+    thing `except ClassifyError` does not cover.
+
     Attributes:
         target: The id of the chain the chunk continues, or `NEW` when it starts
             one.
