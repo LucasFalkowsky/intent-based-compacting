@@ -120,12 +120,12 @@ built, its whole scope is pulled onto the board in one step:
 3. **Move every sub-ticket of that parent from `Backlog` to `Ready`** — all of them, including the
    ones that carry `blocked` because they depend on a sibling. `Ready` is the pool for this parent;
    the labels, not the column, say which one may be picked.
-4. From there the sub-tickets are worked **one at a time** in ID order (see "Picking the next
-   ticket"); a ticket leaves `Ready` only into `In progress`, `In review` or `Done`.
+4. From there the sub-tickets are picked in ID order (see "Picking the next ticket"); a ticket
+   leaves `Ready` only into `In progress`, `In review` or `Done`.
 
-Only **one parent is activated at a time**. The next parent is activated after the current one is
-closed and merged into `main`. If a sub-ticket of the active parent turns out to need a decision,
-it goes back to `Backlog` with `blocked` (see "Status") — the rest of the parent keeps running.
+**More than one parent may be activated at a time**, and independent tickets run concurrently — see
+"Parallel execution". If a sub-ticket of an active parent turns out to need a decision, it goes back
+to `Backlog` with `blocked` (see "Status") — the rest of the parent keeps running.
 
 ### Recording decisions and process changes
 
@@ -151,9 +151,11 @@ Claude writes to the issues — that is where information is kept:
 
 ## Picking the next ticket
 
-1. `gh issue list --label epic --state open` → the parent with the lowest `n`. If it is not
-   activated yet (card still in `Backlog`, no `in-progress`), **activate it first** — see
-   "Activating a parent"; its sub-tickets all move to `Ready` before any of them is touched.
+1. `gh issue list --label epic --state open` → the parent with the lowest `n` that still has open
+   sub-tickets. If it is not activated yet (card still in `Backlog`, no `in-progress`),
+   **activate it first** — see "Activating a parent"; its sub-tickets all move to `Ready` before
+   any of them is touched. Lower `n` is picked first, but a higher parent whose dependencies are
+   satisfied may be activated alongside it — see "Parallel execution".
 2. Within the active parent, `gh issue list --label task --state open --search "T<n>."` → the
    sub-ticket with the lowest `m` that carries **no** status label (`in-progress`, `review`,
    `blocked`). The `blocked` label already encodes "dependencies not closed"; if you suspect it is
@@ -164,6 +166,30 @@ Claude writes to the issues — that is where information is kept:
    `In progress`, and comment with the branch name. One ticket at a time.
 5. Hand the ticket to a **fresh implementation subagent** — see "One subagent per ticket". The
    orchestrating session does not write the ticket's code itself.
+
+## Parallel execution
+
+The ordering authority is the **`Depends on` graph over all tickets**, not the ID alone: the IDs give
+the priority within a ready set, the graph says what is ready at all. Many edges cross parents
+(#12→#4, #14→#6, #26→#20, #32→#5, #41→#36), so once several parents are open the graph is the only
+thing that keeps the order correct.
+
+- Two tickets may be implemented **concurrently exactly when neither is in the other's transitive
+  `Depends on` closure**. Everything else is sequential.
+- Each concurrent implementation runs in its **own `git worktree`** on its own ticket branch. Two
+  subagents in one working directory is a broken state, not a slow one.
+- Independent sub-tickets of the same parent are each cut from the **parent branch** and merged back
+  independently. A sub-ticket with a `Depends on` on a sibling is cut from **that sibling's branch**
+  (the stack) and rebased onto the parent branch after the sibling merges.
+- A ticket that depends on a *parent* ticket (e.g. #26 → #20) waits for that parent to be closed and
+  merged into `main`, not merely for its sub-tickets.
+- The per-ticket rules do not change: one implementation subagent and one separate review subagent
+  per ticket, labels and board column moved in the same step, and "Closing a ticket" run in order.
+
+The orchestrating session works the graph **autonomously** through to merge. It asks the user only
+when a ticket is genuinely unimplementable as written — a subagent's `Scope/blocked`, or a
+contradiction between tickets. Everything else is decided and recorded as a `**Decision:**` comment
+on the ticket (see "Recording decisions and process changes").
 
 ## One subagent per ticket
 
@@ -215,8 +241,11 @@ subagent, and run "Closing a ticket". A `Scope/blocked` entry means: `blocked` l
 
 **Rules**
 
-- One implementation subagent at a time. Sub-tickets of a parent are not implemented in parallel:
-  they share the parent branch, they are stacked, and `Depends on` is sequential by design.
+- One implementation subagent **per ticket**; several may run at once when the tickets are
+  independent (see "Parallel execution"). Wherever a `Depends on` edge exists, the tickets are
+  stacked and strictly sequential.
+- Concurrent implementation subagents never share a working directory: each one runs in its own
+  `git worktree`, so one ticket's uncommitted state can never leak into another's.
 - A subagent is never reused for a second ticket, and never for the review of its own work. If a
   ticket comes back `changes-requested`, the fixes may run in a **new** implementation subagent
   with the review findings in the prompt.
@@ -336,8 +365,9 @@ the only ticket source. Do not re-create it — a new ticket is created directly
   commit messages, docs) are **English**. Conversation with the user may be German.
 - **Commits:** `<type>(T<id>): <imperative summary>` with `type ∈ {test, feat, fix,
   refactor, docs, chore}`.
-- **Stack:** decided in T1.1 (#2) and recorded in the "Decision log" issue (#44). Until then, do not
-  add dependencies.
+- **Stack:** **Python 3.13** with `uv` (dependencies, venv), `pytest`, `pydantic` v2 (canonical
+  schema) and `ruff` (lint + format) — decided in T1.1 (#2), recorded in the "Decision log" (#44).
+  A new dependency is justified on the ticket that introduces it, as a `**Decision:**` comment.
 - **Canonical schema** (T1.2) is the contract between all building blocks. Changing it is a
   ticket of its own, never a side effect.
 - **No agent integration, no git calls** inside the tool. The tool reads transcript files
@@ -347,10 +377,13 @@ the only ticket source. Do not re-create it — a new ticket is created directly
   not by a model. Model calls are confined to the classifier adapters and the three
   narrative sections of the compaction template.
 
-## Commands (filled in by T1.1)
+## Commands
 
 ```
-make setup    # install dependencies
-make test     # lint + full test suite
+make setup    # install dependencies (uv sync --all-groups)
+make test     # lint + full test suite — the gate before every PR
 make run ARGS="compact --agent opencode --in session.jsonl --out compacted.jsonl"
 ```
+
+Convenience targets that exist but are not the gate: `make help`, `make lint`, `make unit`,
+`make clean`.
