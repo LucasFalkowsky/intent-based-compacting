@@ -81,16 +81,23 @@ class ReductionNote:
     """The record that one message was replaced by its result or dropped.
 
     The note is what keeps the reduction auditable: it names the message that
-    left the transcript, why it was noise, and where its result text came from.
+    left the transcript, why it was noise, and which answers were consumed for
+    it.
 
     Attributes:
         message_id: `Message.id` of the reduced message. The message is still in
             the transcript when it was replaced — carrying its result text
             instead of its own — and gone when it was dropped.
         reason: Which kind of harness noise the message was.
-        result_from: `Message.id` of every message whose text became the result,
-            in transcript order; those messages are gone from the transcript.
-            Empty exactly when the message was dropped for having no result.
+        result_from: `Message.id` of every answer that was consumed for this
+            message, in transcript order; those messages are gone from the
+            transcript. The result text is built from the consumed answers that
+            carry text, so an answer that was blank is listed here although it
+            contributed nothing — observed: a command answered by `"   "` and
+            then by `"Model set."` is replaced by `"Model set."` and lists both
+            ids. Listing every consumed message is what keeps the removal
+            auditable. Empty exactly when the message was dropped for having no
+            result.
     """
 
     message_id: str
