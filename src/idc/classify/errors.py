@@ -28,6 +28,7 @@ from collections.abc import Sequence
 
 __all__ = [
     "AdapterContractError",
+    "BlankChainLabelError",
     "ChainAlreadySeededError",
     "ChainOrderError",
     "ChunkAlreadyAssignedError",
@@ -129,6 +130,38 @@ class ChainAlreadySeededError(ClassifyError):
         self.chain_id = chain_id
         super().__init__(
             f"two seeded chains share the id {chain_id!r}; a chain id names exactly one chain"
+        )
+
+
+class BlankChainLabelError(ClassifyError):
+    """A chain a run was seeded with carries a label that holds no word.
+
+    `Chain.label` is only checked for being non-empty (#3), so a hand-edited
+    summary block can name a chain `"   "` — and that string would then be what
+    an adapter is shown as the chain's intent, and what the next summary block
+    is written with. `ChainStore.open_chain` refuses the same label when a
+    caller passes one explicitly; refusing it here keeps the two sides of the
+    seam from disagreeing, and keeps the value object's own `ValueError` out of
+    a path that carries input.
+
+    Attributes:
+        chain_id: The chain whose label is blank.
+        label: The label as it arrived, so that the message shows which
+            whitespace it was.
+    """
+
+    def __init__(self, chain_id: str, label: str) -> None:
+        """Build the error from the chain and the label it carries.
+
+        Args:
+            chain_id: The chain whose label is blank.
+            label: The label as it arrived.
+        """
+        self.chain_id = chain_id
+        self.label = label
+        super().__init__(
+            f"seeded chain {chain_id!r} carries the label {label!r}, which holds no word; "
+            f"a chain's label is what names its intent"
         )
 
 

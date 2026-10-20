@@ -79,6 +79,7 @@ from idc.classify.adapters import (
 from idc.classify.classifier import Assignment, Classification, classify, classify_chunks
 from idc.classify.errors import (
     AdapterContractError,
+    BlankChainLabelError,
     ChainAlreadySeededError,
     ChainOrderError,
     ChunkAlreadyAssignedError,
@@ -103,6 +104,7 @@ __all__ = [
     "PROVISIONAL_LABEL_MAX_LENGTH",
     "AdapterContractError",
     "Assignment",
+    "BlankChainLabelError",
     "ChainAlreadySeededError",
     "ChainCandidate",
     "ChainOrderError",

@@ -150,16 +150,19 @@ class ChainCandidate:
     last_user_message: str = ""
 
     def __post_init__(self) -> None:
-        """Reject an id that is not a chain id and an empty label.
+        """Reject an id that is not a chain id and a label that holds no word.
 
         Raises:
-            ValueError: If `id` is not of the form `C<n>`, or `label` is empty —
-                `Chain.label` is a non-empty identifier, so an empty label could
-                never become one.
+            ValueError: If `id` is not of the form `C<n>`, or `label` holds no
+                word — empty or whitespace only, which is the same guard
+                `ChainStore.open_chain` applies to an explicit label and the
+                same absence `provisional_label` falls back on. `Chain.label` is
+                only checked for being non-empty, so `"   "` would otherwise be
+                what an adapter reads as the chain's intent.
         """
         require_chain_id(self.id, what="a candidate's chain id")
-        if not self.label:
-            raise ValueError(f"candidate {self.id!r} must carry a non-empty label")
+        if not self.label.strip():
+            raise ValueError(f"candidate {self.id!r} must carry a label that holds a word")
 
     @classmethod
     def from_chain(cls, chain: Chain, last_user_message: str = "") -> Self:

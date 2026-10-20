@@ -58,6 +58,7 @@ from dataclasses import dataclass, field
 from idc.chunk import is_user_turn
 from idc.classify.adapters import ChainCandidate, ChunkUnderDecision
 from idc.classify.errors import (
+    BlankChainLabelError,
     ChainAlreadySeededError,
     ChainOrderError,
     ChunkAlreadyAssignedError,
@@ -248,6 +249,7 @@ class ChainStore:
             the numbers need not be contiguous.
 
     Raises:
+        BlankChainLabelError: If a seeded chain's label holds no word.
         ChainAlreadySeededError: If two seeded chains share an id.
         ChainOrderError: If their ids do not increase.
         ChunkAlreadyAssignedError: If two seeded chains claim the same chunk.
@@ -446,6 +448,9 @@ class ChainStore:
             chain: The chain as the parser read it back.
 
         Raises:
+            BlankChainLabelError: If the chain's label holds no word. The
+                schema accepts any non-empty string, so `"   "` arrives here
+                and would otherwise be what an adapter is shown.
             ChainAlreadySeededError: If another seeded chain has the same id.
             ChainOrderError: If this chain is numbered before the one seeded
                 ahead of it.
@@ -453,6 +458,8 @@ class ChainStore:
                 one of its chunks — the same refusal, and the same cause, as a
                 chunk of *this* run running into a carried-over chunk id.
         """
+        if not chain.label.strip():
+            raise BlankChainLabelError(chain.id, chain.label)
         if chain.id in self._chains:
             raise ChainAlreadySeededError(chain.id)
         if self._order and chain_position(chain.id) < chain_position(self._order[-1]):
