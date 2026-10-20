@@ -1,11 +1,12 @@
 """The corpus access layer: load a fixture by name, never by path."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from fixture_corpus import CORPUS, Corpus
 
-from idc.schema import Session
+from fixture_corpus import COMMAND_KEYS, CORPUS, Corpus, command_of, exec_runs
+from idc.schema import Agent, Message, Role, Session, ToolCall, ToolCategory, ToolResult
 
 TESTS_DIR = Path(__file__).parent.resolve()
 FIXTURES_DIR = TESTS_DIR / "fixtures"
@@ -81,3 +82,64 @@ def test_discovery_is_not_cached_between_calls(tmp_path):
     (tmp_path / "added_afterwards.json").write_text(CORPUS.text("single_intent"), encoding="utf-8")
 
     assert other.names() == ["added_afterwards"]
+
+
+# --- the tolerant argument lookups -----------------------------------------
+
+
+def exec_session(args: dict[str, object]) -> Session:
+    """Return a minimal session whose single `exec` call carries `args`.
+
+    Built in-memory rather than as a fixture: the corpus states what the three
+    agents actually send, while these tests state what the readers tolerate.
+    """
+    return Session(
+        id="sess-exec-spelling",
+        agent=Agent.OPENCODE,
+        created_at=datetime(2026, 9, 1, 9, 0, tzinfo=UTC),
+        messages=[
+            Message(
+                id="m01",
+                role=Role.ASSISTANT,
+                timestamp=datetime(2026, 9, 1, 9, 0, tzinfo=UTC),
+                tool_calls=[ToolCall(id="c01", name="bash", category=ToolCategory.EXEC, args=args)],
+            ),
+            Message(
+                id="m02",
+                role=Role.TOOL,
+                timestamp=datetime(2026, 9, 1, 9, 1, tzinfo=UTC),
+                tool_result=ToolResult(call_id="c01", output="1 passed", exit_code=0),
+            ),
+        ],
+    )
+
+
+@pytest.mark.parametrize("key", COMMAND_KEYS)
+def test_the_command_lookup_accepts_every_spelling_it_documents(key):
+    call = ToolCall(id="c01", name="bash", category=ToolCategory.EXEC, args={key: "pytest -q"})
+
+    assert command_of(call) == "pytest -q"
+
+
+def test_the_command_lookup_returns_none_for_an_unknown_spelling():
+    call = ToolCall(id="c01", name="bash", category=ToolCategory.EXEC, args={"cmdline": "pytest"})
+
+    assert command_of(call) is None
+
+
+@pytest.mark.parametrize("key", COMMAND_KEYS)
+def test_exec_runs_reads_the_command_under_every_documented_spelling(key):
+    session = exec_session({key: "pytest -q"})
+
+    assert exec_runs(session) == [("pytest -q", session.messages[-1].tool_result)]
+
+
+def test_exec_runs_names_the_call_when_no_spelling_matches():
+    # The point of the ticket's finding: a future fixture that spells the
+    # argument differently must say so, not raise a bare KeyError.
+    session = exec_session({"cmdline": "pytest -q"})
+
+    with pytest.raises(ValueError, match="c01") as error:
+        exec_runs(session)
+
+    assert "command" in str(error.value)

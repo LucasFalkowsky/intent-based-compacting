@@ -10,12 +10,13 @@ must not depend on the access layer that reads them. The layer's own discovery
 is checked against this one in `test_fixture_access.py`.
 """
 
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from idc.schema import Agent, Session, dumps, load, loads
+from idc.schema import Agent, Session, ToolCategory, dumps, load, loads
 
 TESTS_DIR = Path(__file__).parent.resolve()
 FIXTURES_DIR = TESTS_DIR / "fixtures"
@@ -38,6 +39,15 @@ FIXTURE_PATHS = sorted(FIXTURES_DIR.glob("*.json"))
 """Every fixture on disk, discovered at collection time."""
 
 FIXTURE_NAMES = [path.stem for path in FIXTURE_PATHS]
+
+MESSAGE_ID_PATTERN = re.compile(r"^m[0-9]{2,}$")
+"""Message ids are `m01…` — see the conventions section of the corpus README."""
+
+TOOL_CALL_ID_PATTERN = re.compile(r"^c[0-9]{2,}$")
+"""Tool-call ids are `c01…` — see the conventions section of the corpus README."""
+
+UTC_OFFSET = timedelta(0)
+"""The offset most of the corpus is recorded in; two fixtures use another one."""
 
 
 def test_fixtures_dir_exists_and_is_a_directory():
@@ -161,6 +171,62 @@ def test_every_message_is_timestamped_in_transcript_order(path):
 
     assert timestamps == sorted(timestamps)
     assert session.created_at <= timestamps[0]
+
+
+@pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
+def test_every_fixture_numbers_its_messages_and_calls_in_the_corpus_shape(path):
+    # The README promises the `m01…` / `c01…` shape, and downstream fixtures of
+    # later tickets are read in diffs next to these: the numbering is part of
+    # the contract, not an accident of how the first nine were written.
+    session = load(Session, path)
+    message_ids = [message.id for message in session.messages]
+    call_ids = [call.id for message in session.messages for call in message.tool_calls]
+
+    assert all(MESSAGE_ID_PATTERN.match(identifier) for identifier in message_ids), message_ids
+    assert all(TOOL_CALL_ID_PATTERN.match(identifier) for identifier in call_ids), call_ids
+    assert message_ids == [f"m{number:02d}" for number in range(1, len(message_ids) + 1)], (
+        "message ids are numbered from m01 in transcript order"
+    )
+    assert call_ids == [f"c{number:02d}" for number in range(1, len(call_ids) + 1)], (
+        "tool-call ids are numbered from c01 in the order the calls are made"
+    )
+
+
+def test_the_corpus_mixes_utc_with_another_timestamp_offset():
+    # Deliberate: every downstream stage that orders or compares timestamps has
+    # to survive a transcript recorded in a local offset, so the corpus keeps
+    # both kinds. Which fixtures carry the offset is free; that both occur is not.
+    offsets = {
+        message.timestamp.utcoffset()
+        for path in FIXTURE_PATHS
+        for message in load(Session, path).messages
+        if message.timestamp is not None
+    }
+
+    assert UTC_OFFSET in offsets, "the bulk of the corpus is recorded in UTC"
+    assert any(offset != UTC_OFFSET for offset in offsets), (
+        "at least one fixture must stay recorded in a non-UTC offset"
+    )
+
+
+@pytest.mark.parametrize("path", FIXTURE_PATHS, ids=FIXTURE_NAMES)
+def test_exit_code_is_set_for_exec_calls_only(path):
+    # The invariant the exploration and tool statistics (T9) key off: a result
+    # carries an exit code exactly when it answers an `exec` call.
+    session = load(Session, path)
+    category = {
+        call.id: call.category for message in session.messages for call in message.tool_calls
+    }
+    results = [
+        message.tool_result for message in session.messages if message.tool_result is not None
+    ]
+
+    for result in results:
+        runs_a_command = category[result.call_id] is ToolCategory.EXEC
+        assert (result.exit_code is not None) is runs_a_command, (
+            f"{result.call_id} answers a {category[result.call_id]} call "
+            f"with exit_code {result.exit_code!r}; exit_code is for exec calls only"
+        )
 
 
 def test_the_corpus_covers_every_agent():

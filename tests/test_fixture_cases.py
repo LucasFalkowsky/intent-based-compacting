@@ -192,7 +192,20 @@ def test_write_then_two_edits_keeps_the_superseded_writes_before_the_last_one():
     assert write_calls[-1] is to_target[-1], "the accepted write is the last one for that file"
     assert len(set(written_files(session.messages))) == 2, "a second file makes it per-file"
     superseded = to_target[:-1]
-    assert all(write_calls.index(call) < write_calls.index(to_target[-1]) for call in superseded), (
+    # Not the position inside `to_target` — that is an order-preserving sublist
+    # of `write_calls` and could not disagree. The falsifiable statement is
+    # about the messages: each superseded write sits in an earlier message of
+    # its own than the write that supersedes them.
+    message_index = {
+        call.id: index
+        for index, message in enumerate(session.messages)
+        for call in message.tool_calls
+    }
+    superseded_indices = [message_index[call.id] for call in superseded]
+    assert len(set(superseded_indices)) == len(superseded), (
+        "the superseded writes sit in separate messages, not bundled in one"
+    )
+    assert max(superseded_indices) < message_index[to_target[-1].id], (
         "both superseded writes precede the accepted one"
     )
     assert {result.exit_code for _, result in exec_runs(session)} == {0, 1}
