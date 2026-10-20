@@ -20,7 +20,7 @@ assignment report the same way, so pydantic's own error never escapes:
 from idc.schema import Session, dump, load
 
 session = load(Session, "session.json")
-dump(session, "copy.json")       # byte-identical round trip
+dump(session, "copy.json")       # lossless round trip
 ```
 
 `canonical.schema.json` next to this module is the same contract as a JSON
