@@ -75,7 +75,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from idc.chunk.boundaries import chunk_id, chunk_session, is_user_turn
-from idc.schema import Agent, Chunk, ChunkOrigin, Session
+from idc.schema import Agent, Chunk, ChunkOrigin, Session, ToolCall
 
 IsSubagentTool = Callable[[Agent, str], bool]
 """Decides whether a tool of an agent spawns a subagent.
@@ -155,18 +155,18 @@ def subagent_spans(session: Session, is_subagent_tool: IsSubagentTool) -> list[S
         for call in message.tool_calls:
             if not is_subagent_tool(session.agent, call.name):
                 continue
-            result_index = _first_after(results.get(call.id, ()), index)
-            if result_index is None:
-                # No result: where the delegated work ends is not in the
-                # transcript, so there is nothing to delimit.
+            span = _span_of(call, index, results)
+            if span is None:
+                # No result behind the call: where the delegated work ends is
+                # not in the transcript, so there is nothing to delimit.
                 continue
-            span = SubagentSpan(
-                call_id=call.id,
-                tool_name=call.name,
-                call_index=index,
-                result_index=result_index,
-            )
-            if span.start_index < taken or _covers_a_user_turn(session, span):
+            if span.start_index < taken:
+                # Nested in — or crossing — a span that was already taken; the
+                # work belongs to that outer subagent's chunk.
+                continue
+            if _covers_a_user_turn(session, span):
+                # The user wrote while the subagent was running. A user turn
+                # opens a chunk of its own and must not be swallowed by one.
                 continue
             spans.append(span)
             taken = span.end_index
@@ -225,6 +225,35 @@ def chunk_with_subagents(session: Session, is_subagent_tool: IsSubagentTool) -> 
         The chunks in transcript order, subagent work in chunks of its own.
     """
     return extract_subagents(session, chunk_session(session), is_subagent_tool)
+
+
+def _span_of(
+    call: ToolCall,
+    call_index: int,
+    results: dict[str, list[int]],
+) -> SubagentSpan | None:
+    """Return the span `call` delimits, or `None` when the transcript does not.
+
+    Args:
+        call: The subagent call, already recognized by the registry.
+        call_index: Index of the message that issued it.
+        results: Where each call is answered, as `_result_indices` returns it.
+
+    Returns:
+        The span from behind the call up to and including its result; `None`
+        when no result follows the call — it never arrived, or the only one
+        that names this call sits in front of it and therefore answers a call
+        the transcript no longer holds.
+    """
+    result_index = _first_after(results.get(call.id, ()), call_index)
+    if result_index is None:
+        return None
+    return SubagentSpan(
+        call_id=call.id,
+        tool_name=call.name,
+        call_index=call_index,
+        result_index=result_index,
+    )
 
 
 def _split(chunk: Chunk, spans: Sequence[SubagentSpan]) -> list[tuple[int, int, ChunkOrigin]]:
