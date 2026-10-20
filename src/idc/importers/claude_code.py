@@ -69,6 +69,10 @@ Known limitations, all of them deliberate:
 - `isSidechain` is ignored. A subagent's own records are imported as the
   messages they are; lifting them into a chunk of their own is T3.3's job, which
   works on the canonical session.
+- `toolUseResult` is not read at all: a result comes from the `tool_result`
+  block. Its `interrupted` field is the one thing in a record that the canonical
+  session holds nowhere, so a tool run the user cancelled imports as an ordinary
+  result — a pointer for #10 (provenance normalisation), not a decision here.
 - A value this importer cannot read is dropped **and noted by its shape**: a
   content entry that is not an object (`<entry: string>`), a content that is
   neither text nor a block list (`<content: object>`), a `message` that is not

@@ -81,7 +81,7 @@ shared sits in `idc.importers.base` (assembling and validating the session, reso
 categories, logging the unknown ones, reading timestamps) and `idc.importers.jsonl`
 (reading a line-delimited transcript); an agent module is only that agent's format.
 
-Three properties hold for every importer:
+Four properties hold for every importer:
 
 - **Identifiers come from the transcript.** A message keeps the record's own identifier and
   a tool call the one its result references, so a canonical transcript can still be read
@@ -91,13 +91,22 @@ Three properties hold for every importer:
   no call, and a call whose result never arrived because the turn was interrupted, both
   import as they are: the canonical schema deliberately does not require referential
   completeness, and the measurement has to count them.
-- **Nothing is dropped without a note.** A block the schema has no field for, a record
-  that carries no message, and a value an importer cannot read at all are each reported:
-  `dropped-block: thinking`, `skipped-record: attachment`, and — for something that has no
-  kind to name — the shape it had, as in `dropped-block: tool_use/Bash/<input: array>` or
-  `skipped-record: <null type>`. A record whose content is not readable yields no message
-  rather than an empty turn, because an invented user turn would be an invented intent
-  boundary.
+- **No message content is dropped without a note.** A block the schema has no field for, a
+  record that carries no message, and a value an importer cannot read at all are each
+  reported: `dropped-block: thinking`, `skipped-record: attachment`, and — for something that
+  has no kind to name — the shape it had, as in `dropped-block: tool_use/Bash/<input: array>`,
+  `dropped-block: text/<text: object>` or `skipped-record: <null type>`. Nothing is coerced
+  either: a block whose text is not a string is dropped and noted rather than turned into a
+  repr of itself, because inventing content is worse than losing it. A record whose content
+  cannot be read at all — a number, an object — yields no message rather than an empty turn,
+  since an invented user turn would be an invented intent boundary; a record whose content
+  *is* a block list the schema has no field for — a pasted screenshot — does import as the
+  turn it was, with empty content and the note, because that turn happened.
+
+  It is a property of the *message content*, and only of that. The record-level fields an
+  importer deliberately never reads carry no note — for Claude Code `isSidechain`,
+  `toolUseResult`, `parentUuid`, `cwd`, `gitBranch` and `version` — and each importer's
+  module docstring lists the ones it ignores and why.
 - **One error type.** Anything an importer rejects is a `TranscriptImportError` naming the
   file, and a problem that belongs to one record names its line number. A tool call that
   does not satisfy the canonical schema is reported by the schema's own
