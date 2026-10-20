@@ -1,0 +1,169 @@
+{
+  "id": "7c1f0e2a-0000-4000-8000-000000000001",
+  "agent": "claude-code",
+  "model": "claude-opus-5",
+  "source": "raw",
+  "created_at": "2026-09-10T09:00:00Z",
+  "messages": [
+    {
+      "id": "u01",
+      "role": "user",
+      "content": "The invoice exporter writes local timestamps. Make it emit UTC and prove it with the tests.",
+      "timestamp": "2026-09-10T09:00:00Z",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": null
+    },
+    {
+      "id": "a01",
+      "role": "assistant",
+      "content": "Reading the exporter.",
+      "timestamp": "2026-09-10T09:00:04Z",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [
+        {
+          "id": "toolu_01",
+          "name": "Read",
+          "category": "read",
+          "args": {
+            "file_path": "/repo/src/billing/export.py"
+          }
+        }
+      ],
+      "tool_result": null
+    },
+    {
+      "id": "t01",
+      "role": "tool",
+      "content": "",
+      "timestamp": "2026-09-10T09:00:05Z",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": {
+        "call_id": "toolu_01",
+        "output": "     1\timport datetime\n     2\t\n     3\tdef stamp():\n     4\t    return datetime.datetime.now().isoformat()\n",
+        "exit_code": null,
+        "is_error": false
+      }
+    },
+    {
+      "id": "a02",
+      "role": "assistant",
+      "content": "`datetime.now()` is naive. Switching it to an aware UTC stamp.",
+      "timestamp": "2026-09-10T09:00:09Z",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [
+        {
+          "id": "toolu_02",
+          "name": "Edit",
+          "category": "write",
+          "args": {
+            "file_path": "/repo/src/billing/export.py",
+            "old_string": "datetime.datetime.now().isoformat()",
+            "new_string": "datetime.datetime.now(datetime.UTC).isoformat()",
+            "replace_all": false
+          }
+        },
+        {
+          "id": "toolu_03",
+          "name": "Bash",
+          "category": "exec",
+          "args": {
+            "command": "uv run pytest -q tests/test_export.py",
+            "description": "Run the exporter tests"
+          }
+        }
+      ],
+      "tool_result": null
+    },
+    {
+      "id": "t02#0",
+      "role": "tool",
+      "content": "",
+      "timestamp": "2026-09-10T09:00:14Z",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": {
+        "call_id": "toolu_02",
+        "output": "The file /repo/src/billing/export.py has been updated.",
+        "exit_code": null,
+        "is_error": false
+      }
+    },
+    {
+      "id": "t02#1",
+      "role": "tool",
+      "content": "",
+      "timestamp": "2026-09-10T09:00:14Z",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": {
+        "call_id": "toolu_03",
+        "output": "1 failed, 3 passed\nE   assert '+00:00' in '2026-09-10T09:00:09'",
+        "exit_code": null,
+        "is_error": true
+      }
+    },
+    {
+      "id": "u02",
+      "role": "user",
+      "content": "<system-reminder>The test file asserts an explicit `+00:00` suffix.</system-reminder>",
+      "timestamp": "2026-09-10T09:00:16Z",
+      "is_system_injected": true,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": null
+    },
+    {
+      "id": "a03",
+      "role": "assistant",
+      "content": "",
+      "timestamp": "2026-09-10T09:00:20Z",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [
+        {
+          "id": "toolu_04",
+          "name": "Bash",
+          "category": "exec",
+          "args": {
+            "command": "uv run pytest -q tests/test_export.py",
+            "description": "Re-run the exporter tests"
+          }
+        }
+      ],
+      "tool_result": null
+    },
+    {
+      "id": "t03",
+      "role": "tool",
+      "content": "",
+      "timestamp": "2026-09-10T09:00:24Z",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": {
+        "call_id": "toolu_04",
+        "output": "4 passed in 0.31s",
+        "exit_code": null,
+        "is_error": false
+      }
+    },
+    {
+      "id": "a04",
+      "role": "assistant",
+      "content": "The exporter now stamps aware UTC and the four exporter tests pass.",
+      "timestamp": "2026-09-10T09:00:27Z",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": null
+    }
+  ]
+}

@@ -59,6 +59,61 @@ make schema   # regenerate it after changing a model
 
 Changing the schema is a ticket of its own, never a side effect of another change.
 
+## Importers
+
+An importer reads one agent's transcript into a canonical `Session`. It returns that
+session together with **notes**: one line per thing the transcript held that the canonical
+schema has no place for, so that nothing is lost silently.
+
+```python
+from idc.importers import import_transcript
+
+imported = import_transcript("claude-code", "~/.claude/projects/repo/session.jsonl")
+imported.session.source  # SessionSource.RAW, or NATIVE_COMPACTION for a compacted one
+imported.unknown_tools  # ('mcp__server__thing',) — resolved to `other`, and logged
+for note in imported.notes:
+    print(note)  # 'skipped-record: attachment (x19)', 'dropped-block: thinking (x7)', …
+```
+
+Only **Claude Code** is implemented (ticket T2.2); OpenCode (T2.3) and Gemini CLI (T2.4)
+follow, and `import_transcript` names the ticket instead of failing obscurely. What is
+shared sits in `idc.importers.base` (assembling and validating the session, resolving tool
+categories, logging the unknown ones, reading timestamps) and `idc.importers.jsonl`
+(reading a line-delimited transcript); an agent module is only that agent's format.
+
+Four properties hold for every importer:
+
+- **Identifiers come from the transcript.** A message keeps the record's own identifier and
+  a tool call the one its result references, so a canonical transcript can still be read
+  against the file it came from. A record that yields several canonical messages — the
+  schema holds one tool result per message — derives them as `<id>#<block index>`.
+- **Nothing is repaired.** A transcript cut off at the front, whose first tool result has
+  no call, and a call whose result never arrived because the turn was interrupted, both
+  import as they are: the canonical schema deliberately does not require referential
+  completeness, and the measurement has to count them.
+- **No message content is dropped without a note.** A block the schema has no field for, a
+  record that carries no message, and a value an importer cannot read at all are each
+  reported: `dropped-block: thinking`, `skipped-record: attachment`, and — for something that
+  has no kind to name — the shape it had, as in `dropped-block: tool_use/Bash/<input: array>`,
+  `dropped-block: text/<text: object>` or `skipped-record: <null type>`. Nothing is coerced
+  either: a block whose text is not a string is dropped and noted rather than turned into a
+  repr of itself, because inventing content is worse than losing it. A record whose content
+  cannot be read at all — a number, an object — yields no message rather than an empty turn,
+  since an invented user turn would be an invented intent boundary; a record whose content
+  *is* a block list the schema has no field for — a pasted screenshot — does import as the
+  turn it was, with empty content and the note, because that turn happened.
+
+  It is a property of the *message content*, and only of that. The record-level fields an
+  importer deliberately never reads carry no note — for Claude Code `isSidechain`,
+  `toolUseResult`, `parentUuid`, `cwd`, `gitBranch` and `version` — and each importer's
+  module docstring lists the ones it ignores and why.
+- **One error type.** Anything an importer rejects is a `TranscriptImportError` naming the
+  file, and a problem that belongs to one record names its line number. A tool call that
+  does not satisfy the canonical schema is reported by the schema's own
+  `SchemaValidationError` — e.g. a `tool_use` identifier that occurs twice.
+
+`python -c` is not the interface: the `import` command is wired up in T10.1.
+
 ## Tool registry
 
 What a tool call does to the workspace, and which commands count as a verification run,
@@ -79,7 +134,12 @@ registry.is_verification('git commit -m "add pytest"')  # False
 
 A tool the file does not declare resolves to `other`; the file is deliberately incomplete
 where no transcript has shown a spelling yet, because an invented entry would resolve
-wrongly instead of merely being coarse. Verification matching is **anchored** on the
+wrongly instead of merely being coarse. A tool a transcript *has* shown is declared even
+when its category is `other`, so that the unknown-tool log keeps flagging the calls whose
+category would be resolved wrongly rather than warning on every import. MCP tools are the
+one group that stays undeclared: their names are `mcp__<server>__<tool>` and the server is
+whatever the user configured, so neither the spelling nor the effect can be known here.
+Verification matching is **anchored** on the
 command word (after `NAME=value` assignments and runner prefixes such as `uv run` are
 stripped, and a leading path is reduced to its file name), so a command that only mentions
 a test runner in an argument never counts as one — not in a quoted string, not behind a
@@ -132,6 +192,12 @@ session = CORPUS.session("interleaved_intents")  # validated on load
 `tests/fixtures/README.md` states what each fixture exercises; the directory is discovered
 on every call, so a new fixture is picked up without changing any test.
 
+The importers need the other side as well — transcripts in an agent's **own** on-disk
+format. Those live in `tests/native/<agent>/` and are resolved by agent and name through
+`tests/native_transcripts.py`. Every record key they carry is one that real transcripts of
+that agent show; the values are invented, so no fixture is a recording of a real session.
+`tests/native/README.md` states what each one holds.
+
 ## Run
 
 ```
@@ -148,7 +214,8 @@ src/idc/              # the package (src layout)
   schema/             # the canonical types + the generated canonical.schema.json
   importers/ chunk/ classify/ resolve/ compact/ render/ measure/ cli/
 tests/                # pytest suite
-  fixtures/           # shared transcript fixture corpus
+  fixtures/           # shared canonical transcript fixture corpus
+  native/             # agent-native transcripts — the importers' input side
 .github/workflows/    # CI: make test on every pull request
 ```
 
