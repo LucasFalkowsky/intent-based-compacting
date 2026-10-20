@@ -37,9 +37,14 @@ actually offered — which is how the growing candidate list is pinned.
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from idc.classify.adapters import ChainCandidate, Decision, DecisionLike, as_decision
+from idc.classify.adapters import (
+    ChainCandidate,
+    ChunkUnderDecision,
+    Decision,
+    DecisionLike,
+    as_decision,
+)
 from idc.classify.errors import ScriptExhaustedError
-from idc.schema import Chunk
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,11 +104,13 @@ class FakeAdapter:
         """Return how many scripted decisions have not been played yet."""
         return len(self._script) - len(self._calls)
 
-    def decide(self, chunk: Chunk, candidates: Sequence[ChainCandidate]) -> Decision:
+    def decide(self, chunk: ChunkUnderDecision, candidates: Sequence[ChainCandidate]) -> Decision:
         """Return the next scripted decision, recording what was asked.
 
         Args:
-            chunk: The chunk to classify; only its id is read, for the record.
+            chunk: The chunk to classify; only its id is read, for the record —
+                the fake answers from its script and not from the text, which
+                is what makes it an oracle rather than a second classifier.
             candidates: The open chains, kept in the record unexamined.
 
         Returns:

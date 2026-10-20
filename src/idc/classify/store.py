@@ -10,6 +10,7 @@ it cannot carry out it refuses:
 from idc.classify import ChainStore
 
 store = ChainStore(session)                  # optionally seeded with earlier chains
+store.subject(chunks[0])                     # -> ChunkUnderDecision(id="K1", …)
 store.open_chain(chunks[0])                  # -> Chain C1, provisionally labelled
 store.candidates()                           # -> [ChainCandidate(id="C1", …)]
 store.append("C1", chunks[2])                # -> Chain C1 with two chunks
@@ -36,16 +37,18 @@ Four decisions are the store's own:
   the real label is written by the compactor (T6) from the compaction template.
 
 The store copies no message: a `Chunk` is a half-open range over
-`Session.messages`, and the store only reads through those ranges — which is why
-a chunk from another transcript is `ForeignChunkError` instead of a range that
-silently resolves to nothing.
+`Session.messages`, and the store only reads through those ranges. That is also
+why both sides of an adapter's question are built here — the candidates *and*
+the `ChunkUnderDecision` the adapter decides about — and why the chunk's user
+message is resolved once: the subject and the provisional label are the same
+resolution.
 """
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from idc.chunk import is_user_turn
-from idc.classify.adapters import ChainCandidate
+from idc.classify.adapters import ChainCandidate, ChunkUnderDecision
 from idc.classify.errors import (
     ChunkAlreadyAssignedError,
     ChunkOrderError,
@@ -218,6 +221,7 @@ class ChainStore:
     def __init__(self, session: Session, chains: Iterable[Chain] = ()) -> None:
         """Build the store, seeded with the chains of an earlier run."""
         self._session = session
+        self._messages: dict[tuple[str, int, int], str | None] = {}
         self._chains: dict[str, _OpenChain] = {}
         self._order: list[str] = []
         self._owner: dict[str, str] = {}
@@ -235,6 +239,26 @@ class ChainStore:
     def __contains__(self, chain_identifier: object) -> bool:
         """Return whether the store holds a chain of that id."""
         return isinstance(chain_identifier, str) and chain_identifier in self._chains
+
+    def subject(self, chunk: Chunk) -> ChunkUnderDecision:
+        """Return `chunk` as an adapter gets to see it.
+
+        The other half of what `candidates` offers: a chunk carries indices and
+        no text, so the chunk's own last user turn is resolved here — once per
+        chunk, because opening a chain for it needs the same string for the
+        provisional label.
+
+        Args:
+            chunk: The chunk about to be classified.
+
+        Returns:
+            The chunk's id together with its last real user turn, empty when it
+            holds none.
+
+        Raises:
+            ForeignChunkError: If the chunk is not a range over this session.
+        """
+        return ChunkUnderDecision.from_chunk(chunk, self._message_of(chunk))
 
     def candidates(self) -> list[ChainCandidate]:
         """Return every open chain as a candidate, in the order they opened.
@@ -283,9 +307,8 @@ class ChainStore:
         """
         if label is not None and not label:
             raise ValueError("a chain's label may not be empty; omit it for a provisional one")
-        require_chunk_of(self._session, chunk)
+        message = self._message_of(chunk)
         position = self._next_position()
-        message = chunk_user_message(self._session, chunk)
         chain = _OpenChain(
             id=chain_id(position),
             label=label if label is not None else provisional_label(message or "", position),
@@ -314,8 +337,7 @@ class ChainStore:
         chain = self._chains.get(chain_id)
         if chain is None:
             raise UnknownChainError(chain_id, self._order)
-        require_chunk_of(self._session, chunk)
-        self._claim(chain, chunk, chunk_user_message(self._session, chunk))
+        self._claim(chain, chunk, self._message_of(chunk))
         return chain.as_chain()
 
     def _claim(self, chain: _OpenChain, chunk: Chunk, message: str | None) -> None:
@@ -341,6 +363,27 @@ class ChainStore:
         if message is not None:
             chain.last_user_message = message
         self._owner[chunk.id] = chain.id
+
+    def _message_of(self, chunk: Chunk) -> str | None:
+        """Return the chunk's last user message, resolving it at most once.
+
+        The same string answers two questions — what the adapter is shown and
+        what a new chain is labelled with — and the transcript cannot change
+        under the store, so it is read once and kept.
+
+        Args:
+            chunk: The chunk to resolve.
+
+        Returns:
+            The content of its last real user turn, or `None` when it has none.
+
+        Raises:
+            ForeignChunkError: If the chunk is not a range over this session.
+        """
+        key = (chunk.id, chunk.start_index, chunk.end_index)
+        if key not in self._messages:
+            self._messages[key] = chunk_user_message(self._session, chunk)
+        return self._messages[key]
 
     def _next_position(self) -> int:
         """Return the position of the next chain to open.

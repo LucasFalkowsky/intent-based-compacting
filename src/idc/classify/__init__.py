@@ -23,12 +23,14 @@ chains = classify(session, chunks, FakeAdapter([NEW, NEW, "C1"]))
 The stage is split along what a model may decide and what it may not:
 
 - `idc.classify.adapters` is the **contract**: `decide(chunk, candidates)`
-  answers with a chain id or `NEW` plus an optional confidence, and a
-  `ChainCandidate` shows an adapter an id, a label and the chain's last user
-  message — nothing else. Switching the backend therefore changes no code
-  outside the adapter, and `FakeAdapter` can produce everything a real backend
-  can. The real backends are T4.2 (#17) and T4.3 (#18); **nothing in this
-  package calls a model**, and no test ever does.
+  answers with a chain id or `NEW` plus an optional confidence. A
+  `ChunkUnderDecision` shows an adapter the classified chunk's id and its own
+  last user message, a `ChainCandidate` shows it each open chain's id, label and
+  last user message — nothing else, and nothing that reaches into the
+  transcript. Switching the backend therefore changes no code outside the
+  adapter, and `FakeAdapter` can produce everything a real backend can. The real
+  backends are T4.2 (#17) and T4.3 (#18); **nothing in this package calls a
+  model**, and no test ever does.
 - `idc.classify.store` is everything the transcript already answers: the chain
   ids (`C<n>` by position, so a re-run over a transcript that only grew keeps
   them), the provisional labels, the candidate list, and the refusal of a
@@ -45,6 +47,7 @@ stage with one `except`.
 from idc.classify.adapters import (
     NEW,
     ChainCandidate,
+    ChunkUnderDecision,
     Decision,
     DecisionLike,
     IntentAdapter,
@@ -80,6 +83,7 @@ __all__ = [
     "ChainStore",
     "ChunkAlreadyAssignedError",
     "ChunkOrderError",
+    "ChunkUnderDecision",
     "Classification",
     "ClassifyError",
     "Decision",

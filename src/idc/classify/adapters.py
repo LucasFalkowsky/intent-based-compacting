@@ -7,22 +7,29 @@ does it start a new one — and it answers with a chain id or with `NEW`, plus a
 optional confidence:
 
 ```python
-from idc.classify import NEW, ChainCandidate, Decision
+from collections.abc import Sequence
+
+from idc.classify import NEW, ChainCandidate, ChunkUnderDecision, Decision
 
 class MyAdapter:
-    def decide(self, chunk: Chunk, candidates: list[ChainCandidate]) -> Decision:
-        if not candidates:
+    def decide(
+        self, chunk: ChunkUnderDecision, candidates: Sequence[ChainCandidate]
+    ) -> Decision:
+        if not candidates or chunk.user_message not in candidates[0].last_user_message:
             return Decision.new()
         return Decision.extend(candidates[0].id, confidence=0.8)
 ```
 
 Three properties of that shape are the point of it:
 
-- **An adapter sees only what every backend can see.** A `ChainCandidate` is an
-  id, a label and the chain's last user message — no transcript, no file list,
-  no model handle. Switching the backend therefore changes no code outside the
-  adapter (T4's acceptance criterion), and the fake adapter can produce
-  everything a real one gets.
+- **An adapter sees only what every backend can see, and it sees both sides of
+  the question.** A `ChainCandidate` is an id, a label and the chain's last user
+  message; a `ChunkUnderDecision` is the classified chunk's id and its own user
+  message. Neither carries the transcript, a file list or a model handle, and
+  both carry the same kind of text — a backend compares like with like.
+  Switching the backend therefore changes no code outside the adapter (T4's
+  acceptance criterion), and the fake adapter can produce everything a real one
+  gets.
 - **An adapter decides nothing else.** It does not name the new chain (the store
   assigns a provisional label), it does not order the chains, and it never sees
   the chains it was not offered. Everything that can be computed from the
@@ -64,6 +71,58 @@ class NewChain:
 
 NEW: Final[NewChain] = NewChain()
 """The one decision that is not a chain id: open a new chain for this chunk."""
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkUnderDecision:
+    """The chunk being classified, as an adapter gets to see it.
+
+    The counterpart of `ChainCandidate`, and there for the same reason: a
+    `Chunk` is a half-open range over `Session.messages` and copies no message
+    (#3), so an adapter handed the chunk itself could not read one word of what
+    it is supposed to classify — while every chain it compares that chunk
+    against arrives with its last user message. The store resolves the text and
+    hands it over; the adapter never reaches into the transcript.
+
+    A value object rather than a third parameter on `decide`, so that a later
+    ticket can offer an adapter one more fact without changing the signature
+    every backend is written against.
+
+    Attributes:
+        id: The chunk's id, `K<n>` — what the records and the error messages
+            name it by.
+        user_message: Content of the chunk's last real user turn, verbatim.
+            Empty when the chunk holds no user turn at all, which is the case
+            for a chunk of subagent work; the same absence that
+            `ChainCandidate.last_user_message` spells as the empty string.
+    """
+
+    id: str
+    user_message: str = ""
+
+    def __post_init__(self) -> None:
+        """Reject a chunk without an id.
+
+        Raises:
+            ValueError: If `id` is empty — `Chunk.id` is a non-empty
+                identifier, and a decision has to be attributable to a chunk.
+        """
+        if not self.id:
+            raise ValueError("the chunk under decision must carry its chunk id")
+
+    @classmethod
+    def from_chunk(cls, chunk: Chunk, user_message: str | None = None) -> Self:
+        """Return the chunk as an adapter is shown it.
+
+        Args:
+            chunk: The chunk being classified.
+            user_message: Content of its last real user turn, as the store
+                resolved it; `None` when the chunk holds no user turn.
+
+        Returns:
+            The value carrying the chunk's id and that text.
+        """
+        return cls(id=chunk.id, user_message=user_message or "")
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,18 +284,24 @@ class IntentAdapter(Protocol):
 
     A protocol rather than a base class: an adapter is anything with a `decide`
     method of this shape, so #17 and #18 inherit nothing and the fake is not a
-    special case. `isinstance` works against it, which is what lets the
-    classifier report a backend that is not an adapter.
+    special case. It is `runtime_checkable` so that a test can assert the shape
+    without importing anything of the stage — but only the *presence* of a
+    `decide` attribute is checkable at runtime, not its signature, so the
+    classifier does not use `isinstance` as a guard and nothing here promises
+    that it does.
     """
 
-    def decide(self, chunk: Chunk, candidates: Sequence[ChainCandidate]) -> DecisionLike:
+    def decide(
+        self, chunk: ChunkUnderDecision, candidates: Sequence[ChainCandidate]
+    ) -> DecisionLike:
         """Decide whether `chunk` continues one of `candidates` or starts a chain.
 
         Args:
-            chunk: The chunk to classify, as a range over the session's
-                messages. The adapter is given the chunk, not the session: what
-                a backend needs from the transcript it has to be handed
-                explicitly, so that a decision stays reproducible.
+            chunk: The chunk to classify — its id and its own last user message.
+                The adapter is given neither the session nor the chunk's
+                indices: what a backend needs from the transcript is resolved
+                for it and handed over explicitly, which is what keeps a
+                decision reproducible and a backend swappable.
             candidates: The open chains, in the order they were opened. All
                 chains stay candidates until the end of the transcript, so this
                 grows as the run proceeds. The classifier passes a list.

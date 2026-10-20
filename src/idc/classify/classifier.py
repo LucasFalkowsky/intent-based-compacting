@@ -20,9 +20,10 @@ Three things are deliberate:
   verbatim instead of compacted (T7), but it still belongs to an intent, and the
   chain it belongs to is what the next run extends. A chunk of subagent work is
   classified like any other chunk, too.
-- **The candidates are read from the store before every call**, so a chain
-  opened for chunk *n* is on offer for chunk *n+1*. All chains stay candidates
-  until the transcript ends; none is ever closed.
+- **Both halves of the question come from the store**: the candidates, read
+  before every call so that a chain opened for chunk *n* is on offer for chunk
+  *n+1*, and the `ChunkUnderDecision` the adapter decides about. All chains stay
+  candidates until the transcript ends; none is ever closed.
 - **The order of the answers is not trusted, the order of the chunks is.** The
   store refuses a chunk that would land in two chains or out of transcript order
   (`idc.classify.store`), so a model cannot produce a chain list that the
@@ -99,8 +100,9 @@ def classify_chunks(
     Args:
         session: The transcript the chunks range over. It is needed here, and
             not only in T4's stated signature, because a chunk copies no message
-            and a candidate carries the chain's last user message — that text
-            lives in `Session.messages`.
+            while both halves of an adapter's question carry text — the chunk's
+            own user message and each candidate's last one — and that text lives
+            in `Session.messages`.
         chunks: The chunks in transcript order, as `idc.chunk` produced them.
         adapter: The decision backend; `FakeAdapter` in tests, an LLM (#17) or
             S1M (#18) adapter in production.
@@ -121,7 +123,7 @@ def classify_chunks(
     store = ChainStore(session, candidates)
     assignments: list[Assignment] = []
     for chunk in chunks:
-        decision = as_decision(adapter.decide(chunk, store.candidates()))
+        decision = as_decision(adapter.decide(store.subject(chunk), store.candidates()))
         target = decision.target
         if isinstance(target, NewChain):
             chain = store.open_chain(chunk)
