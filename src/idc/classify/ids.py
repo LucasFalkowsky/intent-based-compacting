@@ -73,7 +73,9 @@ def is_chain_id(value: object) -> TypeIs[str]:
     return isinstance(value, str) and _CHAIN_ID.fullmatch(value) is not None
 
 
-def require_chain_id(value: object, *, what: str = "a chain id") -> str:
+def require_chain_id(
+    value: object, *, what: str = "a chain id", error: type[Exception] = ValueError
+) -> str:
     """Return `value` as a chain id, or raise naming the form it must have.
 
     Args:
@@ -81,13 +83,17 @@ def require_chain_id(value: object, *, what: str = "a chain id") -> str:
         what: How the value is named in the error message, so that the caller's
             vocabulary (a decision's target, a candidate's id) survives into the
             message.
+        error: The exception to raise. `ValueError` for a value object built
+            wrongly by the caller; `AdapterContractError` where the id came from
+            a backend's answer, so that the stage keeps one catchable family
+            without a second copy of this message.
 
     Returns:
         The value unchanged, as a string.
 
     Raises:
-        ValueError: If the value is not a chain id.
+        Exception: Of type `error`, if the value is not a chain id.
     """
     if is_chain_id(value):
         return value
-    raise ValueError(f"{what} must be of the form C<n> with n counted from 1; got {value!r}")
+    raise error(f"{what} must be of the form C<n> with n counted from 1; got {value!r}")

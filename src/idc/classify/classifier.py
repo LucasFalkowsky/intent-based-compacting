@@ -115,7 +115,8 @@ def classify_chunks(
 
     Raises:
         AdapterContractError: If the adapter answers with something that is
-            neither a `Decision`, a chain id nor `NEW`.
+            neither a `Decision`, a chain id nor `NEW` — a chain id of the wrong
+            shape included.
         UnknownChainError: If it names a chain that was not a candidate.
         ClassifyError: If the decision cannot be carried out — see
             `idc.classify.store` for the chunk a chain cannot take.

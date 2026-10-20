@@ -11,6 +11,13 @@ What is *not* here: an invalid value object. `Decision`, `ChainCandidate` and
 the chain-id helpers raise `ValueError` the way `SubagentSpan` does in
 `idc.chunk.subagents` — those are programming errors in the caller's own
 construction, not failures of the stage.
+
+The two families therefore meet in one place, and deliberately overlap rather
+than split there: a backend's *answer* that is not usable is both a bad value
+and a failure of the stage, so `AdapterContractError` is a `ValueError` **and** a
+`ClassifyError`. The message still says which mistake was made — the id form
+when the answer was a wrong-shaped chain id, the contract when it was not an
+answer at all — but a caller never has to catch two families for one event.
 """
 
 from collections.abc import Sequence
@@ -146,12 +153,19 @@ class ForeignChunkError(ClassifyError):
         )
 
 
-class AdapterContractError(ClassifyError):
-    """An adapter answered with something that is not a decision.
+class AdapterContractError(ClassifyError, ValueError):
+    """An adapter answered with something that cannot be read as a decision.
 
-    The interface allows three forms — a `Decision`, `NEW`, or a chain id —
-    and nothing else; guessing what a fourth one meant would be a classification
-    nobody decided.
+    The interface allows three forms — a `Decision`, `NEW`, or a chain id — and
+    nothing else; guessing what a fourth one meant would be a classification
+    nobody decided. A chain id of the wrong shape (`K1`, a label, prose) is the
+    same event and the most likely one in practice, so it is this error too,
+    with a message naming the `C<n>` form rather than the contract.
+
+    A `ValueError` as well as a `ClassifyError`: the answer is a bad value, and
+    it is a failure of the stage, so one `except ClassifyError` suffices for a
+    caller (T10's CLI) without `except ValueError` becoming wrong for a caller
+    that reads it as a value problem.
     """
 
 

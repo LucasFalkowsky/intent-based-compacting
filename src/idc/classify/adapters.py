@@ -36,8 +36,9 @@ Three properties of that shape are the point of it:
   transcript is computed by code, not by a model.
 - **An answer is either understood or refused.** `as_decision` reads the three
   allowed forms — a `Decision`, `NEW`, a chain id — and raises
-  `AdapterContractError` on anything else, so a backend that returns prose fails
-  where it answered instead of somewhere downstream.
+  `AdapterContractError` on anything else, including a chain id of the wrong
+  shape, so a backend that returns prose fails where it answered instead of
+  somewhere downstream — and one `except ClassifyError` catches it.
 
 Nothing in this module calls a model, and nothing in it may: the real backends
 are T4.2 (#17) and T4.3 (#18), and every test of everything downstream runs on
@@ -261,17 +262,20 @@ def as_decision(value: object) -> Decision:
         carries survives.
 
     Raises:
-        AdapterContractError: If the value is none of the three allowed forms.
-        ValueError: If the value is a string that is not a chain id — then the
-            adapter did answer in the allowed form and got the id wrong, which
-            is the more precise message.
+        AdapterContractError: If the value is none of the three allowed forms,
+            or is a string that is not a chain id. The message differs — the
+            second case names the `C<n>` form, because there the adapter did
+            answer in an allowed form and got the id wrong — but the error is
+            one, so a caller catches the stage with one `except`.
     """
     if isinstance(value, Decision):
         return value
     if isinstance(value, NewChain):
         return Decision.new()
     if isinstance(value, str):
-        return Decision.extend(value)
+        return Decision.extend(
+            require_chain_id(value, what="an adapter's answer", error=AdapterContractError)
+        )
     raise AdapterContractError(
         f"an adapter must answer with a Decision, NEW or a chain id; got {value!r} "
         f"of type {type(value).__name__}"

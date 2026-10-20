@@ -23,8 +23,9 @@ Three properties make it usable as an oracle:
   stated.
 - **It is normalized when it is built.** The script may be written in any of the
   forms the interface allows (`NEW`, `"C1"`, `Decision.extend("C1", 0.8)`), and
-  an entry that is none of them is `AdapterContractError` at construction, where
-  the script was written, not at the call that would have used it.
+  an entry that is none of them — a wrong-shaped chain id included — is
+  `AdapterContractError` at construction, where the script was written, not at
+  the call that would have used it.
 - **It is not smarter than a real backend.** It does *not* check its chain ids
   against the candidates it was given: a model can name a chain that is not on
   offer, and the pipeline's own guard (`UnknownChainError`) is what has to catch
@@ -76,8 +77,8 @@ class FakeAdapter:
             to a mutable list cannot change what the adapter will answer.
 
     Raises:
-        AdapterContractError: If an entry is not one of the allowed forms.
-        ValueError: If an entry is a string that is not a chain id.
+        AdapterContractError: If an entry is not one of the allowed forms, a
+            string that is not a chain id included.
     """
 
     def __init__(self, script: Iterable[DecisionLike]) -> None:
