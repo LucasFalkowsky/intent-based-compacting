@@ -620,6 +620,51 @@ def test_the_echo_of_a_slash_command_is_marked_as_a_command(tmp_path):
     assert import_claude_code(path).session.messages[0].is_command is True
 
 
+def test_a_thinking_block_in_a_summary_record_is_dropped_and_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record(
+                "c1",
+                [
+                    {"type": "thinking", "thinking": "the user was fixing the exporter"},
+                    {"type": "text", "text": "This session is being continued"},
+                ],
+                isCompactSummary=True,
+            )
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].content == "This session is being continued"
+    assert [(note.detail, note.count) for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        ("thinking", 1)
+    ]
+    assert "the user was fixing" not in dumps(imported.session)
+
+
+def test_a_tool_result_block_in_a_summary_record_is_dropped_and_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record(
+                "c1",
+                [
+                    {"type": "text", "text": "This session is being continued"},
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": "lost output"},
+                ],
+                isCompactSummary=True,
+            )
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["tool_result"]
+    assert [message.id for message in imported.session.messages] == ["c1"]
+
+
 # --- the shared entry point -------------------------------------------------
 
 
