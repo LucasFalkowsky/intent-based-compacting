@@ -19,6 +19,7 @@ import pytest
 
 from idc.classify import (
     CHAIN_ID_PREFIX,
+    DEFAULT_CONTINUATION_THRESHOLD,
     NEW,
     PROVISIONAL_LABEL_MAX_LENGTH,
     AdapterContractError,
@@ -33,6 +34,7 @@ from idc.classify import (
     ChunkUnderDecision,
     Classification,
     ClassifyError,
+    ContinuationScorer,
     Decision,
     DecisionLike,
     FakeAdapter,
@@ -40,6 +42,9 @@ from idc.classify import (
     ForeignChunkError,
     IntentAdapter,
     NewChain,
+    S1MAdapter,
+    S1MCall,
+    ScorerContractError,
     ScriptExhaustedError,
     UnknownChainError,
     as_decision,
@@ -169,6 +174,32 @@ a wrong-shaped id — with nothing in the docs marking it. The three behaviours
 are pinned in `tests/test_classify_assignment.py`; what is pinned here is that
 the documentation still names them, so the sentence cannot quietly widen again.
 """
+
+
+# --- T4.3 (#18) — the S1M backend's own names, appended as a block ----------
+#
+# Not merged into the sorted literals above on purpose. #17 (the LLM adapter)
+# and #18 (this one) extend the very same export surface from two branches at
+# once, and a sorted literal both of them have to edit is a merge conflict by
+# construction — the precedent is 786d431, which derived a list in a test for
+# exactly this reason. Each backend's block is self-contained and
+# order-independent, so keeping both blocks is the whole resolution, and
+# neither branch ever has to touch the other's names.
+
+S1M_EXPORTS = {
+    "DEFAULT_CONTINUATION_THRESHOLD",
+    "ContinuationScorer",
+    "S1MAdapter",
+    "S1MCall",
+    "ScorerContractError",
+}
+"""What T4.3 adds to the surface: the adapter, its scorer contract, its default
+threshold, its per-decision record and the failure a scorer can cause."""
+
+EXPECTED_EXPORTS |= S1M_EXPORTS
+TYPE_EXPORTS += (ContinuationScorer, S1MAdapter, S1MCall, ScorerContractError)
+ERROR_EXPORTS += (ScorerContractError,)
+VALUE_EXPORTS["DEFAULT_CONTINUATION_THRESHOLD"] = DEFAULT_CONTINUATION_THRESHOLD
 
 
 def test_the_documented_promise_names_the_carve_outs_it_rests_on():
