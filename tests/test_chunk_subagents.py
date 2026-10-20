@@ -829,19 +829,45 @@ def test_a_transcript_without_a_user_turn_keeps_its_one_covering_chunk():
 # --- the chunk list this stage is given ------------------------------------
 
 
-def test_a_span_split_by_the_given_chunks_is_not_extracted():
+@pytest.mark.parametrize(
+    "split",
+    [
+        # The span of `subagent_result` is [2, 8) — the messages behind the
+        # `Task` call at index 1 up to and including the report at index 7.
+        # Where the given boundary falls inside it decides *which* half of the
+        # containment check has to reject it, so the three cases below are the
+        # boundary cases of that check and not three spellings of one case.
+        pytest.param(5, id="boundary-in-the-middle-of-the-span"),
+        # At the span's last message: the span ends one index behind the first
+        # chunk, which an off-by-one in the end check would read as contained
+        # and lift out, covering index 7 twice.
+        pytest.param(7, id="boundary-at-the-spans-last-message"),
+        # One behind the span's first message: the span starts one index in
+        # front of the second chunk, which an off-by-one in the start check
+        # would read as contained, so the lifted chunk would reach in front of
+        # the chunk it came out of.
+        pytest.param(3, id="boundary-behind-the-spans-first-message"),
+    ],
+)
+def test_a_span_split_by_the_given_chunks_is_not_extracted(split):
     # `extract_subagents` takes the chunks it is given, so the span may cross
     # one of their boundaries even though no user turn sits inside it. Lifting
-    # it would merge two chunks into one range; it is left alone instead.
+    # it would merge two chunks into one range; it is left alone instead. T4
+    # and T5 are the callers that supply their own chunk lists, so the
+    # partition this function documents has to survive any boundary they pick.
     session = CORPUS.session(SUBAGENT_FIXTURE)
     given = [
-        chunk_document(1, 0, 5),
-        chunk_document(2, 5, len(session.messages), is_latest=True),
+        chunk_document(1, 0, split),
+        chunk_document(2, split, len(session.messages), is_latest=True),
     ]
 
     chunks = extract_subagents(session, given, is_subagent_tool)
 
     assert ranges(chunks) == ranges(given)
+    # Restated on the output, because an off-by-one in the containment check
+    # breaks the partition rather than the equality above in some shapes.
+    covered = [index for chunk in chunks for index in range(chunk.start_index, chunk.end_index)]
+    assert covered == list(range(len(session.messages)))
 
 
 def test_a_subagent_chunk_in_the_given_chunks_is_passed_through():
