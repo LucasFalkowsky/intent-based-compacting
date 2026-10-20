@@ -60,10 +60,54 @@ FIXTURE_NAMES = CORPUS.names()
 """Every fixture of the shared corpus, discovered at collection time."""
 
 EXPECTED_CHAINS: dict[str, dict[str, object]] = {
+    # In corpus order. Every label is read off the fixture by hand, from the
+    # message `tests/fixtures/README.md` names as the turn — collapsed, cut at
+    # the last word boundary that fits and marked with an ellipsis.
+    #
+    # The summary block of the earlier run is message 0 and no user turn, so the
+    # label comes from message 1.
+    "already_compacted_block": {
+        "script": [NEW],
+        "chains": [("C1", ["K1"], "The rate limiter from before returns 429 without a…")],
+    },
+    # A failed command and its repetition stay inside one intent — one chain,
+    # out of which T5 then resolves the last passing run.
+    "failed_then_passing_command": {
+        "script": [NEW],
+        "chains": [("C1", ["K1"], "Make the retry backoff configurable: read…")],
+    },
+    # A, B, A — the third turn returns to the first intent, so it is appended to
+    # `C1` and the transcript has two chains, not three.
+    "interleaved_intents": {
+        "script": [NEW, NEW, "C1"],
+        "chains": [
+            ("C1", ["K1", "K3"], "`tests/rates/test_sampler.py::test_weighted_pick` fails…"),
+            ("C2", ["K2"], "Unrelated: rename the config key `retry_limit` to…"),
+        ],
+    },
     # One intent, one chunk, one chain: the minimal case.
     "single_intent": {
         "script": [NEW],
         "chains": [("C1", ["K1"], "The CSV export of the billing report writes naive…")],
+    },
+    # The `/model` echo and its answer are no user turn, so the label comes from
+    # message 2: the store agrees with the chunker about `is_user_turn`.
+    "slash_command": {
+        "script": [NEW],
+        "chains": [("C1", ["K1"], "Add request-size validation to `src/api/orders.py`: a…")],
+    },
+    # `chunk_session` leaves the delegated work inside the one chunk, so the
+    # whole transcript is one chain — the subagent chunks of the same fixture
+    # are classified in `test_a_subagent_chunk_is_classified_like_every_other_chunk`.
+    "subagent_result": {
+        "script": [NEW],
+        "chains": [("C1", ["K1"], "We lose cents somewhere in the invoice totals. Find every…")],
+    },
+    # The injected `<system-reminder>` is message 0 and no user turn, so the
+    # label comes from message 1.
+    "system_injected_message": {
+        "script": [NEW],
+        "chains": [("C1", ["K1"], "The nightly job swallows every exception from…")],
     },
     # Two unrelated intents over disjoint file sets: the second turn opens a
     # chain of its own and the first one is not extended.
@@ -74,14 +118,11 @@ EXPECTED_CHAINS: dict[str, dict[str, object]] = {
             ("C2", ["K2"], "Now document the new option in README.md, nothing else."),
         ],
     },
-    # A, B, A — the third turn returns to the first intent, so it is appended to
-    # `C1` and the transcript has two chains, not three.
-    "interleaved_intents": {
-        "script": [NEW, NEW, "C1"],
-        "chains": [
-            ("C1", ["K1", "K3"], "`tests/rates/test_sampler.py::test_weighted_pick` fails…"),
-            ("C2", ["K2"], "Unrelated: rename the config key `retry_limit` to…"),
-        ],
+    # The one label whose cut falls right after a colon: the trim before the
+    # ellipsis is what keeps it from reading "with tests:…".
+    "write_then_two_edits": {
+        "script": [NEW],
+        "chains": [("C1", ["K1"], "Add a `slugify` helper in `src/text/slug.py` with tests…")],
     },
 }
 """Per fixture: the scripted decisions and the chains they must produce."""
