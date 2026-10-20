@@ -59,7 +59,6 @@ and every test of it runs on a stub — which is what keeps the suite, the
 end-to-end test (#42) included, free of the network.
 """
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -178,14 +177,15 @@ def _require_probability(value: object, *, what: str) -> float:
 
     Raises:
         ValueError: If the value is not a number in `[0, 1]`. `NaN` and the
-            infinities fail the range comparison, and a bool is refused rather
-            than read as 1 or 0 — the same guard `Decision` applies to a
-            confidence, for the same reason: a yes/no answer without a
-            probability cannot be ranked.
+            infinities are refused by the range comparison itself —
+            `0.0 <= nan <= 1.0` is false — so they need no check of their own.
+            A bool is refused rather than read as 1 or 0, which is the guard
+            `Decision` applies to a confidence and for the same reason: a
+            yes/no answer carrying no probability cannot be ranked. An `int`
+            *is* accepted, because 1 and 0 are what a binary judgment reports
+            most naturally, and comes back as a float.
     """
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ValueError(f"{what} must be a number between 0 and 1; got {value!r}")
-    if math.isnan(value) or not 0.0 <= value <= 1.0:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0.0 <= value <= 1.0:
         raise ValueError(f"{what} must be a number between 0 and 1; got {value!r}")
     return float(value)
 
