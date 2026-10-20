@@ -128,7 +128,7 @@ def _as_agent(value: Agent | str) -> Agent:
 
 
 def _segments(command: str) -> list[str]:
-    """Split a command line into the commands it runs, quote-aware.
+    r"""Split a command line into the commands it runs, quote-aware.
 
     Args:
         command: A command line as the agent recorded it.
@@ -137,6 +137,18 @@ def _segments(command: str) -> list[str]:
         One entry per segment, in order, stripped and without the empty ones.
         `&&`, `||`, `;`, `|` and newlines separate segments; the same characters
         inside single or double quotes do not.
+
+        A backslash escapes the next character, outside quotes and inside a
+        *double* quote — where `\"` is a literal quote and does not end the
+        string. Inside a single quote a backslash is literal, as the shell has
+        it, so the escape is not applied there. Reading an escaped quote as the
+        closing one scanned the rest of the argument as unquoted shell, where a
+        `;` opened a segment and made `git commit -m "a \"b\"; make test"`
+        look like a test run.
+
+        An unquoted `#` that begins a word starts a comment: the rest of *that
+        line* is dropped, the scan continues on the next one. Ending the scan
+        instead would lose the real run in `# comment` + newline + `make test`.
 
         Scanning stops at the newline after a here-document introducer (`<<`):
         what follows is the document's *body*, which the command writes or feeds
@@ -149,24 +161,37 @@ def _segments(command: str) -> list[str]:
     current: list[str] = []
     quote: str | None = None
     heredoc = False
+    word_start = True
     index = 0
     while index < len(command):
         char = command[index]
         index += 1
         if quote is not None:
+            if quote == '"' and char == "\\" and index < len(command):
+                current.append(char)
+                current.append(command[index])
+                index += 1
+                continue
             current.append(char)
             if char == quote:
                 quote = None
-        elif char in ('"', "'"):
+            continue
+        if char in ('"', "'"):
             quote = char
             current.append(char)
+            word_start = False
         elif char == "\\" and index < len(command):
             current.append(char)
             current.append(command[index])
             index += 1
+            word_start = False
+        elif char == "#" and word_start:
+            while index < len(command) and command[index] != "\n":
+                index += 1
         elif char == "<" and index < len(command) and command[index] == "<":
             heredoc = True
             current.append(char)
+            word_start = False
         elif char in _SEGMENT_CHARS:
             if char == "\n" and heredoc:
                 break
@@ -174,8 +199,10 @@ def _segments(command: str) -> list[str]:
             current = []
             while index < len(command) and command[index] in _SEGMENT_CHARS:
                 index += 1
+            word_start = True
         else:
             current.append(char)
+            word_start = char.isspace()
     segments.append("".join(current))
     return [segment.strip() for segment in segments if segment.strip()]
 
