@@ -104,6 +104,9 @@ def chunk_boundaries(session: Session) -> list[tuple[int, int]]:
     if total == 0:
         return []
     turns = user_turn_indices(session)
+    # The first range starts at the transcript rather than at the first turn —
+    # that is where the preamble is absorbed, and where a transcript without
+    # any turn still gets its one chunk.
     starts = [0, *turns[1:]]
     ends = [*starts[1:], total]
     return list(zip(starts, ends, strict=True))
