@@ -7,10 +7,14 @@ whole stage with one `except`, and each subclass carries the values its message
 is built from — the chain that was named, the chunk that was already assigned —
 so that a test asserts on an attribute instead of on prose.
 
-What is *not* here: an invalid value object. `Decision`, `ChainCandidate` and
-the chain-id helpers raise `ValueError` the way `SubagentSpan` does in
-`idc.chunk.subagents` — those are programming errors in the caller's own
-construction, not failures of the stage.
+What is *not* here: a value object the caller built wrongly. `Decision`,
+`ChainCandidate` and the chain-id helpers raise `ValueError` the way
+`SubagentSpan` does in `idc.chunk.subagents` — a bad literal in a caller's own
+construction is a programming error, not a failure of the stage. The line is
+drawn by **where the data comes from**, not by which object notices: everything
+the stage is *handed* is in the family, the chains a run is seeded with
+included, because those are parsed out of a compacted block in a transcript
+file (#33) and a hand-edited block must not reach T10's CLI as a traceback.
 
 The two families therefore meet in one place, and deliberately overlap rather
 than split there: a backend's *answer* that is not usable is both a bad value
@@ -24,6 +28,8 @@ from collections.abc import Sequence
 
 __all__ = [
     "AdapterContractError",
+    "ChainAlreadySeededError",
+    "ChainOrderError",
     "ChunkAlreadyAssignedError",
     "ChunkOrderError",
     "ClassifyError",
@@ -68,7 +74,8 @@ class ChunkAlreadyAssignedError(ClassifyError):
     Every chunk belongs to exactly one chain — that is what makes the chains a
     partition of the transcript and the summary complete. The clash has two
     causes, and the message names the one it is looking at: a chunk this run
-    already classified, or a chunk id a *carried-over* chain claims. The second
+    already classified, or a chunk id a *carried-over* chain claims — whether
+    this run's chunk ran into it or a second seeded chain did. The second cause
     is the normal case once #33 seeds chains, because both runs number their
     chunks positionally, and "every chunk belongs to exactly one chain" would be
     a misleading thing to read there.
@@ -98,6 +105,61 @@ class ChunkAlreadyAssignedError(ClassifyError):
             else "every chunk belongs to exactly one chain"
         )
         super().__init__(f"chunk {chunk_id!r} is already assigned to chain {chain_id!r}; {cause}")
+
+
+class ChainAlreadySeededError(ClassifyError):
+    """Two chains a run was seeded with carry the same id.
+
+    A chain id identifies exactly one chain — the compactor writes it into the
+    summary block (T6.3) and the parser reads it back (T8) — so a block holding
+    it twice says two different things about one chain, and the store cannot
+    pick which. The sibling of `ChunkAlreadyAssignedError`, one level up: an
+    identifier that is already taken.
+
+    Attributes:
+        chain_id: The id the second seeded chain repeats.
+    """
+
+    def __init__(self, chain_id: str) -> None:
+        """Build the error from the id that arrived twice.
+
+        Args:
+            chain_id: The id the second seeded chain repeats.
+        """
+        self.chain_id = chain_id
+        super().__init__(
+            f"two seeded chains share the id {chain_id!r}; a chain id names exactly one chain"
+        )
+
+
+class ChainOrderError(ClassifyError):
+    """A seeded chain is numbered before the chain that was seeded ahead of it.
+
+    `ChainStore.candidates` and `ChainStore.chains` are documented to be in
+    opening order, and a chain id *is* its opening position — so a list whose
+    numbers run backwards states two contradicting orders. What `ChunkOrderError`
+    is for the chunks of one chain, this is for the chains of one store; the
+    numbers still need not be contiguous.
+
+    Attributes:
+        chain_id: The chain that arrived out of order.
+        previous_chain_id: The chain that was seeded before it and is numbered
+            after it.
+    """
+
+    def __init__(self, chain_id: str, previous_chain_id: str) -> None:
+        """Build the error from the chain and the one seeded ahead of it.
+
+        Args:
+            chain_id: The chain that arrived out of order.
+            previous_chain_id: The chain seeded before it.
+        """
+        self.chain_id = chain_id
+        self.previous_chain_id = previous_chain_id
+        super().__init__(
+            f"seeded chain {chain_id!r} is numbered before {previous_chain_id!r}, which was "
+            f"seeded first; chains arrive in the order they were opened"
+        )
 
 
 class ChunkOrderError(ClassifyError):

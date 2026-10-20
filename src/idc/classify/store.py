@@ -29,7 +29,9 @@ Four decisions are the store's own:
   candidate list only grows. The second half is *checked*, not assumed — a chain
   id is its opening position, so a seeded chain whose number goes backwards
   would state two contradicting orders, and the store refuses it rather than
-  offering `C3` before `C1`.
+  offering `C3` before `C1`. Every refusal of a *seeded* chain is a
+  `ClassifyError` like the rest of the stage, because that chain was parsed out
+  of a transcript file (#33) and is input, not a programmer's literal.
 - **A chunk belongs to exactly one chain.** A second assignment is
   `ChunkAlreadyAssignedError`, and so is a chunk a seeded chain already claims —
   but the error says which of the two it is looking at: the chunk ids of a chain
@@ -56,6 +58,8 @@ from dataclasses import dataclass, field
 from idc.chunk import is_user_turn
 from idc.classify.adapters import ChainCandidate, ChunkUnderDecision
 from idc.classify.errors import (
+    ChainAlreadySeededError,
+    ChainOrderError,
     ChunkAlreadyAssignedError,
     ChunkOrderError,
     ForeignChunkError,
@@ -244,8 +248,9 @@ class ChainStore:
             the numbers need not be contiguous.
 
     Raises:
-        ValueError: If two seeded chains share an id or a chunk id, or if their
-            ids do not increase.
+        ChainAlreadySeededError: If two seeded chains share an id.
+        ChainOrderError: If their ids do not increase.
+        ChunkAlreadyAssignedError: If two seeded chains claim the same chunk.
     """
 
     def __init__(self, session: Session, chains: Iterable[Chain] = ()) -> None:
@@ -430,27 +435,32 @@ class ChainStore:
     def _seed(self, chain: Chain) -> None:
         """Take over a chain from an earlier run.
 
+        A seeded chain is the one thing the store is *handed* rather than
+        computing, and it is handed data a model never saw and a programmer
+        never wrote: #33 parses it out of a compacted block in a transcript
+        file. Every refusal here is therefore a `ClassifyError` like the rest of
+        the stage, so that a hand-edited block reaches T10's CLI as a message
+        and not as a traceback.
+
         Args:
             chain: The chain as the parser read it back.
 
         Raises:
-            ValueError: If another seeded chain has the same id, claims one of
-                the same chunks, or was opened later than this one.
+            ChainAlreadySeededError: If another seeded chain has the same id.
+            ChainOrderError: If this chain is numbered before the one seeded
+                ahead of it.
+            ChunkAlreadyAssignedError: If another seeded chain already claims
+                one of its chunks — the same refusal, and the same cause, as a
+                chunk of *this* run running into a carried-over chunk id.
         """
         if chain.id in self._chains:
-            raise ValueError(f"two seeded chains share the id {chain.id!r}")
+            raise ChainAlreadySeededError(chain.id)
         if self._order and chain_position(chain.id) < chain_position(self._order[-1]):
-            raise ValueError(
-                f"seeded chain {chain.id!r} is numbered before {self._order[-1]!r}, which was "
-                f"seeded first; chains arrive in the order they were opened"
-            )
+            raise ChainOrderError(chain.id, self._order[-1])
         for chunk_id in chain.chunk_ids:
             owner = self._owner.get(chunk_id)
             if owner is not None:
-                raise ValueError(
-                    f"chunk {chunk_id!r} is claimed by the seeded chains {owner!r} and "
-                    f"{chain.id!r}; a chunk belongs to exactly one chain"
-                )
+                raise ChunkAlreadyAssignedError(chunk_id, owner, carried_over=True)
             self._owner[chunk_id] = chain.id
         # The chunk ids of a carried-over chain are positions in the earlier
         # run's transcript, so neither its last user message nor the position of
