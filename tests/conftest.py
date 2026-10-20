@@ -5,8 +5,9 @@ from pathlib import Path
 import pytest
 
 from fixture_corpus import CORPUS, FIXTURES_DIR, TESTS_DIR, Corpus
+from native_transcripts import NATIVE, NATIVE_DIR, NativeTranscripts
 
-__all__ = ["FIXTURES_DIR", "TESTS_DIR"]
+__all__ = ["FIXTURES_DIR", "NATIVE_DIR", "TESTS_DIR"]
 
 
 @pytest.fixture(scope="session")
@@ -29,3 +30,14 @@ def corpus() -> Corpus:
     See `tests/fixture_corpus.py` and `tests/fixtures/README.md`.
     """
     return CORPUS
+
+
+@pytest.fixture(scope="session")
+def native() -> NativeTranscripts:
+    """Return the agent-native transcript fixtures, addressed by agent and name.
+
+    The input side of the importers: `native.path("claude-code", "golden_session")`
+    resolves one transcript in an agent's own on-disk format. See
+    `tests/native_transcripts.py` and `tests/native/README.md`.
+    """
+    return NATIVE
