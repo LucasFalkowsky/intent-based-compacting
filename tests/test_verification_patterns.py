@@ -69,6 +69,10 @@ MATCHING = [
     # bash's ANSI-C quoting `$'…'` ends where bash ends it, so a real run
     # behind such a string is still seen
     "echo $'a\\'b' && pytest -q",
+    # a here-document introducer gives up the *body*, not the line it is on,
+    # and a commented-out introducer never opens a document in the first place
+    "pytest -q <<'EOF'\nEOF",
+    "# cat <<EOF\nmake test",
     # a comment ends its line, not the scan: the run on the next line counts
     "# run the suite\nmake test",
     "make build # make test\npytest -q",
@@ -110,6 +114,16 @@ NOT_MATCHING = [
     # a here-document body is data the command writes, not a command
     "python - <<'EOF'\npytest\nEOF",
     'cat > Makefile <<"EOF"\ntest:\n\tmake test\nEOF',
+    # a separator sitting *immediately* before the body does not reopen it as
+    # commands: the body still belongs to the document and bash runs none of it
+    "cat <<EOF;\nmake test\nEOF",
+    "cat > ci.yml <<'YML' ;\npytest -q\nYML",
+    "tee out.txt <<EOF;\nmake check\nEOF",
+    "cat <<EOF &\nmake test\nEOF",
+    "cat <<EOF  ;\nmake test\nEOF",
+    # a command written *after* that separator is still a command, and the body
+    # behind it is given up as before
+    "cat <<EOF; echo x\nmake test\nEOF",
     # an escaped quote does not end the string it is in, so the separator and
     # the runner behind it stay inside an argument of `echo`, `git commit -m`,
     # `python -c` — the spellings a recorded agent command really uses
@@ -306,6 +320,21 @@ def test_a_here_document_does_not_hide_a_command_in_its_body():
 
     assert registry.match_verification("python - <<'EOF'\nmake test\nEOF") is None
     assert registry.is_verification("pytest -q <<'EOF'\nEOF")
+
+
+def test_a_separator_right_before_the_body_does_not_reopen_the_here_document():
+    # `cat <<EOF;` + a newline is bash-valid and runs nothing but `cat`: the
+    # newline after the introducer opens the body, and the separator in front of
+    # it must not consume that newline before the scan can stop there.
+    registry = tool_registry()
+
+    assert registry.match_verification("cat <<EOF;\nmake test\nEOF") is None
+    assert registry.match_verification("cat <<EOF &\nmake test\nEOF") is None
+    assert registry.match_verification("cat <<EOF  ;\nmake test\nEOF") is None
+    assert registry.match_verification("cat > ci.yml <<'YML' ;\npytest -q\nYML") is None
+    # a command between the separator and the newline keeps being a command
+    assert registry.match_verification("cat <<EOF; echo x\nmake test\nEOF") is None
+    assert registry.is_verification("cat <<EOF; pytest -q\nmake test\nEOF")
 
 
 def test_the_patterns_are_exposed_with_stable_ids():
