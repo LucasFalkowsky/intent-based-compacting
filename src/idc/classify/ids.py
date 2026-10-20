@@ -14,6 +14,7 @@ instead of keeping a second copy that could drift from the contract.
 """
 
 import re
+from typing import TypeIs
 
 from idc.schema.models import CHAIN_ID_PATTERN
 
@@ -58,7 +59,7 @@ def chain_position(identifier: str) -> int:
     return int(require_chain_id(identifier)[len(CHAIN_ID_PREFIX) :])
 
 
-def is_chain_id(value: object) -> bool:
+def is_chain_id(value: object) -> TypeIs[str]:
     """Return whether `value` is a chain id of the form `C<n>`.
 
     Args:
@@ -66,7 +67,8 @@ def is_chain_id(value: object) -> bool:
 
     Returns:
         `True` if the value is a string the canonical schema accepts as
-        `Chain.id`.
+        `Chain.id`. Narrowing to `str` rather than to a type of its own: a chain
+        id *is* a string, and `require_chain_id` returns it as one.
     """
     return isinstance(value, str) and _CHAIN_ID.fullmatch(value) is not None
 
@@ -86,6 +88,6 @@ def require_chain_id(value: object, *, what: str = "a chain id") -> str:
     Raises:
         ValueError: If the value is not a chain id.
     """
-    if isinstance(value, str) and _CHAIN_ID.fullmatch(value) is not None:
+    if is_chain_id(value):
         return value
     raise ValueError(f"{what} must be of the form C<n> with n counted from 1; got {value!r}")
