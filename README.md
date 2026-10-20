@@ -23,6 +23,42 @@ network at test time.
 `idc.schema` holds the canonical schema that is the contract between all stages, and
 `idc.cli` the command surface.
 
+## Canonical schema
+
+Every stage reads and writes the seven canonical types in `idc.schema`; the agents' own
+transcript shapes exist only inside `idc.importers` and `idc.render`.
+
+| Type | Holds |
+|---|---|
+| `Session` | a whole transcript: agent, model, provenance (`raw`, `native-compaction`, `intent-compaction`), messages |
+| `Message` | role, content, timestamp, and whether it was system-injected or a slash command |
+| `ToolCall` / `ToolResult` | a call with its category (`read`, `write`, `exec`, `other`) and arguments, and its output verbatim |
+| `Chunk` | one user input plus the agent's response, as a half-open range over `Session.messages` |
+| `Chain` | the chunks of one user intent, under a stable ID `C<n>`, with its summary block |
+| `CompactedBlock` | the chains of a transcript plus the chunk that is kept verbatim |
+
+Load and dump canonical documents through the package, never with `json` directly — every
+load validates and raises a single `SchemaValidationError` naming the type and the
+offending field path:
+
+```python
+from idc.schema import Session, dump, load
+
+session = load(Session, "session.json")  # validated on load
+dump(session, "copy.json")  # lossless round trip
+```
+
+Unknown fields are rejected, timestamps must carry a timezone, and identifiers that are
+referenced elsewhere must be unique. The same contract is published as a JSON Schema
+document in `src/idc/schema/canonical.schema.json`, which is **generated** from the models
+and kept in sync by a test:
+
+```
+make schema   # regenerate it after changing a model
+```
+
+Changing the schema is a ticket of its own, never a side effect of another change.
+
 ## Requirements
 
 - Python 3.13 (see `.python-version`)
@@ -60,7 +96,8 @@ ticket T10.1; until then the entry point exits with code 2 and says so.
 
 ```
 src/idc/              # the package (src layout)
-  schema/ importers/ chunk/ classify/ resolve/ compact/ render/ measure/ cli/
+  schema/             # the canonical types + the generated canonical.schema.json
+  importers/ chunk/ classify/ resolve/ compact/ render/ measure/ cli/
 tests/                # pytest suite
   fixtures/           # shared transcript fixture corpus
 .github/workflows/    # CI: make test on every pull request
