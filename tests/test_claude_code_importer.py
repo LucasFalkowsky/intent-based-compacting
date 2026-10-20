@@ -550,6 +550,127 @@ def test_a_user_record_whose_text_is_empty_is_still_the_turn_it_was(tmp_path):
     ]
 
 
+def test_a_content_entry_that_is_not_an_object_is_dropped_and_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [user_record("u1", ["just a string", {"type": "text", "text": "fix the exporter"}])],
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].content == "fix the exporter"
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<entry: string>"]
+
+
+def test_a_tool_use_whose_arguments_are_not_an_object_is_noted_with_its_tool(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record("u1", "run the tests"),
+            assistant_record(
+                "a1",
+                [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "Bash",
+                        "input": ["uv", "run", "pytest", "-q"],
+                    }
+                ],
+            ),
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[1].tool_calls[0].args == {}
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        "tool_use/Bash/<input: array>"
+    ]
+
+
+def test_a_tool_use_without_arguments_is_not_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record("u1", "run the tests"),
+            assistant_record("a1", [{"type": "tool_use", "id": "toolu_1", "name": "Bash"}]),
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[1].tool_calls[0].args == {}
+    assert imported.notes_of(NOTE_DROPPED_BLOCK) == ()
+
+
+def test_a_tool_result_whose_content_is_an_object_is_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record(
+                "u1",
+                [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": {"stdout": "1 passed"},
+                    }
+                ],
+            )
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[0].tool_result.output == ""
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        "tool_result/<content: object>"
+    ]
+
+
+def test_an_assistant_record_whose_content_is_an_object_is_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record("u1", "fix the exporter"),
+            {
+                "type": "assistant",
+                "uuid": "a1",
+                "timestamp": "2026-09-20T12:00:05Z",
+                "sessionId": "sess-tmp",
+                "message": {"role": "assistant", "content": {"text": "lost"}},
+            },
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.messages[1].content == ""
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
+
+
+def test_a_system_record_whose_content_is_an_object_is_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record("u1", "fix the exporter"),
+            {
+                "type": "system",
+                "uuid": "s1",
+                "content": {"text": "lost"},
+                "timestamp": "2026-09-20T12:00:05Z",
+                "sessionId": "sess-tmp",
+            },
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [message.id for message in imported.session.messages] == ["u1"]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
+
+
 # --- a transcript that is cut off or interrupted -----------------------------
 
 
