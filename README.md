@@ -13,7 +13,7 @@ network at test time.
 | Stage | Package | What it does |
 |---|---|---|
 | `import` | `idc.importers` | read an agent transcript into the canonical format |
-| `chunk` | `idc.chunk` | split the transcript at user-message boundaries |
+| `chunk` | `idc.chunk` | split the transcript at user-message boundaries, reduce the harness noise inside a chunk |
 | `classify` | `idc.classify` | assign each chunk to an intent chain |
 | `resolve` | `idc.resolve` | derive the accepted solution from the path |
 | `compact` | `idc.compact` | render new or extended chains into Markdown blocks |

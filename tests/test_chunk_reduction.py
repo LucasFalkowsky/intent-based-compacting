@@ -496,8 +496,14 @@ def test_reducing_a_reduced_transcript_changes_nothing(name):
 
     again = reduce_session(reduced.session)
 
+    # The notes of the first pass are not repeated — there is nothing left to
+    # report — so idempotence is about the transcript and the chunks.
     assert again.notes == (), "a reduced transcript has nothing left to reduce"
-    assert again == reduced
+    assert again.session == reduced.session
+    assert [chunk.chunk for chunk in again.chunks] == [chunk.chunk for chunk in reduced.chunks]
+    assert all(
+        a is b for a, b in zip(again.session.messages, reduced.session.messages, strict=True)
+    ), "a second pass must not copy a message either"
 
 
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
