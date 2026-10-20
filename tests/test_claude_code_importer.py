@@ -671,6 +671,35 @@ def test_a_system_record_whose_content_is_an_object_is_noted(tmp_path):
     assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
 
 
+def test_a_record_without_a_type_and_one_whose_type_is_null_are_noted_apart(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record("u1", "fix the exporter"),
+            {"uuid": "x1", "sessionId": "sess-tmp"},
+            {"type": None, "uuid": "x2", "sessionId": "sess-tmp"},
+        ],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [(note.detail, note.count) for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == [
+        ("<no type>", 1),
+        ("<null type>", 1),
+    ]
+
+
+def test_a_record_whose_type_is_a_number_keeps_the_number_in_the_note(tmp_path):
+    path = write_jsonl(
+        tmp_path,
+        [user_record("u1", "fix the exporter"), {"type": 7, "sessionId": "sess-tmp"}],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == ["7"]
+
+
 # --- a transcript that is cut off or interrupted -----------------------------
 
 
