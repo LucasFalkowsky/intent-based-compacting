@@ -23,6 +23,11 @@ split mid-string, and the fatal-line rule would then reject the whole session
 over a file that is perfectly valid. A carriage return before the newline is
 dropped, so a transcript written on Windows reads the same.
 
+A leading byte-order mark is dropped rather than treated as part of the first
+record: an editor on Windows writes one, it carries no information a transcript
+needs, and leaving it in front of line 1 would make a valid file fatally
+unreadable.
+
 ```python
 for line in read_json_lines("session.jsonl"):
     line.number      # 1, 2, 3, …
@@ -57,7 +62,9 @@ def read_json_lines(path: str | Path) -> list[JsonLine]:
     """Read a JSONL transcript into one mapping per line.
 
     Args:
-        path: The transcript file, read as UTF-8. A line ends at a newline — a
+        path: The transcript file, read as UTF-8, with a leading byte-order
+            mark dropped if the editor that wrote it left one. A line ends at a
+            newline — a
             carriage return before it is dropped — and not at every character
             Unicode calls a line break, because U+2028, U+2029 and U+0085 occur
             unescaped inside JSON strings. Blank lines are skipped; the line
@@ -74,7 +81,7 @@ def read_json_lines(path: str | Path) -> list[JsonLine]:
     """
     source = Path(path)
     try:
-        text = source.read_bytes().decode("utf-8")
+        text = source.read_bytes().decode("utf-8-sig")
     except OSError as exc:
         raise TranscriptImportError(
             f"cannot read the transcript {source}: {exc.strerror or exc}"
