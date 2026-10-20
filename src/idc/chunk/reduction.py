@@ -51,7 +51,7 @@ reduced.notes        # every reduction, in transcript order
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from idc.chunk.boundaries import chunk_session, user_turn_indices
@@ -138,6 +138,23 @@ class ReducedSession:
         return tuple(note for reduced_chunk in self.chunks for note in reduced_chunk.notes)
 
 
+@dataclass(frozen=True, slots=True)
+class _Plan:
+    """What reduction decided about one chunk, before anything is rewritten.
+
+    Attributes:
+        notes: One note per reduction inside the chunk, in transcript order.
+        removed: The indices that leave the transcript — dropped messages and
+            the answers that were consumed as a result text.
+        replacements: Per index whose message received a result text, the
+            message that takes its place.
+    """
+
+    notes: tuple[ReductionNote, ...] = ()
+    removed: tuple[int, ...] = ()
+    replacements: dict[int, Message] = field(default_factory=dict)
+
+
 def reduce_session(session: Session) -> ReducedSession:
     """Chunk a canonical session and reduce the harness noise inside its chunks.
 
@@ -182,35 +199,57 @@ def reduce_chunks(session: Session, chunks: Sequence[Chunk]) -> ReducedSession:
     replacements: dict[int, Message] = {}
     for chunk in chunks:
         plan = _plan_chunk(session, chunk, exempt)
-        if len(plan[1]) == chunk.message_count:
+        if len(plan.removed) == chunk.message_count:
             # Reducing would leave the chunk without a message. That can only
             # happen to the single chunk of a transcript without a real user
             # turn (every other chunk opens at one), and a `Chunk` spans at
             # least one message — so this chunk is left as it is.
-            plan = ((), (), {})
-        notes.append(plan[0])
-        removed.update(plan[1])
-        replacements.update(plan[2])
+            plan = _Plan()
+        notes.append(plan.notes)
+        removed.update(plan.removed)
+        replacements.update(plan.replacements)
     kept = [index for index in range(len(session.messages)) if index not in removed]
     messages = [
         replacements[index] if index in replacements else session.messages[index] for index in kept
     ]
-    kept_before = _kept_before(len(session.messages), removed)
     return ReducedSession(
         session=_with_messages(session, messages),
-        chunks=tuple(
-            ReducedChunk(
-                chunk=Chunk(
-                    id=chunk.id,
-                    start_index=kept_before[chunk.start_index],
-                    end_index=kept_before[chunk.end_index],
-                    is_latest=chunk.is_latest,
-                    origin=chunk.origin,
-                ),
-                notes=chunk_notes,
-            )
-            for chunk, chunk_notes in zip(chunks, notes, strict=True)
-        ),
+        chunks=_reindexed(chunks, notes, _kept_before(len(session.messages), removed)),
+    )
+
+
+def _reindexed(
+    chunks: Sequence[Chunk],
+    notes: Sequence[tuple[ReductionNote, ...]],
+    kept_before: Sequence[int],
+) -> tuple[ReducedChunk, ...]:
+    """Return the chunks with their ranges moved onto the reduced transcript.
+
+    Everything but the two indices is the chunker's: the id, the order,
+    `is_latest` and `origin` are carried over, so the chunk count cannot change
+    here.
+
+    Args:
+        chunks: The original chunks, in transcript order.
+        notes: The notes of each chunk, in the same order.
+        kept_before: Per original index, how many messages before it are kept,
+            as `_kept_before` returns it.
+
+    Returns:
+        The reduced chunks, in transcript order.
+    """
+    return tuple(
+        ReducedChunk(
+            chunk=Chunk(
+                id=chunk.id,
+                start_index=kept_before[chunk.start_index],
+                end_index=kept_before[chunk.end_index],
+                is_latest=chunk.is_latest,
+                origin=chunk.origin,
+            ),
+            notes=chunk_notes,
+        )
+        for chunk, chunk_notes in zip(chunks, notes, strict=True)
     )
 
 
@@ -237,7 +276,7 @@ def _plan_chunk(
     session: Session,
     chunk: Chunk,
     exempt: frozenset[int],
-) -> tuple[tuple[ReductionNote, ...], tuple[int, ...], dict[int, Message]]:
+) -> _Plan:
     """Decide what to reduce inside one chunk, without changing anything yet.
 
     Args:
@@ -246,9 +285,7 @@ def _plan_chunk(
         exempt: Indices reduction must not touch.
 
     Returns:
-        The notes in transcript order, the indices to remove from the
-        transcript (dropped messages and consumed answers), and the replacement
-        message per index whose message received a result text.
+        The plan for this chunk; an empty one when it holds no harness noise.
     """
     notes: list[ReductionNote] = []
     removed: list[int] = []
@@ -290,7 +327,7 @@ def _plan_chunk(
         removed.append(index)
         notes.append(ReductionNote(message_id=message.id, reason=reason))
         index += 1
-    return tuple(notes), tuple(removed), replacements
+    return _Plan(notes=tuple(notes), removed=tuple(removed), replacements=replacements)
 
 
 def _answer(
@@ -427,7 +464,9 @@ def _require_partition(session: Session, chunks: Sequence[Chunk]) -> None:
     """
     covered = [index for chunk in chunks for index in range(chunk.start_index, chunk.end_index)]
     if covered != list(range(len(session.messages))):
+        ranges = ", ".join(f"{chunk.id}={chunk.start_index}:{chunk.end_index}" for chunk in chunks)
         raise ValueError(
             f"the chunks must partition the {len(session.messages)} messages of session "
-            f"{session.id!r}, but they cover {covered}"
+            f"{session.id!r}, but they cover {len(covered)} index positions "
+            f"({ranges or 'no chunk'})"
         )
