@@ -69,12 +69,19 @@ Known limitations, all of them deliberate:
   works on the canonical session.
 - A value this importer cannot read is dropped **and noted by its shape**: a
   content entry that is not an object (`<entry: string>`), a content that is
-  neither text nor a block list (`<content: object>`), a `tool_use.input` that
-  is not an object (`tool_use/Bash/<input: array>`), the text of a `text` block
-  that is not a string (`text/<text: object>`). Nothing is guessed at, nothing
-  is coerced, and nothing leaves the import without a line in the notes — for
-  `Bash` the lost `input` would be the verification command T5.2 and T6 resolve,
-  and a coerced `text` would put a Python repr into canonical content.
+  neither text nor a block list (`<content: object>`), a `message` that is not
+  an object (`<message: array>`), a `tool_use.input` that is not an object
+  (`tool_use/Bash/<input: array>`), the text of a `text` block that is not a
+  string (`text/<text: object>`), an unusable `uuid` the `line-<n>` fallback
+  stands in for (`<uuid: number>`), a second, different `sessionId`
+  (`<sessionId: a second value>`). Nothing is guessed at, nothing is coerced,
+  and nothing leaves the import without a line in the notes — for `Bash` the
+  lost `input` would be the verification command T5.2 and T6 resolve, and a
+  coerced `text` would put a Python repr into canonical content.
+
+  What is *not* noted is a field this importer never reads — `isSidechain`,
+  `toolUseResult`, `parentUuid`, `cwd`, `gitBranch`, `version` — and a field
+  that is absent or `null`, which carried no value to lose.
 
 ```python
 from idc.importers import import_claude_code
@@ -128,6 +135,17 @@ NULL_TYPE = "<null type>"
 Distinct from `NO_TYPE`: a missing field is a record shape this importer does
 not know, a `null` one is a damaged record, and `str(None)` reads the same for
 both.
+"""
+
+
+SECOND_SESSION = "<sessionId: a second value>"
+"""How a record naming a session other than the first one is reported.
+
+A session file is one session, so the identifier the first record names is the
+one the canonical session keeps. A second, different one is a damaged or
+concatenated file, and ignoring it silently would hide that; the note carries no
+identifier itself, so the diagnostic stays the same line however many records
+disagree.
 """
 
 
@@ -185,8 +203,11 @@ def import_claude_code(
     session_id: Any = None
     for line in read_json_lines(path):
         record = line.data
+        named = record.get("sessionId")
         if session_id is None:
-            session_id = record.get("sessionId")
+            session_id = named
+        elif named is not None and named != session_id:
+            builder.note(NOTE_DROPPED_BLOCK, SECOND_SESSION)
         kind = _record_type(record)
         reader = READERS.get(kind)
         if reader is None or not reader(builder, line):
@@ -211,10 +232,11 @@ def _record_type(record: Mapping[str, Any]) -> str:
     return NULL_TYPE if kind is None else str(kind)
 
 
-def _record_id(line: JsonLine) -> str:
+def _record_id(builder: SessionBuilder, line: JsonLine) -> str:
     """Return the record's own identifier, or one derived from its line.
 
     Args:
+        builder: The session being assembled, for the notes.
         line: The record and its line number.
 
     Returns:
@@ -222,9 +244,20 @@ def _record_id(line: JsonLine) -> str:
         which is unique within the file and points at the line it came from —
         the canonical schema requires an identifier, and the alternative would
         be to renumber every message of the session.
+
+        A `uuid` that is *present* but unusable — a number, the empty string —
+        takes the same fallback and is noted by its shape. That is a different
+        thing from a record that names none: the transcript did record an
+        identifier, and a canonical message carrying `line-7` instead would
+        otherwise be indistinguishable from one whose record had no `uuid`.
     """
     uuid = line.data.get("uuid")
-    return uuid if isinstance(uuid, str) and uuid else f"line-{line.number}"
+    if isinstance(uuid, str) and uuid:
+        return uuid
+    if uuid is not None:
+        detail = "<uuid: empty string>" if uuid == "" else f"<uuid: {_shape(uuid)}>"
+        builder.note(NOTE_DROPPED_BLOCK, detail)
+    return f"line-{line.number}"
 
 
 def _timestamp(builder: SessionBuilder, line: JsonLine) -> datetime | None:
@@ -352,6 +385,29 @@ def _noted_text(builder: SessionBuilder, content: Any, *, prefix: str = "") -> s
     return joined_text(texts)
 
 
+def _message_body(builder: SessionBuilder, record: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Return the record's `message` object, noting one that is not an object.
+
+    Args:
+        builder: The session being assembled, for the notes.
+        record: One transcript record.
+
+    Returns:
+        The `message` object, or `None` when the record carries none. A
+        `message` that is present but not an object is noted by its shape
+        before `None` is returned: treating it as absent would lose the value
+        with nothing but the skip note, and "the record carried nothing" and "I
+        could not read what the record carried" are the two cases the notes
+        exist to keep apart.
+    """
+    message = record.get("message")
+    if isinstance(message, Mapping):
+        return message
+    if message is not None:
+        builder.note(NOTE_DROPPED_BLOCK, f"<message: {_shape(message)}>")
+    return None
+
+
 def _is_command(content: str) -> bool:
     """Return whether a user message is a slash command or its output."""
     stripped = content.lstrip()
@@ -378,13 +434,13 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
             which would leave the result unattachable to any call.
     """
     record = line.data
-    message = record.get("message")
-    content = message.get("content") if isinstance(message, Mapping) else None
+    message = _message_body(builder, record)
+    content = None if message is None else message.get("content")
     timestamp = _timestamp(builder, line)
     if record.get(SUMMARY_FLAG) is True:
         builder.set_provenance(SessionSource.NATIVE_COMPACTION)
         builder.add_message(
-            message_id=_record_id(line),
+            message_id=_record_id(builder, line),
             role=Role.SYSTEM,
             content=_noted_text(builder, content),
             timestamp=timestamp,
@@ -398,7 +454,7 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
             return False
         text = content
         builder.add_message(
-            message_id=_record_id(line),
+            message_id=_record_id(builder, line),
             role=Role.USER,
             content=text,
             timestamp=timestamp,
@@ -465,8 +521,9 @@ def _user_parts(
         found.append((text_index if text_index is not None else 0, Role.USER, text, None))
     found.sort(key=lambda part: part[0])
     only = len(found) == 1
+    record_id = _record_id(builder, line)
     return [
-        _UserPart(block_message_id(_record_id(line), index, only=only), role, content, result)
+        _UserPart(block_message_id(record_id, index, only=only), role, content, result)
         for index, role, content, result in found
     ]
 
@@ -541,8 +598,7 @@ def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
         TranscriptImportError: If a `tool_use` block names no identifier or no
             tool.
     """
-    message = line.data.get("message")
-    message = message if isinstance(message, Mapping) else {}
+    message = _message_body(builder, line.data) or {}
     builder.set_model(message.get("model"))
     content = message.get("content")
     _note_unreadable_content(builder, content)
@@ -557,7 +613,7 @@ def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
         else:
             builder.note(NOTE_DROPPED_BLOCK, str(kind))
     builder.add_message(
-        message_id=_record_id(line),
+        message_id=_record_id(builder, line),
         role=Role.ASSISTANT,
         content=content if isinstance(content, str) else joined_text(texts),
         timestamp=_timestamp(builder, line),
@@ -582,7 +638,7 @@ def _add_system_record(builder: SessionBuilder, line: JsonLine) -> bool:
     if not content:
         return False
     builder.add_message(
-        message_id=_record_id(line),
+        message_id=_record_id(builder, line),
         role=Role.SYSTEM,
         content=content,
         timestamp=_timestamp(builder, line),
