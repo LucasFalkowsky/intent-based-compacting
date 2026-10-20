@@ -1,0 +1,163 @@
+{
+  "id": "sess-system-injected-message",
+  "agent": "gemini-cli",
+  "model": "gemini-2.5-pro",
+  "source": "raw",
+  "created_at": "2026-09-05T07:45:00+02:00",
+  "messages": [
+    {
+      "id": "m01",
+      "role": "system",
+      "content": "<system-reminder>The project targets Python 3.13 and is driven through `uv`. Prefer `uv run` over a bare interpreter.</system-reminder>",
+      "timestamp": "2026-09-05T07:45:20+02:00",
+      "is_system_injected": true,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": null
+    },
+    {
+      "id": "m02",
+      "role": "user",
+      "content": "The nightly job swallows every exception from `sync_invoices`, so a failed sync looks like a successful one. Log them with a stack trace and re-raise.",
+      "timestamp": "2026-09-05T07:45:40+02:00",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": null
+    },
+    {
+      "id": "m03",
+      "role": "assistant",
+      "content": "Reading the job.",
+      "timestamp": "2026-09-05T07:46:00+02:00",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [
+        {
+          "id": "c01",
+          "name": "read_file",
+          "category": "read",
+          "args": {
+            "absolute_path": "/repo/src/jobs/nightly.py"
+          }
+        }
+      ],
+      "tool_result": null
+    },
+    {
+      "id": "m04",
+      "role": "tool",
+      "content": "",
+      "timestamp": "2026-09-05T07:46:20+02:00",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": {
+        "call_id": "c01",
+        "output": "    44\tdef run_nightly() -> None:\n    45\t    for tenant in tenants():\n    46\t        try:\n    47\t            sync_invoices(tenant)\n    48\t        except Exception:\n    49\t            pass\n",
+        "exit_code": null,
+        "is_error": false
+      }
+    },
+    {
+      "id": "m05",
+      "role": "user",
+      "content": "<system-reminder>The background shell `uv run pytest -q` you started earlier finished with exit code 0.</system-reminder>",
+      "timestamp": "2026-09-05T07:46:40+02:00",
+      "is_system_injected": true,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": null
+    },
+    {
+      "id": "m06",
+      "role": "assistant",
+      "content": "A bare `except Exception: pass` around the whole tenant loop. I log with `logger.exception`, which carries the stack trace, and re-raise so the job exits non-zero.",
+      "timestamp": "2026-09-05T07:47:00+02:00",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [
+        {
+          "id": "c02",
+          "name": "replace",
+          "category": "write",
+          "args": {
+            "file_path": "/repo/src/jobs/nightly.py",
+            "old_string": "        except Exception:\n            pass",
+            "new_string": "        except Exception:\n            logger.exception(\"nightly sync failed for tenant %s\", tenant.id)\n            raise"
+          }
+        }
+      ],
+      "tool_result": null
+    },
+    {
+      "id": "m07",
+      "role": "tool",
+      "content": "",
+      "timestamp": "2026-09-05T07:47:20+02:00",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": {
+        "call_id": "c02",
+        "output": "Modified /repo/src/jobs/nightly.py (1 replacement)",
+        "exit_code": null,
+        "is_error": false
+      }
+    },
+    {
+      "id": "m08",
+      "role": "assistant",
+      "content": "Running the job tests.",
+      "timestamp": "2026-09-05T07:47:40+02:00",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [
+        {
+          "id": "c03",
+          "name": "run_shell_command",
+          "category": "exec",
+          "args": {
+            "command": "uv run pytest tests/jobs -q"
+          }
+        }
+      ],
+      "tool_result": null
+    },
+    {
+      "id": "m09",
+      "role": "tool",
+      "content": "",
+      "timestamp": "2026-09-05T07:48:00+02:00",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": {
+        "call_id": "c03",
+        "output": "...\n3 passed in 0.22s\n",
+        "exit_code": 0,
+        "is_error": false
+      }
+    },
+    {
+      "id": "m10",
+      "role": "system",
+      "content": "<system-reminder>Context left until auto-compaction: 42%.</system-reminder>",
+      "timestamp": "2026-09-05T07:48:20+02:00",
+      "is_system_injected": true,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": null
+    },
+    {
+      "id": "m11",
+      "role": "assistant",
+      "content": "A failing tenant is now logged with its stack trace and the job propagates the error, so the nightly run reports failure instead of silence.",
+      "timestamp": "2026-09-05T07:48:40+02:00",
+      "is_system_injected": false,
+      "is_command": false,
+      "tool_calls": [],
+      "tool_result": null
+    }
+  ]
+}
