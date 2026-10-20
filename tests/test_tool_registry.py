@@ -137,11 +137,14 @@ def test_an_unknown_agent_is_rejected_and_the_known_ones_are_listed():
 # --- the subagent marker (consumed by T3.3) ---------------------------------
 
 
-def test_the_claude_code_subagent_tool_is_marked_as_such():
+def test_the_claude_code_subagent_tools_are_marked_as_such():
+    # `Task` is the spelling the fixture corpus records, `Agent` the one T2.2
+    # found in real transcripts; both delegate, so both carry the marker.
     registry = tool_registry()
 
     assert registry.is_subagent_tool(Agent.CLAUDE_CODE, "Task")
-    assert registry.subagent_tools(Agent.CLAUDE_CODE) == ("Task",)
+    assert registry.is_subagent_tool(Agent.CLAUDE_CODE, "Agent")
+    assert registry.subagent_tools(Agent.CLAUDE_CODE) == ("Agent", "Task")
 
 
 def test_an_ordinary_tool_is_not_a_subagent_tool():

@@ -61,9 +61,23 @@ non_running_flags = [
 #
 # `Bash`, `Edit`, `Grep`, `Read` and `Task` are recorded in the fixture corpus
 # (`tests/fixtures/*.json`). `Glob`, `Write`, `NotebookEdit`, `WebFetch` and
-# `WebSearch` are the remaining tools of the agent's own tool set. Tools that
-# would be `other` anyway (plan mode, todo bookkeeping, MCP tools) are left out
-# on purpose: they resolve to `other` without an entry.
+# `WebSearch` are the remaining tools of the agent's own tool set. The entries
+# under "observed in real transcripts" below were added by T2.2 from sessions in
+# `~/.claude/projects/*/*.jsonl` — the only tool names that turned up there and
+# were not declared yet.
+#
+# A tool whose category is `other` is declared all the same once a transcript
+# shows it, which is a change of mind from the first version of this file. The
+# unknown-tool log exists to flag a call whose category this tool resolves
+# *wrongly*; a tool that genuinely touches neither files nor a shell is resolved
+# correctly as `other`, and logging it would bury the real signal under a
+# warning on every import. `knows()` therefore means "the registry has an
+# opinion about this tool", not "this tool does something".
+#
+# MCP tools stay undeclared on purpose. Their names are `mcp__<server>__<tool>`
+# and the server is whatever the user configured, so neither the spelling nor
+# the effect can be known here: an MCP tool resolves to `other` and *is* logged,
+# which for a tool that may well write files is the honest outcome.
 
 [agents.claude-code.tools]
 Read = { category = "read" }
@@ -75,10 +89,25 @@ Write = { category = "write" }
 Edit = { category = "write" }
 NotebookEdit = { category = "write" }
 Bash = { category = "exec" }
-# `subagent` marks the tool that delegates to a subagent (consumed by T3.3,
-# which lifts the subagent's work into a chunk of its own). The category stays
-# what the corpus records: a `Task` call itself neither reads nor writes.
+# `subagent` marks a tool that delegates to a subagent (consumed by T3.3, which
+# lifts the subagent's work into a chunk of its own). The category stays what the
+# corpus records: a delegating call itself neither reads nor writes. `Task` is
+# the spelling the fixture corpus records, `Agent` the one the real transcripts
+# show — both are kept, because a transcript recorded with either has to import.
 Task = { category = "other", subagent = true }
+Agent = { category = "other", subagent = true }
+# Observed in real transcripts, and `other` by nature: they ask the user
+# something, bookkeep a task list, leave plan mode, publish or fetch something
+# that is not a workspace file, or load more tooling. None of them changes the
+# workspace, so none of them is part of a solution or of a path.
+AskUserQuestion = { category = "other" }
+TaskCreate = { category = "other" }
+TaskUpdate = { category = "other" }
+ExitPlanMode = { category = "other" }
+Skill = { category = "other" }
+ToolSearch = { category = "other" }
+SendMessage = { category = "other" }
+Artifact = { category = "other" }
 
 # --- Gemini CLI --------------------------------------------------------------
 #
