@@ -168,9 +168,14 @@ def test_a_candidate_rejects_an_id_that_is_not_a_chain_id(identifier):
         ChainCandidate(id=identifier, label="an intent")
 
 
-def test_a_candidate_rejects_an_empty_label():
+@pytest.mark.parametrize("label", ["", "   ", "\n\t "])
+def test_a_candidate_rejects_a_label_that_holds_no_word(label):
+    # The same guard `ChainStore.open_chain` applies to an explicit label, and
+    # the same reason: `Chain.label` is only checked for being non-empty, so
+    # `"   "` would otherwise become the name an adapter decides against. A
+    # guard that disagrees with its sibling is the same finding twice.
     with pytest.raises(ValueError, match="label"):
-        ChainCandidate(id="C1", label="")
+        ChainCandidate(id="C1", label=label)
 
 
 def test_the_chunk_under_decision_carries_its_id_and_its_own_user_message():
