@@ -31,6 +31,7 @@ from idc.classify import (
     AdapterContractError,
     ChainCandidate,
     ChunkUnderDecision,
+    ClassifyError,
     Decision,
     FakeAdapter,
     FakeCall,
@@ -217,6 +218,29 @@ def test_as_decision_reports_a_string_that_is_not_a_chain_id_as_a_bad_chain_id()
         as_decision("K1")
 
 
+def test_a_wrong_shaped_chain_id_is_a_failure_of_the_stage_too():
+    # `idc.classify` promises that one `except ClassifyError` catches every
+    # failure of the stage, and T10's CLI is written against that. An adapter
+    # answering a wrong-shaped chain id is the most likely real failure of #17,
+    # so it may not be a second, uncatchable family — while its message still
+    # names the id form, because that is the mistake that was made.
+    with pytest.raises(ClassifyError, match="C<n>"):
+        as_decision("K1")
+
+    assert issubclass(AdapterContractError, ClassifyError)
+    assert issubclass(AdapterContractError, ValueError)
+
+
+def test_an_invalid_value_object_is_not_a_failure_of_the_stage():
+    # The other side of the same line: a `Decision` built with a wrong target is
+    # a programming error in the caller's own construction, not an answer the
+    # stage received, so it stays a plain `ValueError`.
+    with pytest.raises(ValueError) as raised:
+        Decision(target="K1")
+
+    assert not isinstance(raised.value, ClassifyError)
+
+
 def test_the_fake_and_a_hand_written_adapter_both_satisfy_the_interface():
     assert isinstance(FakeAdapter([NEW]), IntentAdapter)
     assert isinstance(MinimalAdapter(), IntentAdapter)
@@ -281,6 +305,11 @@ def test_the_fake_normalizes_its_script_when_it_is_built():
 def test_the_fake_rejects_a_script_entry_that_is_not_a_decision_when_it_is_built(entry):
     with pytest.raises(AdapterContractError, match="Decision"):
         FakeAdapter([NEW, entry])
+
+
+def test_the_fake_rejects_a_scripted_chain_id_of_the_wrong_shape_as_one_family():
+    with pytest.raises(ClassifyError, match="C<n>"):
+        FakeAdapter([NEW, "K1"])
 
 
 def test_the_fake_records_every_call_it_answered():

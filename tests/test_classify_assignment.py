@@ -43,6 +43,7 @@ from idc.classify import (
     Assignment,
     ChainCandidate,
     ChunkUnderDecision,
+    ClassifyError,
     Decision,
     FakeAdapter,
     ScriptExhaustedError,
@@ -331,6 +332,18 @@ def test_an_adapter_that_returns_something_else_fails_loudly():
 
     with pytest.raises(AdapterContractError, match="Decision"):
         classify(session, chunks, SilentAdapter())
+
+
+def test_an_adapter_answering_a_wrong_shaped_chain_id_fails_as_one_family():
+    # Through the loop, which is where #17 will fail this way: the stage's
+    # caller catches `ClassifyError` and gets a message naming the id form.
+    session, chunks = session_and_chunks("single_intent")
+
+    with pytest.raises(ClassifyError, match="C<n>"):
+        classify(session, chunks, StrayAdapter())
+
+    with pytest.raises(AdapterContractError, match="'K1'"):
+        classify(session, chunks, StrayAdapter())
 
 
 def test_a_script_that_runs_out_fails_loudly():
