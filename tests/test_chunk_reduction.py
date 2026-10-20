@@ -777,6 +777,28 @@ def test_a_command_answered_by_an_empty_message_is_dropped():
     assert [message.id for message in reduced.session.messages] == ["m00"]
 
 
+def test_a_blank_answer_is_consumed_and_listed_but_contributes_no_text():
+    # What `ReductionNote.result_from` actually records: every answer that was
+    # consumed, not only the ones whose text survived. The blank answer leaves
+    # the transcript like the other one, so naming it is what keeps its removal
+    # auditable — but the result text is the non-blank answer alone.
+    session = synthetic_session(
+        [
+            {"role": "user", "content": "Set the model up."},
+            {"role": "user", "content": "/model claude-opus-5", "is_command": True},
+            {"role": "system", "content": "   ", "is_system_injected": True},
+            {"role": "system", "content": "Model set.", "is_system_injected": True},
+        ]
+    )
+
+    reduced = reduce_session(session)
+
+    assert [note.result_from for note in reduced.notes] == [("m02", "m03")]
+    assert all(note.was_replaced for note in reduced.notes)
+    assert [message.id for message in reduced.session.messages] == ["m00", "m01"]
+    assert reduced.session.messages[1].content == "Model set."
+
+
 def test_the_result_run_stops_at_the_next_user_turn():
     session = synthetic_session(
         [
