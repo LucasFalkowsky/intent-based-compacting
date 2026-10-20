@@ -619,7 +619,9 @@ def test_an_undeclared_tool_resolves_to_other_and_is_noted():
     imported = import_opencode(native("unknown_tool"))
 
     assert imported.unknown_tools == ("imaginary_tool",)
-    calls = {call.name: call for message in imported.session.messages for call in message.tool_calls}
+    calls = {
+        call.name: call for message in imported.session.messages for call in message.tool_calls
+    }
     assert calls["imaginary_tool"].category is ToolCategory.OTHER
 
 
