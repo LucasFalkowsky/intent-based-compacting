@@ -35,6 +35,7 @@ from idc.classify import (
     ChainStore,
     ChunkAlreadyAssignedError,
     ChunkOrderError,
+    ChunkUnderDecision,
     ForeignChunkError,
     UnknownChainError,
     chain_id,
@@ -42,6 +43,7 @@ from idc.classify import (
     is_chain_id,
     provisional_label,
 )
+from idc.classify import store as store_module
 from idc.schema import Agent, Chain, Chunk, CompactedBlock, Session, dumps, loads
 
 SAMPLER_LABEL = "`tests/rates/test_sampler.py::test_weighted_pick` fails…"
@@ -160,6 +162,57 @@ def test_a_candidates_last_user_message_follows_the_chains_last_chunk():
 
     store.append("C1", chunks[2])
 
+    assert store.candidates()[0].last_user_message == session.messages[21].content
+
+
+def test_the_subject_of_a_chunk_is_what_an_adapter_decides_about():
+    # The chunk itself carries indices and no text, so the store — the only side
+    # of the stage that may read the session — resolves the chunk's own user
+    # message and hands it over. Without it an adapter would see less of the
+    # chunk it classifies than of the chains it compares it against.
+    session, chunks = session_and_chunks("interleaved_intents")
+
+    assert ChainStore(session).subject(chunks[0]) == ChunkUnderDecision(
+        id="K1", user_message=session.messages[0].content
+    )
+
+
+def test_the_subject_of_a_chunk_without_a_user_turn_carries_no_text():
+    session = CORPUS.session("subagent_result")
+    chunks = chunk_with_subagents(session, is_task_tool)
+    subagent = next(chunk for chunk in chunks if chunk.origin.value == "subagent")
+
+    assert ChainStore(session).subject(subagent) == ChunkUnderDecision(id=subagent.id)
+
+
+def test_the_subject_of_a_foreign_chunk_is_not_silently_empty():
+    session, _ = session_and_chunks("single_intent")
+
+    with pytest.raises(ForeignChunkError, match="K9"):
+        ChainStore(session).subject(Chunk(id="K9", start_index=90, end_index=99))
+
+
+def test_a_chunks_user_message_is_read_once_per_chunk(monkeypatch):
+    # The store resolves the message to build the subject and needs the same
+    # string to label the chain, so it reads the transcript once and not twice:
+    # the subject and the provisional label are the same resolution.
+    session, chunks = session_and_chunks("interleaved_intents")
+    read: list[str] = []
+    resolve = store_module.chunk_user_message
+
+    def counted(session_argument: Session, chunk_argument: Chunk) -> str | None:
+        read.append(chunk_argument.id)
+        return resolve(session_argument, chunk_argument)
+
+    monkeypatch.setattr(store_module, "chunk_user_message", counted)
+    store = ChainStore(session)
+
+    store.subject(chunks[0])
+    store.open_chain(chunks[0])
+    store.subject(chunks[2])
+    store.append("C1", chunks[2])
+
+    assert read == ["K1", "K3"]
     assert store.candidates()[0].last_user_message == session.messages[21].content
 
 

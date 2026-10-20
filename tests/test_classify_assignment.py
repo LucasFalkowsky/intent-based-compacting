@@ -30,6 +30,8 @@ whole decision backend, which is what keeps the end-to-end test (#42)
 network-free.
 """
 
+from collections.abc import Sequence
+
 import pytest
 
 from fixture_corpus import CORPUS
@@ -40,6 +42,7 @@ from idc.classify import (
     AdapterContractError,
     Assignment,
     ChainCandidate,
+    ChunkUnderDecision,
     Decision,
     FakeAdapter,
     ScriptExhaustedError,
@@ -116,7 +119,7 @@ class RawAdapter:
     is what pins the tolerance through the loop.
     """
 
-    def decide(self, chunk: Chunk, candidates: list[ChainCandidate]) -> str:
+    def decide(self, chunk: ChunkUnderDecision, candidates: Sequence[ChainCandidate]) -> str:
         """Return the id of the first candidate, or `NEW` when there is none."""
         return candidates[0].id if candidates else NEW
 
@@ -124,9 +127,67 @@ class RawAdapter:
 class SilentAdapter:
     """An adapter that decides nothing — the contract violation to catch."""
 
-    def decide(self, chunk: Chunk, candidates: list[ChainCandidate]) -> None:
+    def decide(self, chunk: ChunkUnderDecision, candidates: Sequence[ChainCandidate]) -> None:
         """Return `None`, which is not a decision."""
         return None
+
+
+class StrayAdapter:
+    """An adapter that answers with a string that is not a chain id.
+
+    The most likely real failure of #17: a model asked for `C<n>` writes `K1`,
+    a label, or a chain that never existed in that notation. The answer is in
+    the allowed *form* and wrong in its *content*, which is why the message
+    names the id form — and the failure is still one of the stage, so one
+    `except ClassifyError` has to catch it.
+    """
+
+    def decide(self, chunk: ChunkUnderDecision, candidates: Sequence[ChainCandidate]) -> str:
+        """Return a chunk id where a chain id was asked for."""
+        return "K1"
+
+
+class RecordingAdapter:
+    """An adapter that keeps what it was handed and always opens a chain.
+
+    `FakeCall` records the chunk's id, not its text, so this is what pins that
+    the classifier hands the chunk's own user message to the adapter.
+    """
+
+    def __init__(self) -> None:
+        """Start with an empty record."""
+        self.seen: list[ChunkUnderDecision] = []
+
+    def decide(self, chunk: ChunkUnderDecision, candidates: Sequence[ChainCandidate]) -> Decision:
+        """Record the chunk under decision and open a chain for it."""
+        self.seen.append(chunk)
+        return Decision.new()
+
+
+class KeywordAdapter:
+    """A throwaway adapter that decides from the chunk's own text.
+
+    Written against nothing but `decide`'s two arguments, and the reason the
+    chunk's user message has to reach them: a crude keyword rule reproduces the
+    interleaved fixture's chains — A, B, back to A — without a scripted
+    decision and without a line of code outside this class, which is T4's third
+    acceptance criterion for a backend that does need the transcript.
+    """
+
+    def decide(self, chunk: ChunkUnderDecision, candidates: Sequence[ChainCandidate]) -> Decision:
+        """Extend the first candidate the chunk shares a keyword with."""
+        keywords = self._keywords(chunk.user_message)
+        for offered in candidates:
+            text = offered.last_user_message.lower()
+            if any(keyword in text for keyword in keywords):
+                return Decision.extend(offered.id, confidence=0.6)
+        return Decision.new(confidence=0.6)
+
+    @staticmethod
+    def _keywords(text: str) -> set[str]:
+        """Return the words of `text` that are long enough to carry a topic."""
+        stripped = (word.strip(".,:;`") for word in text.lower().split())
+        return {word for word in stripped if len(word) > 5}
 
 
 def test_the_expectation_table_names_only_fixtures_the_corpus_holds():
@@ -197,6 +258,38 @@ def test_a_candidate_carries_the_last_user_message_of_its_chain():
     offered = {candidate.id: candidate for candidate in adapter.calls[2].candidates}
     assert offered["C1"].last_user_message == session.messages[0].content
     assert offered["C2"].last_user_message == session.messages[11].content
+
+
+def test_the_adapter_is_handed_the_chunks_own_user_message():
+    # A `Chunk` is indices only, so without this the thing being classified
+    # would reach the adapter with less content than the candidates it is
+    # compared against — `ChainCandidate` carries `last_user_message` for
+    # exactly the same reason.
+    session, chunks = session_and_chunks("interleaved_intents")
+    adapter = RecordingAdapter()
+
+    classify(session, chunks, adapter)
+
+    assert [seen.id for seen in adapter.seen] == ["K1", "K2", "K3"]
+    assert [seen.user_message for seen in adapter.seen] == [
+        session.messages[0].content,
+        session.messages[11].content,
+        session.messages[21].content,
+    ]
+
+
+def test_an_adapter_deciding_from_the_chunk_text_needs_no_code_outside_itself():
+    # The discriminating fixture, classified by content instead of by script:
+    # the third turn rejoins `C1` because its text does, which is what #17 and
+    # #18 will do with the same two arguments.
+    session, chunks = session_and_chunks("interleaved_intents")
+
+    chains = classify(session, chunks, KeywordAdapter())
+
+    assert [(chain.id, chain.chunk_ids) for chain in chains] == [
+        ("C1", ["K1", "K3"]),
+        ("C2", ["K2"]),
+    ]
 
 
 def test_the_assignments_record_what_was_decided_per_chunk():
