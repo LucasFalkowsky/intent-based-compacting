@@ -13,7 +13,7 @@ network at test time.
 | Stage | Package | What it does |
 |---|---|---|
 | `import` | `idc.importers` | read an agent transcript into the canonical format |
-| `chunk` | `idc.chunk` | split the transcript at user-message boundaries |
+| `chunk` | `idc.chunk` | split the transcript at user-message boundaries, reduce the harness noise inside a chunk, lift a subagent's work into a chunk of its own |
 | `classify` | `idc.classify` | assign each chunk to an intent chain |
 | `resolve` | `idc.resolve` | derive the accepted solution from the path |
 | `compact` | `idc.compact` | render new or extended chains into Markdown blocks |
@@ -33,7 +33,7 @@ transcript shapes exist only inside `idc.importers` and `idc.render`.
 | `Session` | a whole transcript: agent, model, provenance (`raw`, `native-compaction`, `intent-compaction`), messages |
 | `Message` | role, content, timestamp, and whether it was system-injected or a slash command |
 | `ToolCall` / `ToolResult` | a call with its category (`read`, `write`, `exec`, `other`) and arguments, and its output verbatim |
-| `Chunk` | one user input plus the agent's response, as a half-open range over `Session.messages` |
+| `Chunk` | one user input plus the agent's response, under a stable ID `K<n>`, as a half-open range over `Session.messages` |
 | `Chain` | the chunks of one user intent, under a stable ID `C<n>`, with its summary block |
 | `CompactedBlock` | the chains of a transcript plus the chunk that is kept verbatim |
 
