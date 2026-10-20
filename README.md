@@ -59,6 +59,35 @@ make schema   # regenerate it after changing a model
 
 Changing the schema is a ticket of its own, never a side effect of another change.
 
+## Tool registry
+
+What a tool call does to the workspace, and which commands count as a verification run,
+are **data, not code**: `src/idc/importers/tool_registry.toml` holds one tool table per
+agent and the list of verification patterns. Adding a tool or a pattern is a change to
+that file alone.
+
+```python
+from idc.importers import tool_registry
+
+registry = tool_registry()
+registry.category("claude-code", "Edit")  # ToolCategory.WRITE
+registry.category("opencode", "Read")  # ToolCategory.OTHER — OpenCode spells it `read`
+registry.knows("claude-code", "SomeMcpTool")  # False — resolves to `other`, importers log it
+registry.is_verification("uv run pytest -q")  # True
+registry.is_verification('git commit -m "add pytest"')  # False
+```
+
+A tool the file does not declare resolves to `other`; the file is deliberately incomplete
+where no transcript has shown a spelling yet, because an invented entry would resolve
+wrongly instead of merely being coarse. Verification matching is **anchored** on the
+command word (after `NAME=value` assignments and runner prefixes such as `uv run` are
+stripped, and a leading path is reduced to its file name), so a command that only mentions
+a test runner in an argument never counts as one.
+
+The file is validated when it is read — an unknown agent, an unknown category, an unknown
+field or a missing section raises one `ToolRegistryError` naming the file and the offending
+path, rather than letting every tool resolve to `other` unnoticed.
+
 ## Requirements
 
 - Python 3.13 (see `.python-version`)

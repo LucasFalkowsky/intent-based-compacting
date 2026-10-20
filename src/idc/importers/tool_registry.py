@@ -45,7 +45,14 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from idc.schema import Agent, ToolCategory
 
@@ -246,18 +253,20 @@ class _RegistryFile(_RegistryModel):
         min_length=1, description="The command lines that count as a verification run."
     )
 
-    @model_validator(mode="after")
-    def _check_runner_prefixes(self) -> Self:
+    @field_validator("runner_prefixes")
+    @classmethod
+    def _check_runner_prefixes(cls, prefixes: tuple[str, ...]) -> tuple[str, ...]:
         """Reject a prefix that is no command word.
 
-        A prefix that tokenizes to nothing would be stripped from every command
-        line forever, so this is the one malformed entry that would hang the
-        matcher rather than mis-match.
+        A prefix that tokenizes to nothing would be stripped from the front of
+        every token list without consuming anything, so this is the one
+        malformed entry that would hang the matcher rather than mis-match. The
+        check sits on the field so the error names the offending entry.
         """
-        for prefix in self.runner_prefixes:
+        for prefix in prefixes:
             if not _tokens(prefix):
                 raise ValueError(f"runner prefix {prefix!r} names no command word")
-        return self
+        return prefixes
 
     @model_validator(mode="after")
     def _check_completeness(self) -> Self:
