@@ -381,6 +381,21 @@ def test_a_new_chain_is_numbered_past_the_highest_seeded_one():
     assert store.open_chain(chunks[0]).id == "C6"
 
 
+def test_seeded_chains_must_arrive_in_the_order_they_were_opened():
+    # "Ordered by opening" is what `candidates()` and `chains()` promise, and a
+    # chain id *is* its opening position — so a caller handing them over in
+    # another order states two contradicting orders. The store refuses instead
+    # of silently offering `C3` before `C1`.
+    session, _ = session_and_chunks("single_intent")
+    seeded = [
+        Chain(id="C3", label="the later intent", chunk_ids=["K8"]),
+        Chain(id="C1", label="the earlier intent", chunk_ids=["K9"]),
+    ]
+
+    with pytest.raises(ValueError, match="order"):
+        ChainStore(session, seeded)
+
+
 def test_two_seeded_chains_may_not_share_an_id():
     session, _ = session_and_chunks("single_intent")
     seeded = [
@@ -407,6 +422,32 @@ def test_a_chunk_id_a_seeded_chain_already_claims_cannot_be_assigned_again():
     assert store.chains() == [carried]
 
 
+def test_the_already_assigned_message_names_a_carried_over_chain_as_the_cause():
+    # The normal case for #33, because both runs number their chunks
+    # positionally: the clash is a stale id, not a chunk in two chains, and the
+    # message has to say which of the two it is looking at.
+    session, chunks = session_and_chunks("already_compacted_block")
+    carried = Chain(id="C1", label="an earlier intent", chunk_ids=[chunks[0].id])
+    store = ChainStore(session, [carried])
+
+    with pytest.raises(ChunkAlreadyAssignedError, match="carried over from an earlier run") as e:
+        store.open_chain(chunks[0])
+
+    assert e.value.carried_over is True
+
+
+def test_the_already_assigned_message_states_the_partition_for_this_runs_chains():
+    session, chunks = session_and_chunks("two_sequential_intents")
+    store = ChainStore(session)
+    store.open_chain(chunks[0])
+    store.open_chain(chunks[1])
+
+    with pytest.raises(ChunkAlreadyAssignedError, match="exactly one chain") as e:
+        store.append("C2", chunks[0])
+
+    assert e.value.carried_over is False
+
+
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
@@ -429,6 +470,29 @@ def test_a_chunk_without_a_user_turn_has_no_user_message():
 
     assert subagent_chunks, "the fixture must hold a subagent chunk"
     assert all(chunk_user_message(session, chunk) is None for chunk in subagent_chunks)
+
+
+def test_the_user_message_of_a_chunk_holding_two_user_turns_is_the_last_one():
+    # The chunker never builds such a chunk — it splits *at* every real user
+    # turn, so a chunk holds at most one (T3.1). `chunk_user_message` is public
+    # and takes any range, though, and it is documented to return the chunk's
+    # *last* user turn: a forward scan would answer with the first.
+    session, _ = session_and_chunks("two_sequential_intents")
+    both = Chunk(id="K1", start_index=0, end_index=len(session.messages))
+
+    assert chunk_user_message(session, both) == session.messages[10].content
+
+
+def test_a_chunk_that_fits_resolves_against_this_session_whatever_it_came_from():
+    # The documented limit of the guard, not an oversight: a `Chunk` carries no
+    # session id (#3), so "is this a chunk of this transcript" is only answerable
+    # as "does its range fit". A chunk of another run that happens to fit
+    # resolves against *this* session's messages, and only the caller can
+    # prevent that.
+    session, _ = session_and_chunks("interleaved_intents")
+    fits = Chunk(id="K7", start_index=0, end_index=1)
+
+    assert chunk_user_message(session, fits) == session.messages[0].content
 
 
 def test_the_user_message_of_a_foreign_chunk_is_not_silently_empty():
@@ -466,6 +530,18 @@ def test_a_long_provisional_label_is_cut_at_a_word_boundary():
 
     assert label == SAMPLER_LABEL
     assert len(label) <= PROVISIONAL_LABEL_MAX_LENGTH
+
+
+def test_a_cut_provisional_label_drops_the_punctuation_before_the_ellipsis():
+    # `write_then_two_edits`' own turn, whose word boundary falls right after a
+    # colon: without the trim the label would read "with tests:…".
+    label = provisional_label(
+        "Add a `slugify` helper in `src/text/slug.py` with tests: "
+        "collapse whitespace to single hyphens.",
+        1,
+    )
+
+    assert label == "Add a `slugify` helper in `src/text/slug.py` with tests…"
 
 
 @pytest.mark.parametrize("text", ["", "   ", "\n\t "])
