@@ -23,7 +23,9 @@ from idc.classify import (
     PROVISIONAL_LABEL_MAX_LENGTH,
     AdapterContractError,
     Assignment,
+    ChainAlreadySeededError,
     ChainCandidate,
+    ChainOrderError,
     ChainStore,
     ChunkAlreadyAssignedError,
     ChunkOrderError,
@@ -54,7 +56,9 @@ EXPECTED_EXPORTS = {
     "PROVISIONAL_LABEL_MAX_LENGTH",
     "AdapterContractError",
     "Assignment",
+    "ChainAlreadySeededError",
     "ChainCandidate",
+    "ChainOrderError",
     "ChainStore",
     "ChunkAlreadyAssignedError",
     "ChunkOrderError",
@@ -99,7 +103,9 @@ module down with it, which is the point: the contract fails loudly.
 TYPE_EXPORTS = (
     AdapterContractError,
     Assignment,
+    ChainAlreadySeededError,
     ChainCandidate,
+    ChainOrderError,
     ChainStore,
     ChunkAlreadyAssignedError,
     ChunkOrderError,
@@ -128,13 +134,20 @@ VALUE_EXPORTS = {
 
 ERROR_EXPORTS = (
     AdapterContractError,
+    ChainAlreadySeededError,
+    ChainOrderError,
     ChunkAlreadyAssignedError,
     ChunkOrderError,
     ForeignChunkError,
     ScriptExhaustedError,
     UnknownChainError,
 )
-"""Every failure of the stage; all of them have to be one catchable family."""
+"""Every failure of the stage; all of them have to be one catchable family.
+
+The seeding guards are in here for the reason the others are: a chain seeded
+from an existing summary block comes out of a transcript file (#33), so its
+refusal is a failure of the stage and not a programmer's bad literal.
+"""
 
 
 def test_public_exports_are_declared_and_importable():

@@ -417,6 +417,55 @@ def test_two_seeded_chains_may_not_share_an_id():
     assert raised.value.chain_id == "C1"
 
 
+def test_two_seeded_chains_may_not_share_a_chunk():
+    # The same event as a seeded chunk id colliding with *this* run's, so the
+    # same error: both chains carry positions in an earlier run's transcript,
+    # and re-mapping them before seeding is what #33 has to do in either case.
+    # Two seeded chains clashing with each other was the one path that answered
+    # with a bare `ValueError` while the clash with this run's chunk ids was
+    # already a `ChunkAlreadyAssignedError`.
+    session, _ = session_and_chunks("single_intent")
+    seeded = [
+        Chain(id="C1", label="an intent", chunk_ids=["K8"]),
+        Chain(id="C2", label="another intent", chunk_ids=["K8"]),
+    ]
+
+    with pytest.raises(ChunkAlreadyAssignedError, match="K8") as raised:
+        ChainStore(session, seeded)
+
+    assert (raised.value.chunk_id, raised.value.chain_id) == ("K8", "C1")
+    assert raised.value.carried_over is True
+
+
+BAD_SEEDS = {
+    "a duplicate id": [
+        Chain(id="C1", label="an intent", chunk_ids=["K8"]),
+        Chain(id="C1", label="another intent", chunk_ids=["K9"]),
+    ],
+    "ids that run backwards": [
+        Chain(id="C3", label="the later intent", chunk_ids=["K8"]),
+        Chain(id="C1", label="the earlier intent", chunk_ids=["K9"]),
+    ],
+    "a shared chunk": [
+        Chain(id="C1", label="an intent", chunk_ids=["K8"]),
+        Chain(id="C2", label="another intent", chunk_ids=["K8"]),
+    ],
+}
+"""Every way a seeded chain list can be unusable, as #33 may read one back."""
+
+
+@pytest.mark.parametrize("seeded", BAD_SEEDS.values(), ids=BAD_SEEDS.keys())
+def test_no_refusal_of_a_seeded_chain_escapes_the_one_except(seeded):
+    # The property the three guards above share, asserted once over all of them:
+    # seeding is the one place where data a *model* never saw and a programmer
+    # never wrote enters the store, and `idc.classify` promises that a caller
+    # catches the whole stage with one `except ClassifyError`.
+    session, _ = session_and_chunks("single_intent")
+
+    with pytest.raises(ClassifyError):
+        ChainStore(session, seeded)
+
+
 def test_a_chunk_id_a_seeded_chain_already_claims_cannot_be_assigned_again():
     # The chunk ids of a carried-over chain are positions in the transcript of
     # the *earlier* run, so they can collide with this run's ids. That has to be
