@@ -66,6 +66,15 @@ MATCHING = [
     "pytest -q || echo failed",
     "make lint; make test",
     "pytest -q 2>&1 | tee pytest.log",
+    # a comment ends its line, not the scan: the run on the next line counts
+    "# run the suite\nmake test",
+    "make build # make test\npytest -q",
+    # a flag that disqualifies one runner is not a flag of every runner: `-n` is
+    # make's dry run but pytest-xdist's parallelism, `-l` is tox's env listing
+    # but pytest's --showlocals
+    "pytest -n 4",
+    "pytest -l --tb=short",
+    "nox -s tests",
 ]
 
 NOT_MATCHING = [
@@ -98,6 +107,37 @@ NOT_MATCHING = [
     # a here-document body is data the command writes, not a command
     "python - <<'EOF'\npytest\nEOF",
     'cat > Makefile <<"EOF"\ntest:\n\tmake test\nEOF',
+    # an escaped quote does not end the string it is in, so the separator and
+    # the runner behind it stay inside an argument of `echo`, `git commit -m`,
+    # `python -c` — the spellings a recorded agent command really uses
+    'git commit -m "rename \\"test\\" target; make test still works"',
+    'echo "Run \\"make build\\"; make test is next" >> README.md',
+    'echo "quote \\" then | jest --ci"',
+    'echo "print(\\"hi\\"); pytest -q" > x.py',
+    'python -c "print(1)" && echo "a\\"b; pytest -q x"',
+    # an unquoted `#` comments out the rest of its line, so nothing behind it runs
+    "echo done # note; make test",
+    "echo done #&& make test",
+    "ls # ; pytest",
+    "# step 1; make test\nmake build",
+    # `#` only starts a comment at the beginning of a word, so neither of these
+    # is a run of anything the registry knows either
+    "echo a#b",
+    "make test#x",
+    # a real runner asked what it would do, which proves nothing: T5.2 sees only
+    # the command and a zero exit code, so it cannot tell these from a real run
+    "pytest --version",
+    "pytest --help",
+    "pytest -h",
+    "pytest --collect-only",
+    "tox -l",
+    "nox --list",
+    "go test -list .",
+    "npm test --help",
+    "make test -n",
+    "make check --dry-run",
+    "cargo test --list",
+    "uv run pytest --version",
     # not a test command at all
     "git status",
     "ls -la",
@@ -151,6 +191,38 @@ def test_matching_is_quote_aware():
 
     assert registry.is_verification('python -c "import sys" && go test ./...')
     assert registry.match_verification('echo "pytest -q && make test"') is None
+
+
+def test_an_escaped_quote_does_not_end_the_string_it_is_in():
+    # Inside double quotes `\"` is a literal quote, not the closing one. Reading
+    # it as the closing quote scans the rest of the argument as unquoted shell,
+    # where a `;` opens a segment and the next word becomes a command.
+    registry = tool_registry()
+
+    assert (
+        registry.match_verification('git commit -m "rename \\"test\\" target; make test too"')
+        is None
+    )
+    # a backslash is literal inside single quotes, so there the quote does close
+    assert registry.is_verification("echo 'a\\' && pytest -q")
+
+
+def test_a_comment_ends_its_line_and_not_the_scan():
+    registry = tool_registry()
+
+    assert registry.match_verification("echo done # note; make test") is None
+    assert registry.is_verification("# run the suite\nmake test")
+
+
+def test_a_runner_that_is_only_asked_what_it_would_do_is_no_verification():
+    # A zero exit code is all T5.2 has besides the command line, and these exit
+    # zero without running a single test.
+    registry = tool_registry()
+
+    assert registry.match_verification("pytest --collect-only") is None
+    assert registry.match_verification("make test -n") is None
+    assert registry.is_verification("pytest -q")
+    assert registry.is_verification("make test")
 
 
 def test_an_unbalanced_quote_does_not_raise():

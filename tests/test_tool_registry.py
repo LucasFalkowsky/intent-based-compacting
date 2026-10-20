@@ -180,6 +180,57 @@ def test_a_verification_pattern_added_to_the_data_file_matches_without_a_code_ch
     assert tool_registry().is_verification("ward test --path tests") is False
 
 
+def test_a_non_running_flag_added_to_the_data_file_disqualifies_without_a_code_change(tmp_path):
+    # The whole point of the registry: a command that proves nothing is excluded
+    # by editing the data file, not the matcher.
+    text = MINIMAL_REGISTRY.replace("version = 1", 'version = 1\nnon_running_flags = ["--explain"]')
+
+    registry = load_tool_registry(write_registry(tmp_path, text))
+
+    assert registry.is_verification("pytest -q")
+    assert registry.is_verification("pytest --explain") is False
+    assert tool_registry().is_verification("pytest --explain")
+
+
+def test_a_non_running_flag_of_one_pattern_does_not_disqualify_another(tmp_path):
+    # `-n` is make's dry run and pytest-xdist's parallelism, so the flag belongs
+    # to the pattern, not to the matcher.
+    text = (
+        MINIMAL_REGISTRY.replace(
+            'command = "pytest"', 'command = "pytest"\nnon_running_flags = ["-p"]'
+        )
+        + '\n[[verification_patterns]]\nid = "make-test"\ncommand = "make test"\n'
+    )
+
+    registry = load_tool_registry(write_registry(tmp_path, text))
+
+    assert registry.is_verification("pytest -p no:cacheprovider") is False
+    assert registry.is_verification("make test -p")
+    assert tool_registry().is_verification("pytest -p no:cacheprovider")
+
+
+def test_a_non_running_flag_that_is_no_flag_is_rejected(tmp_path):
+    text = MINIMAL_REGISTRY.replace("version = 1", 'version = 1\nnon_running_flags = ["version"]')
+    path = write_registry(tmp_path, text)
+
+    with pytest.raises(ToolRegistryError, match="non_running_flags") as error:
+        load_tool_registry(path)
+
+    assert "version" in str(error.value)
+
+
+def test_a_per_pattern_non_running_flag_that_is_no_flag_is_rejected(tmp_path):
+    text = MINIMAL_REGISTRY.replace(
+        'command = "pytest"', 'command = "pytest"\nnon_running_flags = ["collect-only"]'
+    )
+    path = write_registry(tmp_path, text)
+
+    with pytest.raises(
+        ToolRegistryError, match=re.escape("verification_patterns.0.non_running_flags")
+    ):
+        load_tool_registry(path)
+
+
 def test_a_data_file_without_a_pattern_matches_no_command(tmp_path):
     text = MINIMAL_REGISTRY.replace('command = "pytest"', 'command = "make test"')
 
@@ -242,6 +293,18 @@ def test_an_unknown_field_in_the_data_file_is_rejected(tmp_path):
     path = write_registry(tmp_path, text)
 
     with pytest.raises(ToolRegistryError, match="flavour"):
+        load_tool_registry(path)
+
+
+def test_a_subagent_marker_that_is_no_boolean_is_rejected(tmp_path):
+    # Pydantic's lax mode would read "yes" as True; the rest of the file is
+    # strict, so a typo in the marker T3.3 consumes must fail loudly as well.
+    text = MINIMAL_REGISTRY.replace("subagent = true", 'subagent = "yes"')
+    path = write_registry(tmp_path, text)
+
+    with pytest.raises(
+        ToolRegistryError, match=re.escape("agents.claude-code.tools.Task.subagent")
+    ):
         load_tool_registry(path)
 
 
