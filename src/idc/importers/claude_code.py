@@ -12,7 +12,10 @@ resolving tool categories, logging unknown tools and validating the result are
 
 - `user`, content a string -> one `user` message.
 - `user`, content a block list -> one `user` message carrying its text, plus
-  one `tool` message per `tool_result` block.
+  one `tool` message per `tool_result` block. A list whose blocks hold no text
+  and no result — a pasted screenshot — still yields the `user` message, with
+  empty content and a note for the block that was dropped: the turn happened,
+  and it is an intent boundary T3.1 splits on.
 - `user` with `isCompactSummary` -> an injected `system` message carrying the
   summary's text, and the session's `source` becomes `native-compaction`; any
   other block of that record is dropped and noted like anywhere else.
@@ -24,10 +27,13 @@ resolving tool categories, logging unknown tools and validating the result are
   no type is noted as `<no type>`, one whose type is `null` as `<null type>`.
 
 A `user` record whose `content` is neither text nor a block list — a number, an
-object, an absent `message` — yields **no** message either, and is noted twice:
-by its record type and by the shape of the value that was lost. Importing it as
-an empty `user` turn would not only drop the value, it would fabricate an intent
-boundary, because that is what T3.1 splits chunks on and T4 classifies.
+object, a `message` that is not an object — yields **no** message, and is noted
+twice: by its record type and by the shape of the value that was lost. Importing
+it as an empty `user` turn would not only drop the value, it would fabricate an
+intent boundary, because that is what T3.1 splits chunks on and T4 classifies.
+The line between that and the screenshot above is what the content *is*: a block
+list is a turn whose blocks the schema cannot hold, a number is a turn this
+importer cannot read at all.
 
 Two rules decide the rest.
 
@@ -333,10 +339,11 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
 
     Returns:
         Whether the record yielded at least one canonical message. A record
-        whose blocks hold neither text nor a result yields none, and so does one
-        whose content is neither text nor a block list; both are then noted as
-        skipped like any other record that carries no message, rather than
-        becoming an empty user turn the user never took.
+        whose content is neither text nor a block list yields none and is noted
+        as skipped like any other record that carries no message, rather than
+        becoming an empty user turn the user never took. A record whose content
+        *is* a block list always yields one (see `_user_parts`), because the
+        turn happened whatever its blocks held.
 
     Raises:
         TranscriptImportError: If a `tool_result` block names no `tool_use_id`,
@@ -401,6 +408,15 @@ def _user_parts(
         placed where the first of them sat; every `tool_result` block becomes a
         message of its own, because the schema holds one result per message.
 
+        A record whose blocks yield no result and no text still yields the
+        `user` part, with empty content: a pasted screenshot is a turn the user
+        took, whatever the schema can hold of it, and T3.1 splits chunks on
+        exactly that boundary. That is the same answer the scalar path gives
+        `""`. A record that *does* yield a result is the transcript's carrier
+        for that result and gets a `user` part only when it also carries text —
+        an empty turn in front of every tool result would be an invented
+        intent boundary, which is what the decision on #7 rules out.
+
     Raises:
         TranscriptImportError: If a `tool_result` block names no `tool_use_id`.
     """
@@ -417,8 +433,8 @@ def _user_parts(
         else:
             builder.note(NOTE_DROPPED_BLOCK, str(kind))
     text = joined_text(texts)
-    if text and text_index is not None:
-        found.append((text_index, Role.USER, text, None))
+    if text or not found:
+        found.append((text_index if text_index is not None else 0, Role.USER, text, None))
     found.sort(key=lambda part: part[0])
     only = len(found) == 1
     return [
