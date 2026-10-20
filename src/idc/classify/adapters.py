@@ -94,8 +94,10 @@ class ChunkUnderDecision:
             name it by.
         user_message: Content of the chunk's last real user turn, verbatim.
             Empty when the chunk holds no user turn at all, which is the case
-            for a chunk of subagent work; the same absence that
-            `ChainCandidate.last_user_message` spells as the empty string.
+            for a chunk of subagent work — and empty as well when the turn
+            itself carried no text, which `from_chunk` does not tell apart. The
+            same absence that `ChainCandidate.last_user_message` spells as the
+            empty string.
     """
 
     id: str
@@ -114,6 +116,18 @@ class ChunkUnderDecision:
     @classmethod
     def from_chunk(cls, chunk: Chunk, user_message: str | None = None) -> Self:
         """Return the chunk as an adapter is shown it.
+
+        `None` and `""` collapse into the same value, so an adapter cannot tell
+        a chunk that holds **no** user turn (a chunk of subagent work) from a
+        user turn whose content is **empty** (a turn that carried only tool
+        calls). That is deliberate: neither #17 nor #18 decides differently in
+        the two cases, and a field an adapter does not use would widen this
+        interface for nothing. Where the difference is used it survives —
+        `chunk_user_message` answers `None` or `""`, and the store reads it:
+        appending a chunk without a user turn leaves the chain's last user
+        message where it was, while an empty turn replaces it. An adapter that
+        needs the distinction is a reason to extend this value object, not to
+        re-derive it from the transcript.
 
         Args:
             chunk: The chunk being classified.
