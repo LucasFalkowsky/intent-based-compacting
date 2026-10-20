@@ -705,7 +705,11 @@ def test_an_exit_status_in_the_middle_of_the_output_is_not_read_as_one(tmp_path)
                         "run_shell_command",
                         {"command": "cat log.txt"},
                         result=output(
-                            "c1", "run_shell_command", "Output: Exit Code: 3\nlast line of the log"
+                            "c1",
+                            "run_shell_command",
+                            # The line the command printed is followed by more of
+                            # its own output, so it is not the trailing block.
+                            "Output: step 1 of 2\nExit Code: 3\nstep 2 of 2\n",
                         ),
                         status="success",
                     )
