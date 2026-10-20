@@ -79,9 +79,23 @@ make unit     # unit tests only
 ```
 
 The suite is offline and deterministic: no network, no real model calls. Anything that
-would call a model is exercised through a fake adapter. Shared transcript fixtures live in
-`tests/fixtures/` and are resolved through the `fixtures_dir` pytest fixture, never through
-a relative path.
+would call a model is exercised through a fake adapter.
+
+Shared transcript fixtures live in `tests/fixtures/` — nine hand-written canonical
+transcripts, one per case (single intent, sequential intents, interleaved intents, a slash
+command, a system-injected message, a subagent result, a failed command followed by a
+passing one, a file written then edited twice, a session that already contains a compacted
+block). Every test loads them **by name** through `tests/fixture_corpus.py`, never through
+a relative path:
+
+```python
+from fixture_corpus import CORPUS
+
+session = CORPUS.session("interleaved_intents")  # validated on load
+```
+
+`tests/fixtures/README.md` states what each fixture exercises; the directory is discovered
+on every call, so a new fixture is picked up without changing any test.
 
 ## Run
 

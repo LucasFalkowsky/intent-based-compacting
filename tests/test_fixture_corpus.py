@@ -3,6 +3,11 @@
 The nine cases the corpus has to cover are listed in `REQUIRED_CASES`; every
 `*.json` file in `tests/fixtures/` is *discovered*, not listed, so a fixture
 added later cannot silently skip validation.
+
+This module resolves and loads the directory itself instead of going through
+`fixture_corpus`: it is what guarantees that the files on disk are valid, so it
+must not depend on the access layer that reads them. The layer's own discovery
+is checked against this one in `test_fixture_access.py`.
 """
 
 from datetime import datetime

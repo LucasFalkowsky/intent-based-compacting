@@ -19,11 +19,19 @@ Fixtures are loaded through `idc.schema.load`, so a malformed fixture fails as
 one `SchemaValidationError` naming the file, and no test ever sees an
 unvalidated transcript. The module has no dependency beyond the standard
 library and the canonical schema itself.
+
+The readers at the end of the module (`tool_calls`, `file_of`, `touched_files`,
+`written_files`, `results_by_call_id`, `exec_runs`) are mechanical: they only
+regroup the canonical fields a fixture already carries, which is what a test
+needs to state what it expects. They are **not** the pipeline's notions of a
+turn, a write or a verification — the chunker (T3) and the resolver (T5) derive
+those themselves, and a test must not use these helpers as their oracle.
 """
 
+from collections.abc import Iterable
 from pathlib import Path
 
-from idc.schema import Session, load
+from idc.schema import Message, Session, ToolCall, ToolCategory, ToolResult, load
 
 TESTS_DIR = Path(__file__).parent.resolve()
 """Absolute path of the `tests/` directory."""
@@ -128,3 +136,60 @@ class Corpus:
 
 CORPUS = Corpus(FIXTURES_DIR)
 """The shared corpus; also available as the `corpus` pytest fixture."""
+
+
+FILE_PATH_KEYS = ("file_path", "filePath", "absolute_path")
+"""Argument keys the three agents use for the file a call works on.
+
+Claude Code and Gemini CLI's `write_file`/`replace` use `file_path`, OpenCode
+`filePath`, Gemini's `read_file` `absolute_path`. The canonical schema keeps a
+call's arguments exactly as the agent sent them, so the corpus carries all three
+spellings on purpose.
+"""
+
+
+def tool_calls(messages: Iterable[Message]) -> list[ToolCall]:
+    """Return every tool call of `messages`, in transcript order."""
+    return [call for message in messages for call in message.tool_calls]
+
+
+def file_of(call: ToolCall) -> str | None:
+    """Return the file a call works on, or `None` if its arguments name none."""
+    for key in FILE_PATH_KEYS:
+        value = call.args.get(key)
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def touched_files(messages: Iterable[Message]) -> set[str]:
+    """Return every file the calls in `messages` read or wrote."""
+    return {path for call in tool_calls(messages) if (path := file_of(call)) is not None}
+
+
+def written_files(messages: Iterable[Message]) -> list[str]:
+    """Return the file of every `write` call, in transcript order, with repeats."""
+    return [
+        path
+        for call in tool_calls(messages)
+        if call.category is ToolCategory.WRITE and (path := file_of(call)) is not None
+    ]
+
+
+def results_by_call_id(session: Session) -> dict[str, ToolResult]:
+    """Return every tool result of the session, keyed by the call it answers."""
+    return {
+        message.tool_result.call_id: message.tool_result
+        for message in session.messages
+        if message.tool_result is not None
+    }
+
+
+def exec_runs(session: Session) -> list[tuple[str, ToolResult]]:
+    """Return `(command, result)` for every `exec` call, in transcript order."""
+    results = results_by_call_id(session)
+    return [
+        (call.args["command"], results[call.id])
+        for call in tool_calls(session.messages)
+        if call.category is ToolCategory.EXEC
+    ]

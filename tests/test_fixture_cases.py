@@ -5,53 +5,23 @@ specific structural property of it. Those properties are pinned here, so that a
 downstream test can never be written against a fixture that quietly stopped
 exercising its case.
 
-The helpers below describe the corpus; they are not the chunker's or the
-resolver's definition of a turn, a write or a verification — those are T3 and T5
-and deliberately re-derive this from the canonical fields.
+The mechanical readers come from `fixture_corpus`; the two helpers below are
+local on purpose: what counts as a *user turn* is the chunker's decision (T3),
+so the corpus describes its own structure with it instead of exporting it as an
+oracle.
 """
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 
-from fixture_corpus import CORPUS
-
-from idc.schema import Message, Role, Session, SessionSource, ToolCall, ToolCategory, ToolResult
-
-FILE_PATH_KEYS = ("file_path", "filePath", "absolute_path")
-"""Argument keys the three agents use for the file a call works on.
-
-Claude Code and Gemini CLI write `file_path`, OpenCode `filePath`, and Gemini's
-`read_file` `absolute_path`. The canonical schema keeps a call's arguments
-exactly as the agent sent them, so the corpus carries all three spellings on
-purpose.
-"""
-
-
-def calls(messages: Iterable[Message]) -> list[ToolCall]:
-    """Return every tool call of `messages`, in transcript order."""
-    return [call for message in messages for call in message.tool_calls]
-
-
-def file_of(call: ToolCall) -> str | None:
-    """Return the file a call works on, or `None` if it names none."""
-    for key in FILE_PATH_KEYS:
-        value = call.args.get(key)
-        if isinstance(value, str):
-            return value
-    return None
-
-
-def touched_files(messages: Iterable[Message]) -> set[str]:
-    """Return every file read or written by the calls in `messages`."""
-    return {path for call in calls(messages) if (path := file_of(call)) is not None}
-
-
-def written_files(messages: Iterable[Message]) -> list[str]:
-    """Return the file of every write call, in transcript order (with repeats)."""
-    return [
-        path
-        for call in calls(messages)
-        if call.category is ToolCategory.WRITE and (path := file_of(call)) is not None
-    ]
+from fixture_corpus import (
+    CORPUS,
+    exec_runs,
+    file_of,
+    tool_calls,
+    touched_files,
+    written_files,
+)
+from idc.schema import Message, Role, Session, SessionSource, ToolCategory
 
 
 def user_turn_indices(session: Session) -> list[int]:
@@ -74,25 +44,6 @@ def user_turns(session: Session) -> list[Sequence[Message]]:
     return [session.messages[start:end] for start, end in zip(starts, bounds[1:], strict=True)]
 
 
-def results_by_call_id(session: Session) -> dict[str, ToolResult]:
-    """Return every tool result of the session, keyed by the call it answers."""
-    return {
-        message.tool_result.call_id: message.tool_result
-        for message in session.messages
-        if message.tool_result is not None
-    }
-
-
-def exec_runs(session: Session) -> list[tuple[str, ToolResult]]:
-    """Return `(command, result)` for every `exec` call, in transcript order."""
-    results = results_by_call_id(session)
-    return [
-        (call.args["command"], results[call.id])
-        for call in calls(session.messages)
-        if call.category is ToolCategory.EXEC
-    ]
-
-
 # --- single intent ---------------------------------------------------------
 
 
@@ -101,7 +52,7 @@ def test_single_intent_has_exactly_one_user_turn_and_one_accepted_write():
 
     assert len(user_turn_indices(session)) == 1
     assert written_files(session.messages) == ["src/billing/export.py"]
-    assert [call.category for call in calls(session.messages)].count(ToolCategory.READ) >= 2
+    assert [call.category for call in tool_calls(session.messages)].count(ToolCategory.READ) >= 2
     assert [result.exit_code for _, result in exec_runs(session)] == [0]
 
 
@@ -177,7 +128,7 @@ def test_system_injected_fixture_injects_into_the_system_and_the_user_role():
 
 def test_subagent_result_is_a_span_of_messages_between_call_and_result():
     session = CORPUS.session("subagent_result")
-    spawn = [call for call in calls(session.messages) if call.name == "Task"]
+    spawn = [call for call in tool_calls(session.messages) if call.name == "Task"]
 
     assert len(spawn) == 1
     call_index = next(
@@ -191,7 +142,7 @@ def test_subagent_result_is_a_span_of_messages_between_call_and_result():
     inner = session.messages[call_index + 1 : result_index]
 
     assert len(inner) >= 4, "the subagent's own work must be a span, not a single result blob"
-    inner_calls = {call.id for call in calls(inner)}
+    inner_calls = {call.id for call in tool_calls(inner)}
     inner_results = {
         message.tool_result.call_id for message in inner if message.tool_result is not None
     }
@@ -224,7 +175,9 @@ def test_failed_then_passing_command_makes_the_last_passing_run_resolvable():
 def test_write_then_two_edits_keeps_the_superseded_writes_before_the_last_one():
     session = CORPUS.session("write_then_two_edits")
     target = "/repo/src/text/slug.py"
-    write_calls = [call for call in calls(session.messages) if call.category is ToolCategory.WRITE]
+    write_calls = [
+        call for call in tool_calls(session.messages) if call.category is ToolCategory.WRITE
+    ]
     to_target = [call for call in write_calls if file_of(call) == target]
 
     assert len(to_target) == 3, "one create plus two edits of the same file"
