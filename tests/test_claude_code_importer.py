@@ -954,6 +954,142 @@ def test_a_record_whose_type_is_a_number_keeps_the_number_in_the_note(tmp_path):
     assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == ["7"]
 
 
+# --- record fields the importer cannot use ----------------------------------
+#
+# The identifier it falls back from, the session it keeps and the `message` it
+# reads are the three record-level values that were replaced, ignored or
+# treated as absent without a word. The docstring documents the `line-<n>`
+# fallback for a record *without* a uuid; a record that has an unusable one is
+# a different thing, and so is "a value I cannot read" versus "no value".
+
+
+def test_a_record_whose_identifier_is_no_string_falls_back_and_is_noted(tmp_path):
+    record = user_record("u1", "fix the exporter")
+    record["uuid"] = 7
+    path = write_jsonl(tmp_path, [record])
+
+    imported = import_claude_code(path)
+
+    assert [message.id for message in imported.session.messages] == ["line-1"]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<uuid: number>"]
+
+
+def test_a_record_whose_identifier_is_empty_falls_back_and_is_noted(tmp_path):
+    record = user_record("u1", "fix the exporter")
+    record["uuid"] = ""
+    path = write_jsonl(tmp_path, [record])
+
+    imported = import_claude_code(path)
+
+    assert [message.id for message in imported.session.messages] == ["line-1"]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        "<uuid: empty string>"
+    ]
+
+
+def test_a_record_without_an_identifier_falls_back_unnoted(tmp_path):
+    record = user_record("u1", "fix the exporter")
+    del record["uuid"]
+    path = write_jsonl(tmp_path, [record])
+
+    imported = import_claude_code(path)
+
+    assert [message.id for message in imported.session.messages] == ["line-1"]
+    assert imported.notes == ()
+
+
+def test_an_unusable_identifier_is_noted_once_per_record_not_per_message(tmp_path):
+    record = user_record(
+        "u1",
+        [
+            {"type": "tool_result", "tool_use_id": "toolu_1", "content": "a"},
+            {"type": "tool_result", "tool_use_id": "toolu_2", "content": "b"},
+        ],
+    )
+    record["uuid"] = 7
+    path = write_jsonl(tmp_path, [record])
+
+    imported = import_claude_code(path)
+
+    assert [message.id for message in imported.session.messages] == ["line-1#0", "line-1#1"]
+    assert [(note.detail, note.count) for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        ("<uuid: number>", 1)
+    ]
+
+
+def test_a_second_session_identifier_is_ignored_but_noted(tmp_path):
+    second = user_record("u2", "and the importer")
+    second["sessionId"] = "sess-other"
+    path = write_jsonl(tmp_path, [user_record("u1", "fix the exporter"), second])
+
+    imported = import_claude_code(path)
+
+    assert imported.session.id == "sess-tmp"
+    assert [(note.detail, note.count) for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        ("<sessionId: a second value>", 1)
+    ]
+
+
+def test_the_same_session_identifier_on_every_record_is_not_noted(tmp_path):
+    path = write_jsonl(
+        tmp_path, [user_record("u1", "fix the exporter"), user_record("u2", "and the importer")]
+    )
+
+    imported = import_claude_code(path)
+
+    assert imported.session.id == "sess-tmp"
+    assert imported.notes == ()
+
+
+def test_a_record_that_names_no_session_is_not_noted(tmp_path):
+    second = user_record("u2", "and the importer")
+    del second["sessionId"]
+    path = write_jsonl(tmp_path, [user_record("u1", "fix the exporter"), second])
+
+    imported = import_claude_code(path)
+
+    assert imported.session.id == "sess-tmp"
+    assert imported.notes == ()
+
+
+@pytest.mark.parametrize(
+    ("message", "shape"), [(["lost"], "array"), ("lost", "string"), (7, "number")]
+)
+def test_a_user_record_whose_message_is_no_object_is_noted_by_its_shape(tmp_path, message, shape):
+    second = user_record("u2", "lost")
+    second["message"] = message
+    path = write_jsonl(tmp_path, [user_record("u1", "fix the exporter"), second])
+
+    imported = import_claude_code(path)
+
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == [
+        f"<message: {shape}>"
+    ]
+    assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == ["user"]
+
+
+def test_a_user_record_whose_message_is_null_is_only_noted_as_skipped(tmp_path):
+    second = user_record("u2", "lost")
+    second["message"] = None
+    path = write_jsonl(tmp_path, [user_record("u1", "fix the exporter"), second])
+
+    imported = import_claude_code(path)
+
+    assert imported.notes_of(NOTE_DROPPED_BLOCK) == ()
+    assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == ["user"]
+
+
+def test_an_assistant_record_whose_message_is_no_object_is_noted_by_its_shape(tmp_path):
+    second = assistant_record("a1", [])
+    second["message"] = ["lost"]
+    path = write_jsonl(tmp_path, [user_record("u1", "fix the exporter"), second])
+
+    imported = import_claude_code(path)
+
+    assert [message.id for message in imported.session.messages] == ["u1", "a1"]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<message: array>"]
+
+
 # --- the error flag a result carries ----------------------------------------
 #
 # T6 resolves the last *passing* verification command from this flag, so a
