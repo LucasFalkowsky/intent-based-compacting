@@ -99,3 +99,32 @@ differently, the fix touches only that importer and this directory.
 - `native_compaction.jsonl` — the native compaction flow: a user turn, the `compaction`
   record carrying the `summary` and the `recent` messages it kept, and the turn that
   follows it.
+## `gemini-cli/`
+
+Gemini CLI appends one JSON object per line to
+`~/.gemini/tmp/<project_hash>/chats/session-<timestamp>-<short id>.jsonl`: one metadata
+record, then one record per message, plus the two log operations `$set` (a metadata update,
+which may replace the whole message list) and `$rewindTo`. The records below were modelled
+on that writer — `packages/core/src/services/chatRecordingService.ts` of the installed
+Gemini CLI 0.46.0 — and on its tool reference (`docs/reference/tools.md`), which is where
+the argument spellings come from.
+
+- `golden_session.jsonl` — the full-coverage session: the metadata record, the injected
+  `<session_context>` turn, a typed prompt, a `gemini` record appended **twice** (once
+  while its call is still running, once with the result — the later record is the
+  message), a record with two calls and two results, a `$set` metadata update, an `info`
+  record, a model turn in its raw-history shape (a `thought` part, text, and the call as a
+  `functionCall` part), a `user` record that only reports a `functionResponse`, a pasted
+  image, and a closing model turn. `golden_session.expected.json` is its canonical form.
+- `truncated_front.jsonl` — a transcript cut off at the front: the first record reports a
+  `functionResponse` whose call is not in the file. The canonical schema deliberately does
+  not require referential completeness, so this must import as a valid session.
+- `interrupted_turn.jsonl` — a call whose result never arrives: the file ends with the
+  record that still has `result: null`.
+- `unknown_tool.jsonl` — one declared subagent call (`invoke_agent`) next to a tool the
+  registry does not declare.
+- `native_compaction.jsonl` — the native compaction flow: the `<state_snapshot>` the
+  compression writes back as a user turn, its acknowledgement, and the `$set.messages`
+  record that replaces the history with what was kept.
+- `rewound_turn.jsonl` — `$rewindTo`, which drops the message it names and everything
+  recorded after it.
