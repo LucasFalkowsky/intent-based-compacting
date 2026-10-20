@@ -58,6 +58,12 @@ Known limitations, all of them deliberate:
 - `isSidechain` is ignored. A subagent's own records are imported as the
   messages they are; lifting them into a chunk of their own is T3.3's job, which
   works on the canonical session.
+- A value this importer cannot read is dropped **and noted by its shape**: a
+  content entry that is not an object (`<entry: string>`), a content that is
+  neither text nor a block list (`<content: object>`), a `tool_use.input` that
+  is not an object (`tool_use/Bash/<input: array>`). Nothing is guessed at, and
+  nothing leaves the import without a line in the notes — for `Bash` the lost
+  `input` would be the verification command T5.2 and T6 resolve.
 
 ```python
 from idc.importers import import_claude_code
@@ -187,20 +193,29 @@ def _timestamp(builder: SessionBuilder, line: JsonLine) -> datetime | None:
     return parse_timestamp(line.data.get("timestamp"), source=f"{builder.origin}line {line.number}")
 
 
-def _blocks(content: Any) -> list[Mapping[str, Any]]:
-    """Return the content blocks of a message, ignoring non-object entries."""
+def _blocks(builder: SessionBuilder, content: Any, *, prefix: str = "") -> list[Mapping[str, Any]]:
+    """Return the content blocks of a message, noting the entries that are none.
+
+    Args:
+        builder: The session being assembled, for the notes.
+        content: A message's content; anything but a list holds no blocks.
+        prefix: What to put in front of a note's detail, as in `_noted_text`.
+
+    Returns:
+        The entries of the list that are objects, in order. An entry that is not
+        one cannot be a content block and is dropped — but noted by its shape,
+        because a filter that drops a value without a trace is how a measurement
+        tool loses data.
+    """
     if not isinstance(content, list):
         return []
-    return [block for block in content if isinstance(block, Mapping)]
-
-
-def _text(value: Any) -> str:
-    """Return a content value as text: a string as it is, a block list joined."""
-    if isinstance(value, str):
-        return value
-    return joined_text(
-        str(block.get("text") or "") for block in _blocks(value) if block.get("type") == BLOCK_TEXT
-    )
+    blocks: list[Mapping[str, Any]] = []
+    for entry in content:
+        if isinstance(entry, Mapping):
+            blocks.append(entry)
+        else:
+            builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<entry: {_shape(entry)}>")
+    return blocks
 
 
 def _shape(value: Any) -> str:
@@ -266,7 +281,7 @@ def _noted_text(builder: SessionBuilder, content: Any, *, prefix: str = "") -> s
         return content
     _note_unreadable_content(builder, content, prefix=prefix)
     texts: list[str] = []
-    for block in _blocks(content):
+    for block in _blocks(builder, content, prefix=prefix):
         if block.get("type") == BLOCK_TEXT:
             texts.append(str(block.get("text") or ""))
         else:
@@ -327,7 +342,7 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
             is_command=_is_command(text),
         )
         return True
-    parts = _user_parts(builder, line, _blocks(content))
+    parts = _user_parts(builder, line, _blocks(builder, content))
     for part in parts:
         builder.add_message(
             message_id=part.message_id,
@@ -393,7 +408,8 @@ def _tool_result(builder: SessionBuilder, line: JsonLine, block: Mapping[str, An
 
     Returns:
         The canonical result. Its output is the block's content: a string as it
-        is, a block list joined, with anything that is not text noted and
+        is, a block list joined, with anything that is not text — another block
+        kind, an entry that is no block, a content that is neither — noted and
         dropped. `exit_code` stays `None` — the transcript records none.
 
     Raises:
@@ -404,13 +420,9 @@ def _tool_result(builder: SessionBuilder, line: JsonLine, block: Mapping[str, An
     call_id = block.get("tool_use_id")
     if not isinstance(call_id, str) or not call_id:
         raise builder.fail("a tool_result block carries no tool_use_id", line=line.number)
-    content = block.get("content")
-    for inner in _blocks(content):
-        if inner.get("type") != BLOCK_TEXT:
-            builder.note(NOTE_DROPPED_BLOCK, f"{BLOCK_TOOL_RESULT}/{inner.get('type')}")
     return ToolResult(
         call_id=call_id,
-        output=_text(content),
+        output=_noted_text(builder, block.get("content"), prefix=f"{BLOCK_TOOL_RESULT}/"),
         is_error=block.get("is_error") is True,
     )
 
@@ -434,9 +446,10 @@ def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
     message = message if isinstance(message, Mapping) else {}
     builder.set_model(message.get("model"))
     content = message.get("content")
+    _note_unreadable_content(builder, content)
     texts: list[str] = []
     calls: list[ToolCall] = []
-    for block in _blocks(content):
+    for block in _blocks(builder, content):
         kind = block.get("type")
         if kind == BLOCK_TEXT:
             texts.append(str(block.get("text") or ""))
@@ -447,7 +460,7 @@ def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
     builder.add_message(
         message_id=_record_id(line),
         role=Role.ASSISTANT,
-        content=_text(content) if isinstance(content, str) else joined_text(texts),
+        content=content if isinstance(content, str) else joined_text(texts),
         timestamp=_timestamp(builder, line),
         tool_calls=calls,
     )
@@ -466,7 +479,7 @@ def _add_system_record(builder: SessionBuilder, line: JsonLine) -> bool:
         bookkeeping (`turn_duration`, `agents_killed`) and hold no text at all;
         those are skipped like any other record without a message.
     """
-    content = _text(line.data.get("content"))
+    content = _noted_text(builder, line.data.get("content"))
     if not content:
         return False
     builder.add_message(
@@ -489,7 +502,10 @@ def _tool_call(builder: SessionBuilder, line: JsonLine, block: Mapping[str, Any]
 
     Returns:
         The canonical call, with the identifier and the arguments the agent
-        sent and the category the registry gives its name.
+        sent and the category the registry gives its name. An `input` that is
+        not an object yields no arguments and is noted with its tool: for a
+        `Bash` call those arguments are the command T5.2 and T6 resolve, so
+        losing them silently would be expensive.
 
     Raises:
         TranscriptImportError: If the block names no identifier or no tool. The
@@ -503,11 +519,15 @@ def _tool_call(builder: SessionBuilder, line: JsonLine, block: Mapping[str, Any]
     if not isinstance(name, str) or not name:
         raise builder.fail(f"the tool_use block {call_id!r} carries no tool name", line=line.number)
     arguments = block.get("input")
-    return builder.tool_call(
-        name,
-        call_id=call_id,
-        args=dict(arguments) if isinstance(arguments, Mapping) else {},
-    )
+    if isinstance(arguments, Mapping):
+        args = dict(arguments)
+    else:
+        args = {}
+        if arguments is not None:
+            builder.note(
+                NOTE_DROPPED_BLOCK, f"{BLOCK_TOOL_USE}/{name}/<input: {_shape(arguments)}>"
+            )
+    return builder.tool_call(name, call_id=call_id, args=args)
 
 
 READERS: dict[str, Callable[[SessionBuilder, JsonLine], bool]] = {
