@@ -144,13 +144,26 @@ def _segments(command: str) -> list[str]:
         `&&`, `||`, `;`, `|` and newlines separate segments; the same characters
         inside single or double quotes do not.
 
-        A backslash escapes the next character, outside quotes and inside a
-        *double* quote — where `\"` is a literal quote and does not end the
-        string. Inside a single quote a backslash is literal, as the shell has
-        it, so the escape is not applied there. Reading an escaped quote as the
-        closing one scanned the rest of the argument as unquoted shell, where a
-        `;` opened a segment and made `git commit -m "a \"b\"; make test"`
-        look like a test run.
+        A backslash escapes the next character, outside quotes and inside the
+        quote forms where the shell lets it: a *double* quote, where `\"` is a
+        literal quote and does not end the string, and bash's ANSI-C quoting
+        `$'…'`, where `\'` is the same. Inside a plain single quote a backslash
+        is literal, as the shell has it, so the escape is not applied there.
+        Reading an escaped quote as the closing one scanned the rest of the
+        argument as unquoted shell, where a `;` opened a segment and made
+        `git commit -m "a \"b\"; make test"` and `echo $'don\'t; go test ./...'`
+        look like test runs.
+
+        A segment the scan **split off** and then left with an open quote is
+        dropped. Only the last segment can end that way — a separator inside a
+        quote does not split — so this is the case "the scan reached the end of
+        a split command line still inside a string": it was not following the
+        shell's quoting, and the separator it split at was probably quoted. That
+        fails into a *miss*, which is the direction this matcher accepts, and
+        bash itself runs nothing at all on a command line whose quote is never
+        closed. A command line that is **one** segment was split by nothing, so
+        an unbalanced quote there is kept and still matches on its command word
+        (`pytest -k "slow`); `_tokens` falls back to whitespace splitting for it.
 
         An unquoted `#` that begins a word starts a comment: the rest of *that
         line* is dropped, the scan continues on the next one. Ending the scan
@@ -166,6 +179,7 @@ def _segments(command: str) -> list[str]:
     segments: list[str] = []
     current: list[str] = []
     quote: str | None = None
+    quote_escapes = False
     heredoc = False
     word_start = True
     index = 0
@@ -173,7 +187,7 @@ def _segments(command: str) -> list[str]:
         char = command[index]
         index += 1
         if quote is not None:
-            if quote == '"' and char == "\\" and index < len(command):
+            if quote_escapes and char == "\\" and index < len(command):
                 current.append(char)
                 current.append(command[index])
                 index += 1
@@ -182,8 +196,17 @@ def _segments(command: str) -> list[str]:
             if char == quote:
                 quote = None
             continue
-        if char in ('"', "'"):
+        if char == "$" and index < len(command) and command[index] == "'":
+            # bash's ANSI-C quoting: `\'` inside it is an escaped quote
+            current.append(char)
+            current.append(command[index])
+            index += 1
+            quote = "'"
+            quote_escapes = True
+            word_start = False
+        elif char in ('"', "'"):
             quote = char
+            quote_escapes = char == '"'
             current.append(char)
             word_start = False
         elif char == "\\" and index < len(command):
@@ -209,8 +232,11 @@ def _segments(command: str) -> list[str]:
         else:
             current.append(char)
             word_start = char.isspace()
-    segments.append("".join(current))
-    return [segment.strip() for segment in segments if segment.strip()]
+    found = [segment.strip() for segment in segments if segment.strip()]
+    tail = "".join(current).strip()
+    if tail and (quote is None or not found):
+        found.append(tail)
+    return found
 
 
 def _validated_flags(flags: tuple[str, ...]) -> tuple[str, ...]:
