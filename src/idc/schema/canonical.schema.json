@@ -1,0 +1,389 @@
+{
+  "$defs": {
+    "Agent": {
+      "description": "A coding agent whose transcripts the tool reads and writes.\n\nThe three members are the agents of the study. They name both the source of\nan imported transcript (`Session.agent`) and the target of a rendered one\n(`CompactedBlock.rendered_for`).",
+      "enum": [
+        "claude-code",
+        "gemini-cli",
+        "opencode"
+      ],
+      "title": "Agent",
+      "type": "string"
+    },
+    "Chain": {
+      "additionalProperties": false,
+      "description": "A sequence of chunks that pursue the same user intent.\n\nA chain keeps its ID for the lifetime of a transcript: the compactor writes\nit into the summary block, the parser reads it back, and the classifier\noffers the parsed chain as a candidate again — which is how a chain can be\nextended on a later run instead of being summarized a second time.",
+      "properties": {
+        "chunk_ids": {
+          "description": "`Chunk.id`s of this chain, in transcript order.",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Chunk Ids",
+          "type": "array"
+        },
+        "compacted": {
+          "default": false,
+          "description": "Whether `compacted_text` holds this chain's summary block.",
+          "title": "Compacted",
+          "type": "boolean"
+        },
+        "compacted_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The chain's Markdown summary block; set exactly when `compacted` is true.",
+          "title": "Compacted Text"
+        },
+        "id": {
+          "description": "Stable chain ID of the form `C<n>`, numbered from 1.",
+          "pattern": "^C[1-9][0-9]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "description": "Short natural-language name of the intent.",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "chunk_ids"
+      ],
+      "title": "Chain",
+      "type": "object"
+    },
+    "Chunk": {
+      "additionalProperties": false,
+      "description": "One user input plus everything the agent produced in response.\n\nThe chunk does not copy its messages: it is a half-open range over\n`Session.messages`, `start_index` included and `end_index` excluded, so that\na chunked session carries no duplicated content and the chunker stays\nverifiably lossless.",
+      "properties": {
+        "end_index": {
+          "description": "Index after the chunk's last message, excluded.",
+          "minimum": 1,
+          "title": "End Index",
+          "type": "integer"
+        },
+        "id": {
+          "description": "Identifier of the chunk, assigned by the chunker.",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "is_latest": {
+          "default": false,
+          "description": "Whether this is the last chunk, which is rendered verbatim, not compacted.",
+          "title": "Is Latest",
+          "type": "boolean"
+        },
+        "origin": {
+          "$ref": "#/$defs/ChunkOrigin",
+          "default": "user",
+          "description": "Whether the chunk starts at a user message or holds subagent work."
+        },
+        "start_index": {
+          "description": "Index of the chunk's first message, included.",
+          "minimum": 0,
+          "title": "Start Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "start_index",
+        "end_index"
+      ],
+      "title": "Chunk",
+      "type": "object"
+    },
+    "ChunkOrigin": {
+      "description": "Where a chunk's leading input came from.\n\nAttributes:\n    USER: The chunk starts at a user message of the main transcript.\n    SUBAGENT: The chunk holds the work of a subagent, extracted into a chunk\n        of its own and placed after the chunk that spawned it.",
+      "enum": [
+        "user",
+        "subagent"
+      ],
+      "title": "ChunkOrigin",
+      "type": "string"
+    },
+    "CompactedBlock": {
+      "additionalProperties": false,
+      "description": "The summary of a transcript: its chains plus the chunk left verbatim.\n\nThis is what the renderer turns into a target agent's native summary tags\nand what the parser reads back on the next run. The chains are held in\nchronological order; the latest chunk is referenced, not compacted, because\nit is appended to the output unchanged.",
+      "properties": {
+        "chains": {
+          "description": "The chains of this transcript, in chronological order.",
+          "items": {
+            "$ref": "#/$defs/Chain"
+          },
+          "title": "Chains",
+          "type": "array"
+        },
+        "latest_chunk_id": {
+          "description": "`Chunk.id` of the chunk that is appended verbatim instead of compacted.",
+          "minLength": 1,
+          "title": "Latest Chunk Id",
+          "type": "string"
+        },
+        "rendered_for": {
+          "$ref": "#/$defs/Agent",
+          "description": "The agent whose native format this block targets."
+        }
+      },
+      "required": [
+        "latest_chunk_id",
+        "rendered_for"
+      ],
+      "title": "CompactedBlock",
+      "type": "object"
+    },
+    "Message": {
+      "additionalProperties": false,
+      "description": "One message of a canonical transcript.\n\n`is_system_injected` and `is_command` are the two properties the chunker\nneeds to reduce noise: an injected reminder and the echo of a slash command\nare not user turns, even though the agent stores them in the user role.",
+      "properties": {
+        "content": {
+          "default": "",
+          "description": "Text content; empty for a message that only carries tool calls.",
+          "title": "Content",
+          "type": "string"
+        },
+        "id": {
+          "description": "Identifier of the message; unique per session.",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "is_command": {
+          "default": false,
+          "description": "Whether this message is a slash command or its echo.",
+          "title": "Is Command",
+          "type": "boolean"
+        },
+        "is_system_injected": {
+          "default": false,
+          "description": "Whether the harness injected this message rather than the user or agent.",
+          "title": "Is System Injected",
+          "type": "boolean"
+        },
+        "role": {
+          "$ref": "#/$defs/Role",
+          "description": "Who authored the message."
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the message was recorded; `null` when the agent records none.",
+          "title": "Timestamp"
+        },
+        "tool_calls": {
+          "description": "Tool calls this message issued, in the order the agent made them.",
+          "items": {
+            "$ref": "#/$defs/ToolCall"
+          },
+          "title": "Tool Calls",
+          "type": "array"
+        },
+        "tool_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The tool result this message reports; required for role `tool`."
+        }
+      },
+      "required": [
+        "id",
+        "role"
+      ],
+      "title": "Message",
+      "type": "object"
+    },
+    "Role": {
+      "description": "Author of a canonical message.\n\n`TOOL` is the result of a tool call, reported back to the agent; which role\nthe agent itself uses on the wire for that message is the importer's\nproblem, not the schema's.",
+      "enum": [
+        "user",
+        "assistant",
+        "system",
+        "tool"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "Session": {
+      "additionalProperties": false,
+      "description": "A whole transcript in canonical form, with its provenance.\n\n`source` is what makes the conditions of the study comparable: the same type\nholds a raw transcript, one the agent compacted natively, and one this tool\ncompacted, so measurement can take a before and an after without knowing\nwhich agent produced either.",
+      "properties": {
+        "agent": {
+          "$ref": "#/$defs/Agent",
+          "description": "The agent the transcript comes from."
+        },
+        "created_at": {
+          "description": "When the session started.",
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "description": "Session identifier, taken from the source transcript.",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "messages": {
+          "description": "The messages in transcript order; index positions are what chunks range over.",
+          "items": {
+            "$ref": "#/$defs/Message"
+          },
+          "title": "Messages",
+          "type": "array"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model identifier the agent ran on; `null` when the transcript omits it.",
+          "title": "Model"
+        },
+        "source": {
+          "$ref": "#/$defs/SessionSource",
+          "default": "raw",
+          "description": "Whether and how this transcript was compacted before."
+        }
+      },
+      "required": [
+        "id",
+        "agent",
+        "created_at"
+      ],
+      "title": "Session",
+      "type": "object"
+    },
+    "SessionSource": {
+      "description": "Provenance of a canonical session — which condition of the study it is.\n\nAttributes:\n    RAW: Imported from an agent transcript that was never compacted.\n    NATIVE_COMPACTION: Imported from a transcript the agent compacted with\n        its own built-in summarization (the baseline condition).\n    INTENT_COMPACTION: Written by this tool (the condition under test).",
+      "enum": [
+        "raw",
+        "native-compaction",
+        "intent-compaction"
+      ],
+      "title": "SessionSource",
+      "type": "string"
+    },
+    "ToolCall": {
+      "additionalProperties": false,
+      "description": "A call the agent made to one of its tools.\n\nThe arguments stay as the agent sent them: an arbitrary JSON object, never\nreformatted, so that the resolver can read a file path or an edit out of\nthem and the renderer can reproduce them verbatim.",
+      "properties": {
+        "args": {
+          "additionalProperties": true,
+          "description": "The call's arguments as a JSON object, unmodified.",
+          "title": "Args",
+          "type": "object"
+        },
+        "category": {
+          "$ref": "#/$defs/ToolCategory",
+          "description": "What the call does to the workspace."
+        },
+        "id": {
+          "description": "Identifier the agent gave the call; unique per session.",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "Tool name as the agent reports it, e.g. `Edit`.",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "category"
+      ],
+      "title": "ToolCall",
+      "type": "object"
+    },
+    "ToolCategory": {
+      "description": "What a tool call does to the workspace.\n\nThe category is what makes the exploration rate and the solution/path split\ncomputable without interpreting tool names downstream.\n\nAttributes:\n    READ: Reads or searches without changing anything (read, grep, glob).\n    WRITE: Changes a file (write, edit, patch).\n    EXEC: Runs a command whose effect is not visible in the transcript.\n    OTHER: Anything the tool registry does not recognize.",
+      "enum": [
+        "read",
+        "write",
+        "exec",
+        "other"
+      ],
+      "title": "ToolCategory",
+      "type": "string"
+    },
+    "ToolResult": {
+      "additionalProperties": false,
+      "description": "The result of a tool call, as the agent received it back.\n\nResults are never summarized by this tool: downstream either keeps the\noutput verbatim (it belongs to the solution) or drops it (it belongs to the\npath).",
+      "properties": {
+        "call_id": {
+          "description": "`ToolCall.id` this result answers.",
+          "minLength": 1,
+          "title": "Call Id",
+          "type": "string"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Process exit status for `exec` calls; `null` when the tool reports none.",
+          "title": "Exit Code"
+        },
+        "is_error": {
+          "default": false,
+          "description": "Whether the agent saw this result as a failure.",
+          "title": "Is Error",
+          "type": "boolean"
+        },
+        "output": {
+          "default": "",
+          "description": "Output verbatim, including stderr if merged.",
+          "title": "Output",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id"
+      ],
+      "title": "ToolResult",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "idc canonical transcript schema"
+}

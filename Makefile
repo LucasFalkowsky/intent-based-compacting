@@ -1,4 +1,4 @@
-.PHONY: help setup test lint unit run clean
+.PHONY: help setup test lint unit run schema clean
 
 help:
 	@echo "setup  - install dependencies into the project venv"
@@ -6,6 +6,7 @@ help:
 	@echo "lint   - ruff check + ruff format --check"
 	@echo "unit   - pytest"
 	@echo "run    - run the tool, e.g. make run ARGS=\"compact --help\""
+	@echo "schema - regenerate src/idc/schema/canonical.schema.json from the models"
 	@echo "clean  - remove caches and build artefacts"
 
 setup:
@@ -22,6 +23,9 @@ unit:
 
 run:
 	uv run python -m idc $(ARGS)
+
+schema:
+	uv run python -m idc.schema
 
 clean:
 	rm -rf .pytest_cache .ruff_cache dist build
