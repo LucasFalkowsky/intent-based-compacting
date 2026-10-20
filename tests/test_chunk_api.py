@@ -4,10 +4,13 @@ A contract test, not a behaviour test. `is_user_turn`, `user_turn_indices`,
 `chunk_boundaries` and `chunk_id` are exported next to `chunk_session` because
 the sibling tickets need the same user-turn predicate and must not restate
 it (decision on #12); `reduce_session`, `reduce_chunks` and the three result
-types are the noise reduction T3.2 (#13) put on top of them. *What* they
-compute is covered transitively through `chunk_session` in
-`tests/test_chunk_user_boundaries.py` and through `reduce_session` in
-`tests/test_chunk_reduction.py`; what is pinned here is only that they stay
+types are the noise reduction T3.2 (#13) put on top of them, and
+`subagent_spans`, `extract_subagents`, `chunk_with_subagents` and
+`SubagentSpan` are the subagent extraction T3.3 (#14) put on top of those.
+*What* they compute is covered transitively through `chunk_session` in
+`tests/test_chunk_user_boundaries.py`, through `reduce_session` in
+`tests/test_chunk_reduction.py` and through `chunk_with_subagents` in
+`tests/test_chunk_subagents.py`; what is pinned here is only that they stay
 reachable from the package, so a refactor cannot drop one from `__all__` — or
 out of the package — with the suite still green.
 """
@@ -22,12 +25,16 @@ from idc.chunk import (
     ReducedSession,
     ReductionNote,
     ReductionReason,
+    SubagentSpan,
     chunk_boundaries,
     chunk_id,
     chunk_session,
+    chunk_with_subagents,
+    extract_subagents,
     is_user_turn,
     reduce_chunks,
     reduce_session,
+    subagent_spans,
     user_turn_indices,
 )
 
@@ -37,12 +44,16 @@ EXPECTED_EXPORTS = {
     "ReducedSession",
     "ReductionNote",
     "ReductionReason",
+    "SubagentSpan",
     "chunk_boundaries",
     "chunk_id",
     "chunk_session",
+    "chunk_with_subagents",
+    "extract_subagents",
     "is_user_turn",
     "reduce_chunks",
     "reduce_session",
+    "subagent_spans",
     "user_turn_indices",
 }
 """The documented export surface of the stage: the entry points plus the reuse contract."""
@@ -51,9 +62,12 @@ CALLABLE_EXPORTS = (
     chunk_boundaries,
     chunk_id,
     chunk_session,
+    chunk_with_subagents,
+    extract_subagents,
     is_user_turn,
     reduce_chunks,
     reduce_session,
+    subagent_spans,
     user_turn_indices,
 )
 """Every exported name that is a function, imported from the package by name.
@@ -67,8 +81,10 @@ TYPE_EXPORTS = (
     ReducedSession,
     ReductionNote,
     ReductionReason,
+    SubagentSpan,
 )
-"""Every exported name that is a type: what the reduction stage returns."""
+"""Every exported name that is a type: what the reduction and the subagent
+extraction return."""
 
 
 def test_public_exports_are_declared_and_importable():

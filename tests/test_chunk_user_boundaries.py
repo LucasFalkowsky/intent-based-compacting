@@ -50,7 +50,8 @@ EXPECTED_RANGES: dict[str, list[tuple[int, int]]] = {
     # One turn at index 1; the injected user-role message at index 4 is not a
     # turn, and the injected system message at index 0 precedes the turn.
     "system_injected_message": [(0, 11)],
-    # One turn at index 0; the subagent span stays inside it until T3.3.
+    # One turn at index 0; the subagent span stays inside it here — lifting it
+    # out is the separate stage of T3.3, see `tests/test_chunk_subagents.py`.
     "subagent_result": [(0, 17)],
     "failed_then_passing_command": [(0, 14)],
     "write_then_two_edits": [(0, 18)],
