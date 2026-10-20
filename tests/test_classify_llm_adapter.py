@@ -150,6 +150,7 @@ TOLERATED_NEW_ANSWERS = (
     pytest.param('{"decision": "NEW", "reason": "a new topic"}', id="extra-field"),
     pytest.param('```json\n{"decision": "NEW"}\n```', id="fenced"),
     pytest.param('```\n{"decision": "NEW"}\n```', id="fenced-without-a-language"),
+    pytest.param('```json\n{"decision": "NEW"}```', id="fenced-without-a-closing-newline"),
     pytest.param('\n\n{"decision": "NEW"}\n', id="surrounded-by-blank-lines"),
 )
 """Spellings of `NEW` the adapter reads rather than refuses.
@@ -421,6 +422,30 @@ def test_the_retry_is_bounded_and_the_exhausted_bound_is_loud():
     assert "2 attempt" in str(error)
     assert len(client.prompts) == 2, "the bound is the number of calls, not of parses"
     assert adapter.calls == (), "a decide that failed records no decision"
+
+
+def test_a_long_unreadable_answer_is_cut_short_in_the_message_but_not_in_the_record():
+    # A model that answers with a page of prose must not put that page into a
+    # traceback — while the harness and a human debugging the run still need the
+    # answer in full.
+    rubbish = "no JSON here, " * 100
+    adapter = adapter_for(rubbish, max_attempts=1)
+
+    with pytest.raises(UnreadableAnswerError) as caught:
+        adapter.decide(SUBJECT, CANDIDATES)
+
+    assert caught.value.answers == (rubbish,)
+    assert len(str(caught.value)) < len(rubbish)
+    assert "…" in str(caught.value)
+
+
+def test_an_error_that_recorded_no_answer_still_says_so():
+    # The bound is at least one attempt, so this cannot arise from `decide`; the
+    # guard is what keeps the error itself from failing while it is being built.
+    error = UnreadableAnswerError("K1", (), ())
+
+    assert error.attempts == 0
+    assert "no answer was recorded" in str(error)
 
 
 def test_the_default_bound_is_one_retry():
