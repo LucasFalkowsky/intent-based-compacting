@@ -39,6 +39,11 @@ The stage is split along what a model may decide and what it may not:
 - `idc.classify.classifier` is the sequential loop over the chunks, and
   `idc.classify.fake` the scripted adapter that keeps every downstream test —
   the end-to-end one above all (#42) — free of a model and of the network.
+- `idc.classify.s1m` is the first of the real backends (T4.3): a binary scorer
+  asked once per candidate, thresholded and ranked into one decision. Its
+  scorer is **injected**, so that module holds no client, no transport and no
+  credential either — which is why the sentence above holds for the whole
+  package and not only for its test double.
 
 Every refusal the stage itself raises is a `ClassifyError`, so a caller catches
 all of them with one `except` — an adapter answering a chain id of the wrong
@@ -91,6 +96,13 @@ from idc.classify.errors import (
 )
 from idc.classify.fake import FakeAdapter, FakeCall
 from idc.classify.ids import CHAIN_ID_PREFIX, chain_id, is_chain_id
+from idc.classify.s1m import (
+    DEFAULT_CONTINUATION_THRESHOLD,
+    ContinuationScorer,
+    S1MAdapter,
+    S1MCall,
+    ScorerContractError,
+)
 from idc.classify.store import (
     PROVISIONAL_LABEL_MAX_LENGTH,
     ChainStore,
@@ -130,4 +142,17 @@ __all__ = [
     "classify_chunks",
     "is_chain_id",
     "provisional_label",
+]
+
+# T4.3 (#18) — the S1M backend's own names, appended as a block of their own.
+# #17 (the LLM adapter) and #18 extend this same `__all__` from two branches at
+# once, and one sorted literal that both have to edit is a merge conflict by
+# construction; the precedent for deriving around that is 786d431. Each block
+# is self-contained, so keeping both is the whole resolution.
+__all__ += [
+    "DEFAULT_CONTINUATION_THRESHOLD",
+    "ContinuationScorer",
+    "S1MAdapter",
+    "S1MCall",
+    "ScorerContractError",
 ]
