@@ -29,6 +29,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -518,6 +519,18 @@ def test_a_broken_score_names_the_chunk_and_the_candidate_it_came_from():
         adapter.decide(subject("K7"), candidates("C1", "C2", "C3"))
 
 
+def test_a_broken_score_names_the_value_the_scorer_answered_with():
+    # The message has to show *what* came back, not only where from: a scorer
+    # whose answer is a string, a `None` or a 1.5 is debugged from that value,
+    # and it is the one part of the message a reader cannot reconstruct.
+    adapter = S1MAdapter(TableScorer({"C1": "almost"}))
+
+    with pytest.raises(ScorerContractError, match="'almost'") as raised:
+        adapter.decide(subject(), candidates("C1"))
+
+    assert raised.value.score == "almost"
+
+
 def test_a_broken_score_stops_the_decision_instead_of_ranking_what_came_before():
     scorer = TableScorer({"C1": 0.9, "C2": "almost"})
     adapter = S1MAdapter(scorer)
@@ -574,11 +587,32 @@ def test_the_record_grows_by_one_entry_per_decision():
     assert [call.chunk_id for call in adapter.calls] == ["K1", "K2"]
 
 
+def test_the_record_of_a_decision_cannot_be_changed_after_the_fact():
+    # `S1MCall` is the evaluation harness's (#19) input record, and the sibling
+    # `Decision` is frozen for the same reason: a recording that can be edited
+    # after the run is not a recording of it.
+    adapter = S1MAdapter(TableScorer({"C1": 0.9}))
+    adapter.decide(subject(), candidates("C1"))
+
+    with pytest.raises(FrozenInstanceError):
+        adapter.calls[0].scores = ()
+
+
 def test_the_adapter_reports_its_configuration():
     adapter = S1MAdapter(TableScorer(), threshold=0.25)
 
     assert adapter.threshold == 0.25
     assert "0.25" in repr(adapter)
+
+
+def test_the_repr_names_what_the_run_has_cost_so_far():
+    # The cost is the one number about this adapter that changes while it runs,
+    # so it is the one the representation exists for — a `repr` that drops it
+    # reads as complete and is not.
+    adapter = S1MAdapter(TableScorer(), threshold=0.25)
+    adapter.decide(subject(), candidates("C1", "C2"))
+
+    assert "score_calls=2" in repr(adapter)
 
 
 # ---------------------------------------------------------------------------
