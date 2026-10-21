@@ -30,7 +30,8 @@ below follows from them:
   Claude Code's there is no case in which it yields something else instead.
 - `role = user` whose `text` parts are all marked `synthetic` -> the same message, marked
   `is_system_injected`: `synthetic` is how OpenCode records text the harness wrote rather
-  than the user. A record mixing typed and synthetic text stays the user's turn.
+  than the user. A record mixing typed and synthetic text stays the user's turn, and a
+  `synthetic` that is not a boolean counts as unmarked and is noted by its shape.
 - `role = assistant` -> one `assistant` message with the text of its `text` parts and
   every call its `tool` parts made, followed by one `tool` message per call whose result
   has arrived.
@@ -94,7 +95,8 @@ is not a list (`<parts: object>`), an entry of it that is not an object
 (`<entry: string>`), the text of a `text` part that is not a string
 (`text/<text: object>`), a tool state that is not an object (`tool/bash/<state: array>`),
 an `input` that is not an object (`tool/bash/<input: array>`), an `output` or `error` that
-is not a string (`tool/read/<output: object>`), an unusable `id` the `line-<n>` fallback
+is not a string (`tool/read/<output: object>`), a `synthetic` flag that is not a boolean
+(`text/<synthetic: string>`), an unusable `id` the `line-<n>` fallback
 stands in for (`<id: number>`), a second, different `sessionID`
 (`<sessionID: a second value>`). A field that is absent or `null` carried nothing to lose
 and is not noted; a field that carried something unreadable always is.
@@ -444,19 +446,44 @@ def _texts(builder: SessionBuilder, parts: list[Mapping[str, Any]]) -> list[str]
     return texts
 
 
-def _is_injected(parts: list[Mapping[str, Any]]) -> bool:
+def _is_synthetic(builder: SessionBuilder, part: Mapping[str, Any]) -> bool:
+    """Return whether one `text` part is marked as written by the harness.
+
+    Args:
+        builder: The session being assembled, for the notes.
+        part: A part whose `type` is `text`.
+
+    Returns:
+        Whether `synthetic` is exactly `True`. A `synthetic` that is neither a
+        boolean nor absent — `"yes"`, `1` — is **not** read as a mark: guessing
+        that it meant `True` would hand the chunker a user turn that is not one.
+        It is noted by its shape all the same, because a field that carried
+        something unreadable is always noted; `false`, `null` and an absent
+        field carried nothing to lose and are not.
+    """
+    flag = part.get(SYNTHETIC_FLAG)
+    if isinstance(flag, bool):
+        return flag
+    if flag is not None:
+        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TEXT}/<{SYNTHETIC_FLAG}: {_shape(flag)}>")
+    return False
+
+
+def _is_injected(builder: SessionBuilder, parts: list[Mapping[str, Any]]) -> bool:
     """Return whether a user record's text was written by the harness.
 
     Args:
+        builder: The session being assembled, for the notes.
         parts: The record's parts.
 
     Returns:
         Whether the record carries at least one `text` part and every one of
         them is marked `synthetic`. A record mixing typed and synthetic text is
         the user's turn: the chunker must not drop a prompt because the harness
-        appended a reminder to it.
+        appended a reminder to it. An unreadable `synthetic` counts as unmarked
+        and is noted — see `_is_synthetic`.
     """
-    flags = [part.get(SYNTHETIC_FLAG) is True for part in parts if part.get("type") == PART_TEXT]
+    flags = [_is_synthetic(builder, part) for part in parts if part.get("type") == PART_TEXT]
     return bool(flags) and all(flags)
 
 
@@ -479,7 +506,7 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
         role=Role.USER,
         content=joined_text(_texts(builder, parts)),
         timestamp=_timestamp(builder, line),
-        is_system_injected=_is_injected(parts),
+        is_system_injected=_is_injected(builder, parts),
     )
     return True
 
