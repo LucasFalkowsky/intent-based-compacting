@@ -97,7 +97,10 @@ class ChunkUnderDecision:
             for a chunk of subagent work — and empty as well when the turn
             itself carried no text, which `from_chunk` does not tell apart. The
             same absence that `ChainCandidate.last_user_message` spells as the
-            empty string for a chain whose chunks carry no turn.
+            empty string for a chain **of this run** whose chunks carry no turn.
+            A chain carried over from an earlier run is the exception and
+            spells it as the chain's label instead — including one extended
+            only by subagent work, whose readable chunks all carry no turn.
     """
 
     id: str
