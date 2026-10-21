@@ -1020,7 +1020,7 @@ def test_the_native_summary_is_not_swallowed_as_a_commands_result():
         ("m01", "command", ())
     ]
     assert [message.id for message in reduced.session.messages] == ["m00", "m02", "m03"]
-    assert reduced.session.messages[1] is session.messages[1]
+    assert reduced.session.messages[1] is session.messages[2], "the block itself survives"
     assert visible_context(reduced.session).messages[0].id == "m02"
 
 

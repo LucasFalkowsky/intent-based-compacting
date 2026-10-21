@@ -26,20 +26,25 @@ canonical fields alone — no model call, no agent-specific markup (that lives i
 - **What is exempt.** The preamble of a transcript that was compacted before
   (`Session.source` is not `raw`) is left alone: that is where a summary block
   sits — this tool's own, which the parser (T8) has to find again, or the
-  agent's native one, which the measurement compares against. And a chunk is
+  agent's native one, which the measurement compares against. The block a
+  natively compacted session names in `Session.native_summary_id` is exempt
+  wherever it sits, which is not always the preamble: dropping it would leave
+  the reduced document naming a message it no longer holds. And a chunk is
   never emptied: a `Chunk` spans at least one message, and losing one would
   change the chunk count.
 
-A `Chunk` is a half-open range over `Session.messages` and copies no message, so
-it cannot rewrite one in place — reduction therefore returns a `ReducedSession`:
-a **new** transcript plus the chunks re-indexed onto it, with the chunk ids,
-their order, `is_latest` and `origin` unchanged. Every message the reduction did
-not touch is carried over **by identity**, so the T3.1 properties still hold
-over the result: the ranges partition the reduced transcript, and nothing
-downstream reads a stale copy. The only new object is the one message that
-received a result text — and because it is a `system` message with both flags
-cleared, it is neither a user turn nor reducible again: reduction is idempotent,
-and re-chunking the reduced transcript reproduces the same chunks.
+A `Chunk` is a half-open range over `Session.messages` and copies no message,
+so it cannot rewrite one in place — reduction therefore returns a
+`ReducedSession`: a **new** transcript plus the chunks re-indexed onto it, with
+the chunk ids, their order, `is_latest` and `origin` unchanged. Every message
+the reduction did not touch is carried over **by identity**, and the new
+transcript keeps the session's provenance — including the summary identifier a
+later stage reads it from a file by — so the T3.1 properties still hold over
+the result: the ranges partition the reduced transcript, and nothing downstream
+reads a stale copy. The only new object is the one message that received a
+result text — and because it is a `system` message with both flags cleared, it
+is neither a user turn nor reducible again: reduction is idempotent, and
+re-chunking the reduced transcript reproduces the same chunks.
 
 ```python
 from idc.chunk import reduce_session
@@ -415,16 +420,49 @@ def _exempt_indices(session: Session) -> frozenset[int]:
     drop it has to stop at it: everything before the first real user turn of a
     transcript whose `source` is not `raw` is exempt.
 
+    That is the block's **position**, and it is an approximation — the only one
+    available until T2.6 (#69) made the location a field of the document. Where
+    the session names its native summary, the message it names is exempt too,
+    wherever it sits: the importers produce two shapes the position rule does
+    not reach, a transcript that opens with the user turn the compaction
+    replaced and one compacted twice, whose second block sits after a real user
+    turn. Dropping that block would leave `Session.native_summary_id` naming a
+    message the transcript no longer holds — a document the schema still
+    accepts (#3) and provenance normalisation can only refuse.
+
     Args:
         session: The session to inspect.
 
     Returns:
-        The exempt indices; empty for a raw transcript.
+        The exempt indices; empty for a raw transcript, which names no summary.
     """
     if session.source is SessionSource.RAW:
         return frozenset()
     turns = user_turn_indices(session)
-    return frozenset(range(turns[0] if turns else len(session.messages)))
+    preamble = range(turns[0] if turns else len(session.messages))
+    return frozenset(preamble) | _summary_indices(session)
+
+
+def _summary_indices(session: Session) -> frozenset[int]:
+    """Return the index of the message `session.native_summary_id` names.
+
+    Args:
+        session: The session to inspect.
+
+    Returns:
+        The one index, or no index when the session names no summary or names
+        one it does not hold — a truncated transcript the schema accepts on
+        purpose. Reduction neither repairs nor clears that reference: it is
+        carried over unchanged, so the reduced document is refused by
+        provenance normalisation for exactly the reason the original was.
+    """
+    if session.native_summary_id is None:
+        return frozenset()
+    return frozenset(
+        index
+        for index, message in enumerate(session.messages)
+        if message.id == session.native_summary_id
+    )
 
 
 def _kept_before(total: int, removed: set[int]) -> list[int]:
@@ -450,6 +488,11 @@ def _kept_before(total: int, removed: set[int]) -> list[int]:
 def _with_messages(session: Session, messages: list[Message]) -> Session:
     """Return `session` with `messages` in place of its own, provenance kept.
 
+    Provenance includes `native_summary_id`: the reduced transcript is the same
+    transcript, so it says the same thing about where the agent's context
+    starts. The message that identifier names survives the reduction by being
+    exempt from it (see `_exempt_indices`).
+
     Args:
         session: The session to rebuild.
         messages: The reduced messages, in transcript order; the untouched ones
@@ -464,6 +507,7 @@ def _with_messages(session: Session, messages: list[Message]) -> Session:
         agent=session.agent,
         model=session.model,
         source=session.source,
+        native_summary_id=session.native_summary_id,
         created_at=session.created_at,
         messages=messages,
     )

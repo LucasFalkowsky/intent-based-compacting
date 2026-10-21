@@ -169,6 +169,10 @@ rejected by the schema. The converse is deliberately left to the stages, exactly
 `ToolResult` whose call the transcript truncated away — a `native-compaction` document that
 names no summary, or one whose identifier names no message in it, still loads, and
 `visible_context` refuses it rather than guessing where the agent's context starts.
+Every stage that rebuilds the transcript carries the identifier on, and the message it
+names is exempt from the chunker's noise reduction — the agent's summary block is an
+injected message, so reducing it away would leave the document naming a message it no
+longer holds.
 
 `python -c` is not the interface: the `import` command is wired up in T10.1.
 
