@@ -591,13 +591,19 @@ def test_the_merge_cuts_its_lines_through_the_readers_public_name(monkeypatch) -
     With `str.splitlines` in its place the run behind the form feed becomes a
     line of its own, closes the fence it is inside of, and the bullet beneath it
     is cut out of the kept file's content and overlaid away.
+
+    The path is **counted** and not looked for, for the reason
+    `test_a_fence_run_behind_a_form_feed_closes_nothing` gives: what is overlaid
+    in begins with the two lines the cut dropped, so the truncated body still
+    holds `odd` as a substring. It was written as `odd not in` first and passed
+    with the stub in place.
     """
     odd = f"- `docs/odd.md`\n```\n\f```\n- `{OVERWRITTEN}`\n```\n"
-    assert odd in merged_body(odd)
+    assert merged_body(odd).count(f"- `{OVERWRITTEN}`") == 2
 
     monkeypatch.setattr("idc.parse.split_lines", lambda text: text.splitlines(True))
 
-    assert odd not in merged_body(odd)
+    assert merged_body(odd).count(f"- `{OVERWRITTEN}`") == 1
 
 
 def test_the_writer_imports_the_reader_nowhere_at_module_level() -> None:
