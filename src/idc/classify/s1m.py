@@ -48,10 +48,27 @@ of the implementation. Four rules make it reproducible:
 
 The confidence a decision carries is the scorer's own number for the answer that
 was given: the winning score for an extension, `1 - highest score` for `NEW`.
-Both are therefore on one scale and neither is scaled by the threshold, so the
-evaluation harness (#19) can sweep the threshold over a recorded run instead of
-re-running the backend. With no candidate at all the best score is 0 and the
-confidence in `NEW` is 1.
+Both are therefore on one scale and neither is scaled by the threshold. With no
+candidate at all the best score is 0 and the confidence in `NEW` is 1.
+
+**What a recorded run can be re-thresholded from — and the limits of it.**
+Because the confidence is unscaled, a recorded decision can be re-evaluated at
+another threshold without calling the backend again — but only from
+`S1MCall.scores`, which holds every score exactly as it was given. The
+confidence a `NEW` carries is *not* a substitute for them, in three ways that
+the evaluation harness (#19) has to work around rather than around which it can
+be written:
+
+- `1 - highest` is **lossy**: `1 - (1 - x) != x` for 32 of the 101 two-decimal
+  scores, so a sweep over a recorded confidence answers `NEW` where re-running
+  the backend answers `EXTEND`.
+- A recorded `NEW` **cannot say which chain** a lower threshold would have
+  extended: it is one number for `k` candidates, and the per-candidate scores
+  are the only place that information exists.
+- **No recording supports a whole-transcript sweep at all**, because the
+  candidate set is itself threshold-dependent: a lower threshold extends a
+  chain where a higher one opens a second, so the run asks a different number of
+  questions — including scores the recording simply does not contain.
 
 **The scorer is injected and this module contains no backend.** It calls nothing
 but the callable it was handed, holds no client, no transport and no credential,
@@ -143,9 +160,11 @@ class S1MCall:
     """One decision the adapter made, and every score it rests on.
 
     The counterpart of `FakeCall`, for a backend that is asked `k` questions
-    instead of one. It is what makes a run auditable after the fact: the
-    evaluation harness (#19) can re-threshold a recorded run, and the
-    measurement stage can read the cost off the number of scores.
+    instead of one. It is what makes a run auditable after the fact: the scores
+    are exact, so the evaluation harness (#19) can re-threshold **this
+    decision** from them — the one re-evaluation a recording supports, see the
+    module docstring — and the measurement stage can read the cost off their
+    number.
 
     Attributes:
         chunk_id: `Chunk.id` the decision was made for.
