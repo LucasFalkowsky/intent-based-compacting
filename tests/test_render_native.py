@@ -153,6 +153,22 @@ def kept(name: str) -> tuple[Message, ...]:
     ).messages
 
 
+EXIT_CODE_NAMES = sorted(
+    name
+    for name in CORPUS_NAMES
+    if any(
+        message.tool_result is not None and message.tool_result.exit_code is not None
+        for message in kept(name)
+    )
+)
+"""The fixtures whose kept chunk records a process status at all.
+
+Derived rather than listed, so a corpus change cannot silently empty the
+exit-code test; `test_some_fixture_records_an_exit_code` guards the table,
+because an empty parametrization is a skip and not a pass.
+"""
+
+
 def records(text: str) -> list[dict]:
     """Return the records of a rendered file, one per line."""
     return [json.loads(line) for line in text.splitlines()]
@@ -300,14 +316,22 @@ def test_rendering_twice_gives_byte_identical_text(name: str, agent: Agent) -> N
     assert rendered(name, agent) == rendered(name, agent)
 
 
+def test_the_agents_that_keep_every_identifier_are_the_two_named_ones() -> None:
+    """Guard the table: a fourth agent must not drop out of the test below."""
+    assert set(Agent) - {Agent.OPENCODE} == KEEPS_IDENTIFIERS
+
+
 @pytest.mark.parametrize("name", CORPUS_NAMES)
-@pytest.mark.parametrize("agent", AGENTS)
+@pytest.mark.parametrize("agent", sorted(KEEPS_IDENTIFIERS))
 def test_the_identifiers_of_every_record_come_back_in_order(
     name: str, agent: Agent, tmp_path: Path
 ) -> None:
-    """For the two agents with a record per message, ids and order are identical."""
-    if agent not in KEEPS_IDENTIFIERS:
-        pytest.skip("OpenCode re-derives a result's id from its tool part; pinned separately")
+    """For the two agents with a record per message, ids and order are identical.
+
+    OpenCode is not here: it has no record for a result, so a result's
+    identifier is re-derived from the index of its tool part — pinned by
+    `test_opencode_writes_a_result_into_the_record_of_its_own_call`.
+    """
     session = reimported(name, agent, tmp_path)
 
     assert [message.id for message in session.messages] == [
@@ -347,7 +371,12 @@ def test_a_cross_agent_render_takes_the_category_from_the_target(tmp_path: Path)
     assert ToolCategory.OTHER in {call.category for call in calls}
 
 
-@pytest.mark.parametrize("name", CORPUS_NAMES)
+def test_some_fixture_records_an_exit_code() -> None:
+    """Guard the parametrization below: an empty table would skip, not pass."""
+    assert EXIT_CODE_NAMES
+
+
+@pytest.mark.parametrize("name", EXIT_CODE_NAMES)
 @pytest.mark.parametrize("agent", AGENTS)
 def test_the_exit_code_of_a_result_does_not_survive(
     name: str, agent: Agent, tmp_path: Path

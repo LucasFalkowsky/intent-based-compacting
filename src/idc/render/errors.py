@@ -19,10 +19,14 @@ carries the values its message is built from so that a test asserts on an
 attribute instead of on prose.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+
+from idc.schema import Agent
 
 __all__ = [
+    "MissingWriterError",
     "RenderError",
+    "UnanchoredToolResultError",
     "UncompactedChainError",
     "UnknownLatestChunkError",
 ]
@@ -103,4 +107,72 @@ class UncompactedChainError(RenderError):
         super().__init__(
             f"chain {chain_id!r}, {position} of {total} in this block, is not compacted and "
             f"carries no compacted_text to render"
+        )
+
+
+class MissingWriterError(RenderError):
+    """No native writer is registered for the agent the block names.
+
+    `CompactedBlock.rendered_for` is a canonical field, so the agent it names
+    comes from the input — which is why this is a `RenderError` and not a
+    caller's mistake. `Agent` has three members and `idc.render.WRITERS` holds
+    three entries, so **the refusal cannot be reached today**: it exists so that
+    a fourth agent added to the enum fails here by name instead of being
+    rendered silently in one of the three other formats. Its own test patches
+    the table, because an unpatched one cannot produce it, and a second test
+    asserts that the table is complete.
+
+    Attributes:
+        agent: The agent no writer was found for.
+        known: The agents the table did hold, in the order it held them, so that
+            the message distinguishes an unregistered agent from an empty table.
+    """
+
+    def __init__(self, agent: Agent, writers: Iterable[Agent]) -> None:
+        """Build the error from the agent and the table that did not hold it.
+
+        Args:
+            agent: The agent no writer was found for.
+            writers: The keys of the writer table.
+        """
+        self.agent = agent
+        self.known = tuple(writers)
+        holds = ", ".join(one.value for one in self.known) if self.known else "no agent"
+        super().__init__(f"no native writer for {agent.value}; the writer table holds: {holds}")
+
+
+class UnanchoredToolResultError(RenderError):
+    """A tool result cannot be written because its call is not in the chunk.
+
+    Raised by the OpenCode writer alone. OpenCode records a result in the
+    `state` of the tool part that made the call — `idc.importers.opencode`
+    documents that there is no separate result record — so a result whose call
+    is in no message of the chunk has nowhere to go. Writing it with a
+    reconstructed call would put a tool call in the transcript that the session
+    never made, and T5 reads exactly those calls as the steps of the path. The
+    other two agents record a result as a message of its own and render the same
+    chunk without complaint.
+
+    Attributes:
+        message_id: The canonical message carrying the result.
+        call_id: The call the result answers, which no message of the chunk
+            issued.
+        agent: The agent whose format has no record for it.
+    """
+
+    def __init__(self, message_id: str, call_id: str, agent: Agent) -> None:
+        """Build the error from the result, its call and the target agent.
+
+        Args:
+            message_id: The canonical message carrying the result.
+            call_id: The call the result answers.
+            agent: The agent whose format cannot hold it.
+        """
+        self.message_id = message_id
+        self.call_id = call_id
+        self.agent = agent
+        super().__init__(
+            f"message {message_id!r} reports tool call {call_id!r}, which no message of this "
+            f"chunk issued; {agent.value} carries a result inside its own call's record, so "
+            f"there is no record to write it as"
         )

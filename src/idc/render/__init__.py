@@ -10,7 +10,22 @@ are T7.2's, so nothing here branches on `Agent` yet.
 """
 
 from idc.render.assembly import AssembledTranscript, assemble, latest_messages, summary_text
-from idc.render.errors import RenderError, UncompactedChainError, UnknownLatestChunkError
+from idc.render.errors import (
+    MissingWriterError,
+    RenderError,
+    UnanchoredToolResultError,
+    UncompactedChainError,
+    UnknownLatestChunkError,
+)
+from idc.render.native import (
+    SNAPSHOT_CLOSE,
+    SNAPSHOT_OPEN,
+    SUMMARY_MESSAGE_ID,
+    WRITERS,
+    NativeWriter,
+    render_transcript,
+    write_transcript,
+)
 
 # T7.1 (#31) — the assembly of the two parts and its two refusals. The sibling
 # sub-ticket T7.2 appends a block of its own at the end of this file with
@@ -25,4 +40,17 @@ __all__ = [
     "assemble",
     "latest_messages",
     "summary_text",
+]
+
+# T7.2 (#32) — the three native writers, the export and their two refusals.
+__all__ += [
+    "SNAPSHOT_CLOSE",
+    "SNAPSHOT_OPEN",
+    "SUMMARY_MESSAGE_ID",
+    "WRITERS",
+    "MissingWriterError",
+    "NativeWriter",
+    "UnanchoredToolResultError",
+    "render_transcript",
+    "write_transcript",
 ]
