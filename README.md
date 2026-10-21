@@ -18,7 +18,7 @@ network at test time.
 | `resolve` | `idc.resolve` | derive the accepted solution from the path |
 | `compact` | `idc.compact` | render new or extended chains into Markdown blocks |
 | `render` | `idc.render` | emit the summary in the target agent's native tags |
-| `measure` | `idc.measure` | count tokens before and after |
+| `measure` | `idc.measure` | count tokens before and after, and what the session's tool calls were |
 
 `idc.schema` holds the canonical schema that is the contract between all stages, and
 `idc.cli` the command surface.

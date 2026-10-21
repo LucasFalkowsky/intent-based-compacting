@@ -9,8 +9,9 @@ JSON**, not read off the implementation:
   whose result is not an error, verbatim and in transcript order,
 - `lines_added` by counting the lines of a whole write's `content` and, for an
   edit, the lines of a line-level diff between `old_string` and `new_string`
-  that a unified diff would mark `+` — worked out below for the two edits that
-  are not a one-line-for-one-line replacement,
+  that a unified diff would mark `+` — worked out below for the edits that are
+  not a one-line-for-one-line replacement, and left out entirely for the one
+  edit that applies to every occurrence,
 - `exit_codes` by reading `exit_code` off every `tool_result`,
 - `error_results` by counting the results whose `is_error` is true.
 
@@ -27,6 +28,11 @@ itself:
   that read-the-body line below the new guard: of its three new lines a diff
   can match only one against the three old ones, so 2 again — 4 for the
   fixture.
+- `interleaved_intents`' `c08` carries `replace_all: true`. It renames every
+  occurrence of one line in `src/config/loader.py`, and the transcript says
+  neither how many occurrences there were nor what the file held, so the call
+  adds nothing to the fixture's total and is expected in
+  `unmeasured_write_ids` instead.
 
 No test here calls a model, reads a clock, draws a random number or touches
 the filesystem beyond the fixture corpus.
