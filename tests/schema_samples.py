@@ -6,10 +6,10 @@ non-ASCII characters and newlines. A round trip that preserves these samples
 preserves anything a real transcript can hold.
 
 One pair of `Session` fields cannot be maximal in the same object:
-`native_summary_id` is only allowed when `source` is `native-compaction`, so the
-maximal session is split in two. `session()` is the raw one and stays the sample
-every type-generic test uses; `native_compacted_session()` is the other half of
-the pair and is named explicitly by the tests that need it.
+`native_summary_id` is refused when `source` is `raw`, which the maximal session
+is, so it is split in two. `session()` is the raw one and stays the sample every
+type-generic test uses; `native_compacted_session()` is the other half of the
+pair and is named explicitly by the tests that need it.
 
 This module is test data only — the shared transcript fixture corpus on disk is
 ticket T1.3.
