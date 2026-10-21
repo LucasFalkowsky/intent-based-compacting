@@ -136,17 +136,25 @@ def _refusal(line: str) -> str | None:
     """Return why `line` would be read as structure in a block, or `None`.
 
     Args:
-        line: One line of a response or of a narrative body, right-stripped.
+        line: One line of a response or of a narrative body, as its caller
+            holds it. This function asks for no normalization and must not:
+            it stated `right-stripped` as a precondition once, `as_narrative`
+            met it through `_trimmed` and `Narrative.__post_init__` did not,
+            and the one shape whose meaning sits at the right end of the line
+            — the Setext underline — went through the second entry point
+            unrefused as a result.
 
     Returns:
         A reason, naming the line, when a parser of the rendered block could
         read it as the block's own structure — an ATX heading, a line that
         opens or closes a code fence, a Setext underline, or an HTML comment
-        left open. Leading whitespace is stripped before any of that is
-        decided, so no amount of indentation hides one. `None` for every other
-        line, indented bullets included.
+        left open. Whitespace at **both** ends is stripped before any of that
+        is decided, so neither indentation nor trailing space hides one:
+        CommonMark allows trailing whitespace on a Setext underline and on a
+        thematic break, so `---   ` underlines the line above it exactly as
+        `---` does. `None` for every other line, indented bullets included.
     """
-    bare = line.lstrip()
+    bare = line.strip()
     if _HEADING_LINE.match(bare):
         return (
             f"the body line {line!r} is a header, and the only headers a narrative holds are "

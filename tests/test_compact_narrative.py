@@ -410,8 +410,18 @@ UNWRITABLE_BODY_LINES = {
     "a_setext_underline_with_dashes": "---",
     "a_setext_underline_with_equals": "===",
     "an_unclosed_html_comment": "<!-- everything below is a comment",
+    "a_setext_underline_with_trailing_spaces": "---   ",
+    "a_setext_underline_with_a_trailing_tab": "===\t",
+    "an_indented_setext_underline_with_trailing_spaces": "   ---  ",
 }
-"""Body lines a caller may not put into a `Narrative`, one per refused shape."""
+"""Body lines a caller may not put into a `Narrative`, one per refused shape.
+
+The last three are not right-stripped on purpose. `as_narrative` rstrips every
+line before it judges it, a caller constructing a `Narrative` does not, and a
+guard that only held for the first of those two would be no guard at all —
+CommonMark allows trailing whitespace on a Setext underline and on a thematic
+break, so `---   ` under a line of text is the same header as `---`.
+"""
 
 
 @pytest.mark.parametrize("shape", sorted(UNWRITABLE_BODY_LINES))
@@ -432,10 +442,29 @@ def test_the_unwritable_body_lines_cover_every_enumerated_shape():
         "a_header_indented_by_one_space",
         "a_setext_underline_with_dashes",
         "a_setext_underline_with_equals",
+        "a_setext_underline_with_a_trailing_tab",
+        "a_setext_underline_with_trailing_spaces",
         "an_indented_backtick_fence",
+        "an_indented_setext_underline_with_trailing_spaces",
         "an_indented_tilde_fence",
         "an_unclosed_html_comment",
     }
+
+
+def test_a_body_line_is_judged_whether_or_not_its_caller_stripped_it():
+    """Both guards judge the same line, however its caller spaced it.
+
+    `as_narrative` rstrips every line of a response before judging it and a
+    caller constructing a `Narrative` does not, so a guard that relied on that
+    normalization held for one of its two entry points only. The shape it let
+    through was the Setext underline, the one shape whose meaning sits at the
+    right end of the line.
+    """
+    for line in ("---   ", "===\t", "   ---  "):
+        with pytest.raises(NarrativeContractError, match="body line"):
+            as_narrative(f"## Intent: x\n{DECISIONS_HEADER}\n- a\n{line}\n{REJECTED_HEADER}\n")
+        with pytest.raises(ValueError, match="body line"):
+            Narrative(label="x", decisions=("- a", line), rejected=())
 
 
 def test_an_indented_bullet_is_not_structure():
@@ -523,7 +552,7 @@ def test_the_deterministic_sections_are_byte_identical_whatever_the_model_return
     assert block.endswith(tail)
     assert block.count(SOLUTION_HEADER) == 1
     assert block.count(VERIFICATION_HEADER) == 1
-    assert "src/evil.py" not in tail
+    assert "src/evil.py" not in block[block.index(SOLUTION_HEADER) :]
 
 
 # --- the client contract -------------------------------------------------------
