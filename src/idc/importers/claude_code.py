@@ -114,7 +114,7 @@ from idc.importers.base import (
 )
 from idc.importers.jsonl import JsonLine, read_json_lines
 from idc.importers.tool_registry import ToolRegistry
-from idc.schema import Agent, Role, SessionSource, ToolCall, ToolResult
+from idc.schema import Agent, Role, ToolCall, ToolResult
 
 __all__ = ["COMMAND_MARKERS", "import_claude_code"]
 
@@ -450,13 +450,10 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
     content = None if message is None else message.get("content")
     timestamp = _timestamp(builder, line)
     if record.get(SUMMARY_FLAG) is True:
-        builder.set_provenance(SessionSource.NATIVE_COMPACTION)
-        builder.add_message(
+        builder.add_native_summary(
             message_id=_record_id(builder, line),
-            role=Role.SYSTEM,
             content=_noted_text(builder, content),
             timestamp=timestamp,
-            is_system_injected=True,
         )
         return True
     injected = record.get(INJECTED_FLAG) is True

@@ -182,7 +182,7 @@ from idc.importers.base import (
 )
 from idc.importers.jsonl import JsonLine, read_json_lines
 from idc.importers.tool_registry import ToolRegistry
-from idc.schema import Agent, Role, SessionSource, ToolCall, ToolResult
+from idc.schema import Agent, Role, ToolCall, ToolResult
 
 __all__ = ["ENVIRONMENT_MARKER", "SNAPSHOT_MARKER", "import_gemini_cli"]
 
@@ -710,14 +710,7 @@ def _add_user_record(
         _note_unreadable_content(builder, content)
         text, text_index, found = _user_parts(builder, line, content)
     if SNAPSHOT_MARKER in text:
-        builder.set_provenance(SessionSource.NATIVE_COMPACTION)
-        builder.add_message(
-            message_id=message_id,
-            role=Role.SYSTEM,
-            content=text,
-            timestamp=timestamp,
-            is_system_injected=True,
-        )
+        builder.add_native_summary(message_id=message_id, content=text, timestamp=timestamp)
         return True
     if not isinstance(content, str | list):
         return False

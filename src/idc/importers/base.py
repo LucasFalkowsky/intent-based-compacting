@@ -8,6 +8,10 @@ lives here:
 - **Assembling the canonical session.** `SessionBuilder` collects messages, asks
   the tool registry for every call's category, remembers the model and the
   provenance, and validates the result into a `Session` on `build()`.
+- **Recording the agent's own summary.** `SessionBuilder.add_native_summary`
+  appends it, sets the session's provenance and remembers which message it is,
+  so that `idc.importers.provenance` can tell the context the agent still has
+  from the history its compaction replaced.
 - **Resolving a tool category and logging the unknown ones.** A tool the registry
   does not declare resolves to `other` *and* is reported — the parent criterion
   of T2 — both as an `ImportNote` on the result and as one log warning per
@@ -125,10 +129,19 @@ class ImportedSession:
         notes: One note per distinct problem, sorted by kind and detail so that
             importing the same file twice reports the same thing in the same
             order.
+        native_summary_id: `Message.id` of the summary the agent's own
+            compaction wrote, or `None` for a transcript it never compacted.
+            Where that summary sits is what separates the context the agent
+            still has from the history it threw away, and the canonical schema
+            holds it nowhere — `Session.source` says only *that* a transcript
+            was compacted. `idc.importers.provenance` reads it; a transcript
+            compacted twice names the **last** summary, because that is the one
+            the agent's context now starts at.
     """
 
     session: Session
     notes: tuple[ImportNote, ...] = ()
+    native_summary_id: str | None = None
 
     def notes_of(self, kind: str) -> tuple[ImportNote, ...]:
         """Return the notes of one kind, in the order they are held.
@@ -236,6 +249,7 @@ class SessionBuilder:
         self._logged: set[tuple[str, str]] = set()
         self._model: str | None = None
         self._timestamps: list[datetime] = []
+        self._native_summary_id: str | None = None
 
     def __repr__(self) -> str:
         """Return a representation naming the agent and the message count."""
@@ -364,6 +378,47 @@ class SessionBuilder:
             self._timestamps.append(timestamp)
         return message
 
+    def add_native_summary(
+        self,
+        *,
+        message_id: str,
+        content: str,
+        timestamp: datetime | None = None,
+    ) -> Message:
+        """Append the summary the agent's own compaction wrote.
+
+        All three agents record that summary the same way once it is canonical —
+        an injected `system` message — and all three mean the same thing by it:
+        the agent dropped everything before it and continued from the summary.
+        The two facts that follow from it are therefore set here rather than in
+        each importer: the session's provenance becomes `native-compaction`, and
+        the message is remembered as the session's `native_summary_id`, which is
+        what `idc.importers.provenance` needs and what the canonical schema has
+        no field for.
+
+        Args:
+            message_id: Identifier of the summary message, from the transcript.
+            content: The summary's text, as the agent wrote it.
+            timestamp: When it was recorded, timezone-aware.
+
+        Returns:
+            The appended message.
+
+        Raises:
+            SchemaValidationError: If the message does not satisfy the canonical
+                schema.
+        """
+        self.set_provenance(SessionSource.NATIVE_COMPACTION)
+        message = self.add_message(
+            message_id=message_id,
+            role=Role.SYSTEM,
+            content=content,
+            timestamp=timestamp,
+            is_system_injected=True,
+        )
+        self._native_summary_id = message.id
+        return message
+
     def notes(self) -> tuple[ImportNote, ...]:
         """Return the notes collected so far, sorted by kind and detail."""
         return tuple(
@@ -405,6 +460,7 @@ class SessionBuilder:
                 messages=self._messages,
             ),
             notes=self.notes(),
+            native_summary_id=self._native_summary_id,
         )
 
 

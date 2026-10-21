@@ -145,7 +145,7 @@ from idc.importers.base import (
 )
 from idc.importers.jsonl import JsonLine, read_json_lines
 from idc.importers.tool_registry import ToolRegistry
-from idc.schema import Agent, Role, SessionSource, ToolCall, ToolResult
+from idc.schema import Agent, Role, ToolCall, ToolResult
 
 __all__ = ["import_opencode"]
 
@@ -595,15 +595,12 @@ def _add_compaction_record(builder: SessionBuilder, line: JsonLine) -> bool:
         record existing, not from its text being readable.
     """
     record = line.data
-    builder.set_provenance(SessionSource.NATIVE_COMPACTION)
     content = _summary(builder, record)
     _note_unread_references(builder, record.get("recent"))
-    builder.add_message(
+    builder.add_native_summary(
         message_id=_record_id(builder, line),
-        role=Role.SYSTEM,
         content=content,
         timestamp=_timestamp(builder, line),
-        is_system_injected=True,
     )
     return True
 

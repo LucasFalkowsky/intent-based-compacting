@@ -15,7 +15,7 @@ from idc.importers import (
     import_transcript,
     visible_context,
 )
-from idc.schema import Agent, Message, Role, Session, SessionSource, dumps, validate_document
+from idc.schema import Agent, Message, Role, Session, SessionSource, dumps, loads
 from native_transcripts import NATIVE
 
 RAW_FIXTURES = {
@@ -173,7 +173,7 @@ def test_the_visible_session_keeps_the_sessions_own_provenance(agent):
 def test_the_visible_session_is_a_valid_canonical_document(agent):
     context = visible_context(imported(agent, RAW_FIXTURES))
 
-    assert validate_document(dumps(context.session)) == context.session
+    assert loads(Session, dumps(context.session)) == context.session
 
 
 # --- what the importers mark ------------------------------------------------
@@ -234,6 +234,23 @@ def test_a_user_turn_that_only_resembles_a_notice_is_left_alone():
 
 def test_every_agent_has_an_entry_in_the_notice_markers():
     assert set(NOTICE_MARKERS) == set(Agent)
+
+
+# --- a session the agent compacted more than once ---------------------------
+
+
+def test_a_session_compacted_twice_is_visible_from_the_second_summary():
+    result = import_transcript(Agent.CLAUDE_CODE, NATIVE.path("claude-code", "compacted_twice"))
+
+    context = visible_context(result)
+
+    assert result.native_summary_id == "c51"
+    assert list(context.message_ids) == ["c51", "u52"]
+    assert list(context.hidden) == [
+        HiddenMessage("u50", HIDDEN_REPLACED_BY_COMPACTION),
+        HiddenMessage("c50", HIDDEN_REPLACED_BY_COMPACTION),
+        HiddenMessage("u51", HIDDEN_REPLACED_BY_COMPACTION),
+    ]
 
 
 # --- a session that was not imported in this process ------------------------
