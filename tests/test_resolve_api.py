@@ -1,7 +1,8 @@
 """The public surface of `idc.resolve`: what the sibling sub-tickets of T5 reuse.
 
-A contract test, not a behaviour test. `solution_files` and
-`solution_verification` are the stage's two entry points; `chain_chunks`,
+A contract test, not a behaviour test. `resolve` is the stage's
+entry point and `solution_files`, `solution_verification` and `path_call_ids`
+are the three answers it aggregates; `chain_chunks`,
 `chain_calls` and `LocatedCall` are the chain walk T5.2 (#22) asks for the
 `exec` calls with and T5.3 (#23) for the path, and `file_of`, `write_kind`,
 `content_of`, `command_of` and the four key tuples are the argument-shape
@@ -17,6 +18,7 @@ limitation is documented there**, so the sentence that documents it is part of
 the stage's contract and not prose.
 """
 
+import dataclasses
 import importlib
 
 import pytest
@@ -29,6 +31,7 @@ from idc.resolve import (
     ForeignChunkError,
     LocatedCall,
     ResolveError,
+    Resolution,
     SolutionFile,
     SolutionVerification,
     UnknownChunkError,
@@ -41,6 +44,9 @@ from idc.resolve import (
     content_of,
     exec_calls,
     file_of,
+    path_call_ids,
+    resolve,
+    solution_call_ids,
     solution_files,
     solution_verification,
     verification_runs,
@@ -56,6 +62,7 @@ EXPECTED_EXPORTS = {
     "ForeignChunkError",
     "LocatedCall",
     "ResolveError",
+    "Resolution",
     "SolutionFile",
     "SolutionVerification",
     "UnknownChunkError",
@@ -68,16 +75,20 @@ EXPECTED_EXPORTS = {
     "content_of",
     "exec_calls",
     "file_of",
+    "path_call_ids",
+    "resolve",
+    "solution_call_ids",
     "solution_files",
     "solution_verification",
     "verification_runs",
     "write_calls",
     "write_kind",
 }
-"""The documented export surface of the stage after T5.1 and T5.2.
+"""The documented export surface of the stage after T5.1, T5.2 and T5.3.
 
-T5.2 (#22) added the eight verification names; everything T5.1 pinned stays
-pinned, so a sub-ticket can only ever extend this set."""
+T5.2 (#22) added the eight verification names and T5.3 (#23) the four names of
+the partition and the entry point; everything an earlier sub-ticket pinned
+stays pinned, so a sub-ticket can only ever extend this set."""
 
 CALLABLE_EXPORTS = (
     chain_calls,
@@ -86,6 +97,9 @@ CALLABLE_EXPORTS = (
     content_of,
     exec_calls,
     file_of,
+    path_call_ids,
+    resolve,
+    solution_call_ids,
     solution_files,
     solution_verification,
     verification_runs,
@@ -98,6 +112,7 @@ TYPE_EXPORTS = (
     ForeignChunkError,
     LocatedCall,
     ResolveError,
+    Resolution,
     SolutionFile,
     SolutionVerification,
     UnknownChunkError,
@@ -179,3 +194,13 @@ def test_the_stage_documents_that_an_edit_outside_a_tool_call_is_not_detected():
 
     assert "sed" in documentation
     assert "not detected" in documentation
+
+
+def test_the_three_fields_of_a_resolution_are_what_the_stage_resolves():
+    # The parent's first acceptance criterion (#20) names the three fields, so
+    # a rename would be a change to the stage's contract and not a refactor.
+    assert [field.name for field in dataclasses.fields(Resolution)] == [
+        "solution_files",
+        "verification",
+        "path_call_ids",
+    ]
