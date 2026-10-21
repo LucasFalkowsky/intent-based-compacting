@@ -21,6 +21,7 @@ import json
 import subprocess
 import sys
 from itertools import product
+from pathlib import Path
 
 import pytest
 
@@ -517,6 +518,46 @@ def test_a_run_source_names_itself_in_its_label_and_in_its_description(source, l
 def test_a_run_source_refuses_to_name_nothing():
     with pytest.raises(ValueError, match="where the decisions came from"):
         RunSource(label="   ")
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: RunSource.adapter(""),
+        lambda: RunSource.adapter("   "),
+        lambda: RunSource.recorded(""),
+        lambda: RunSource.recorded("   "),
+        lambda: RunSource.recorded(Path("   ")),
+    ],
+    ids=["adapter-empty", "adapter-blank", "recorded-empty", "recorded-blank", "recorded-path"],
+)
+def test_a_named_constructor_refuses_an_argument_that_names_nothing(build):
+    # The guard on the label is not enough on its own: both named constructors
+    # prefix their argument, so an argument that names nothing still produces a
+    # label that holds a word ("adapter ", "recorded run .") and passes it. The
+    # number would then travel with a source line naming nobody, which is the
+    # one thing this type exists against.
+    with pytest.raises(ValueError, match="the decisions came from"):
+        build()
+
+
+def test_the_baseline_source_needs_no_argument_to_name_itself():
+    # The third constructor takes nothing, so there is no caller input to
+    # refuse: its label is the module's own constant.
+    assert RunSource.baseline().label.strip()
+
+
+@pytest.mark.parametrize("decisions", ["", "   "], ids=["empty", "blank"])
+def test_the_command_reports_a_decisions_directory_that_names_nothing(decisions, capsys):
+    # The hole is a library-level one: through the command an unusable
+    # `--decisions` is an input error, reported on stderr with nothing on stdout
+    # and never a traceback.
+    status = main([str(GOLD_DIR), str(FIXTURES_DIR), "--decisions", decisions])
+
+    captured = capsys.readouterr()
+    assert status == EXIT_INPUT_ERROR
+    assert captured.out == ""
+    assert captured.err.startswith("idc: ")
 
 
 def test_the_command_scores_the_gold_baseline_over_the_corpus(capsys):
