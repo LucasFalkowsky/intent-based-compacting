@@ -721,6 +721,78 @@ def test_an_exit_status_in_the_middle_of_the_output_is_not_read_as_one(tmp_path)
     assert messages_by_id(import_gemini_cli(path).session)["g1#1"].tool_result.exit_code is None
 
 
+def shell_result_exit_code(
+    tmp_path: Path,
+    text: str,
+    name: str = "run_shell_command",
+    args: dict | None = None,
+) -> int | None:
+    """Import one completed call whose result is `text` and return its status.
+
+    Keeps the tests below to the one thing that differs between them: the
+    result's text and the tool it came from.
+    """
+    path = write_jsonl(
+        tmp_path,
+        [
+            metadata_record(),
+            gemini_record(
+                "g1",
+                "x",
+                toolCalls=[
+                    tool_call(
+                        "c1",
+                        name,
+                        {"command": "uv run pytest -q"} if args is None else args,
+                        result=output("c1", name, text),
+                        status="success",
+                    )
+                ],
+            ),
+        ],
+    )
+    return messages_by_id(import_gemini_cli(path).session)["g1#1"].tool_result.exit_code
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        "Output: 1 failed, 3 passed\nExit Code: 1",
+        "Output: 1 failed, 3 passed\nExit Code: 1\n",
+        "Output: 1 failed, 3 passed\nExit Code: 1\n\n",
+        "Output: 1 failed, 3 passed\nExit Code: 1\nSignal: null\n",
+    ],
+)
+def test_a_trailing_exit_status_is_read_however_the_result_ends(tmp_path, result):
+    # A blank line carries no status, so the backwards scan over the trailing
+    # block steps over it instead of stopping: a result that ends in a newline
+    # still has to report the status it carries. Reading `None` there would
+    # hand T6 a failed verification as `exit_code=None, is_error=False` — a
+    # passing one.
+    assert shell_result_exit_code(tmp_path, result) == 1
+
+
+@pytest.mark.parametrize("name", ["read_file", "write_file"])
+def test_an_exit_status_line_from_another_tool_is_not_read_as_one(tmp_path, name):
+    # Only the shell tool appends that field. The same line in any other
+    # tool's result is part of what that tool returned.
+    assert (
+        shell_result_exit_code(
+            tmp_path,
+            "Output: x\nExit Code: 1",
+            name=name,
+            args={"file_path": "/repo/notes.txt"},
+        )
+        is None
+    )
+
+
+def test_a_result_that_does_not_start_with_the_output_prefix_is_not_read_for_a_status(tmp_path):
+    # The shell tool's format starts `Output: `; a result that does not is not
+    # that format, so its trailing lines are not that format's fields either.
+    assert shell_result_exit_code(tmp_path, "Error: command not found\nExit Code: 127") is None
+
+
 def test_a_failed_result_of_the_golden_session_is_an_error():
     result = messages_by_id(import_gemini_cli(document("golden_session")).session)[
         "g03#1"
