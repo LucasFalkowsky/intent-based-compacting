@@ -23,10 +23,10 @@ real scorer would be — a model call, an HTTP client, an API key — is pinned 
 stay out of the module by `test_the_module_holds_no_backend_of_its_own`.
 """
 
-import importlib
-import inspect
+import ast
 import math
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 import pytest
 
@@ -47,26 +47,49 @@ from idc.classify import (
     classify,
     classify_chunks,
 )
+from idc.classify import s1m as s1m_module
 from idc.schema import dumps
 
-FORBIDDEN_TOKENS = [
-    "httpx",
-    "requests",
-    "urllib",
-    "socket",
-    "subprocess",
-    "openai",
-    "anthropic",
-    "os.environ",
-    "getenv",
-    "api_key",
-]
-"""Everything a real backend would need and this module may not hold.
+ALLOWED_IMPORTS = {"collections", "dataclasses", "idc", "typing"}
+"""Every top-level module `idc.classify.s1m` may import.
 
-The adapter takes its scorer as an argument; a model client, a transport or a
-credential appearing in here would make the test suite one `pip install` away
-from a network call.
+A whitelist and not a blacklist, and the same guard T4.2 (#17) puts on its own
+backend: the ticket's hard constraint is that this module reaches nothing by
+itself, and a list of allowed imports cannot be walked around with a package
+nobody thought to forbid — `http.client`, `ssl`, `xmlrpc.client` or an
+`asyncio` connection would each pass any plausible token list.
 """
+
+FORBIDDEN_IMPORTS = {
+    "aiohttp",
+    "anthropic",
+    "asyncio",
+    "boto3",
+    "google",
+    "http",
+    "httpx",
+    "openai",
+    "os",
+    "requests",
+    "smtplib",
+    "socket",
+    "ssl",
+    "subprocess",
+    "time",
+    "urllib",
+    "urllib3",
+    "xmlrpc",
+}
+"""The imports that would make the module reach out, wait or read a credential
+on its own.
+
+Redundant against `ALLOWED_IMPORTS` on purpose: this set is what names the risk,
+so the test that fails says *why* the import may not be there.
+"""
+
+FORBIDDEN_FRAGMENTS = ("os.environ", "getenv(", "urlopen", "api_key", "Bearer ")
+"""Source fragments that would mean the module handles a credential or a
+connection itself. The scorer is injected; this module ships none."""
 
 
 MESSAGE = "make the retry backoff configurable"
@@ -647,7 +670,7 @@ def test_the_module_documents_the_limitation_instead_of_promising_a_sweep():
     # The three tests above hold; the docstring is where #19 reads them from, so
     # the convenient claim — "sweep the threshold over a recorded run instead of
     # re-running the backend" — may not come back into it.
-    doc = importlib.import_module("idc.classify.s1m").__doc__ or ""
+    doc = s1m_module.__doc__ or ""
 
     assert "sweep the threshold over a recorded run" not in doc
     assert "S1MCall.scores" in doc
@@ -658,11 +681,35 @@ def test_the_module_documents_the_limitation_instead_of_promising_a_sweep():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("token", FORBIDDEN_TOKENS)
-def test_the_module_holds_no_backend_of_its_own(token):
-    source = inspect.getsource(importlib.import_module("idc.classify.s1m"))
+def module_imports() -> set[str]:
+    """Return the top-level modules `idc.classify.s1m` imports."""
+    source = Path(s1m_module.__file__).read_text(encoding="utf-8")
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    return imported
 
-    assert token not in source.lower()
+
+def test_the_module_holds_no_backend_of_its_own():
+    # The ticket's hard constraint, stated about the module instead of about the
+    # test suite: the scorer is injected, so this module needs no transport, no
+    # process and no credential — and a dependency that implied one would show
+    # up here before it showed up in a study run.
+    imported = module_imports()
+
+    assert imported, "the imports could not be read; the test would pass vacuously"
+    assert imported & FORBIDDEN_IMPORTS == set()
+    assert imported <= ALLOWED_IMPORTS, f"unexpected imports: {sorted(imported - ALLOWED_IMPORTS)}"
+
+
+@pytest.mark.parametrize("fragment", FORBIDDEN_FRAGMENTS)
+def test_the_module_handles_no_credential_and_no_connection(fragment):
+    source = Path(s1m_module.__file__).read_text(encoding="utf-8")
+
+    assert fragment not in source
 
 
 def test_the_scorer_is_what_the_adapter_was_given():
