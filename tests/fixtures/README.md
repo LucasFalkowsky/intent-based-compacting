@@ -104,6 +104,7 @@ gold = CORPUS.gold("interleaved_intents")  # validated on load
 
 Drop a `<name>.json` canonical `Session` into this directory, add one `- \`<name>.json\` —
 …` line here, and write its gold chain labels into `gold/<name>.json` — a fixture without
-them fails `tests/test_classify_gold.py`, which pins the two sides against each other. Discovery is automatic: `CORPUS.names()` and the corpus-wide tests pick the
-file up without any list to update. If the fixture exists for a specific structural
-property, pin that property in `tests/test_fixture_cases.py`.
+them fails `tests/test_classify_gold.py`, which pins the two sides against each other.
+Discovery is automatic: `CORPUS.names()` and the corpus-wide tests pick the file up without
+any list to update. If the fixture exists for a specific structural property, pin that
+property in `tests/test_fixture_cases.py`.
