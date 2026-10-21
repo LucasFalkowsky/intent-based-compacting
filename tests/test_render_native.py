@@ -438,6 +438,32 @@ def test_an_injected_message_stays_marked_as_injected(agent: Agent, tmp_path: Pa
     assert back == {message.id: INJECTED_ROLE[agent] or message.role for message in before}
 
 
+@pytest.mark.parametrize("agent", AGENTS)
+def test_an_injected_assistant_message_keeps_its_role_and_loses_the_flag(
+    agent: Agent, tmp_path: Path
+) -> None:
+    """The one injected shape no format marks, pinned so the rule stays true.
+
+    `is_system_injected` is kept for a `user` and a `system` message, which are
+    the two roles an importer in this repository marks as injected. A model turn
+    marked that way is a session no importer produces, and none of the three
+    formats has a record for it, so all three write the assistant turn it is and
+    the flag is the one thing lost.
+    """
+    session = inline_session(
+        Message(id="m1", role=Role.USER, content="go"),
+        Message(id="m2", role=Role.ASSISTANT, content="said", is_system_injected=True),
+    )
+    block, chunks = inline_block(session, agent)
+    path = write_transcript(block, session=session, chunks=chunks, path=tmp_path / "a.jsonl")
+
+    back = next(one for one in import_transcript(agent, path).session.messages if one.id == "m2")
+
+    assert back.role is Role.ASSISTANT
+    assert back.is_system_injected is False
+    assert back.content == "said"
+
+
 def test_the_summary_is_written_in_each_agents_own_summary_shape() -> None:
     """The one record per agent that marks the text as a compaction summary."""
     claude = records(rendered(GOLDEN_FIXTURE, Agent.CLAUDE_CODE))[0]

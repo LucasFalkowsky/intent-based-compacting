@@ -149,7 +149,8 @@ class UnanchoredToolResultError(RenderError):
     documents that there is no separate result record — so a result whose call
     is in no message of the chunk has nowhere to go. Writing it with a
     reconstructed call would put a tool call in the transcript that the session
-    never made, and T5 reads exactly those calls as the steps of the path. The
+    never made, and `idc.resolve` reads a session's tool calls as the steps of
+    the path it resolves the accepted solution from. The
     other two agents record a result as a message of its own and render the same
     chunk without complaint.
 

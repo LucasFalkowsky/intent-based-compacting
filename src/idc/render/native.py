@@ -11,8 +11,9 @@ agent's records from the agent's own source, and the constants here are theirs.
 **One writer per agent, behind a registry.** `WRITERS` maps `Agent` to a
 `NativeWriter`, the way `idc.importers.IMPORTERS` maps it to an importer — the
 established per-agent dispatch of this project. `render_transcript` looks the
-writer up by the block's own `rendered_for`, so T10's CLI and T7.3 need no
-`if agent is …` of their own, and an agent the table does not hold is a
+writer up by the block's own `rendered_for`, so a later stage that holds a block
+already (the measurement pass, the CLI) resolves a writer instead of branching
+on the agent itself, and an agent the table does not hold is a
 `MissingWriterError` rather than a silent fallback to one of the three. The three
 writers are plain functions: they hold no state, and a class hierarchy would
 only add one.
@@ -38,10 +39,14 @@ only add one.
 
 **What of a kept message survives, and what cannot.** The messages are written
 back as records, and the next import re-derives the canonical form from them.
-Preserved for all three agents: the role, the content byte for byte, every tool
-call's id, name and arguments, every result's output **in full** and its
-`is_error`, the `is_system_injected` flag, and the instant of a timestamp.
-Not preserved, and none of it fudged:
+The statements below are about a session an **importer** built, which is the only
+input this pipeline has, and in such a session the role already settles the
+injected flag: `system` is always injected (all three importers set it on the
+record they read a harness notice or a native summary from), `assistant` and
+`tool` never are, and `user` may be either. Preserved for all three agents: the
+role, the content byte for byte, every tool call's id, name and arguments, every
+result's output **in full** and its `is_error`, the `is_system_injected` flag,
+and the instant of a timestamp. Not preserved, and none of it fudged:
 
 - **`ToolCall.category`** is not written, because no native record carries it.
   The importer resolves it from `tool_registry.toml` for the *target* agent, so
@@ -58,10 +63,13 @@ Not preserved, and none of it fudged:
   already carry them.
 - **The role of an injected message** moves where the format has only one shape
   for harness text: a Gemini CLI `info` notice (role `system`) and an OpenCode
-  `synthetic` text part (role `user`). The `is_system_injected` flag itself is
-  never lost — that is the rule the choice follows, because a harness turn that
-  came back as a plain user turn would hand T3.1 an intent boundary the user
-  never set.
+  `synthetic` text part (role `user`). Keeping the flag is what that choice is
+  for, because a harness turn that came back as a plain user turn would hand
+  T3.1 an intent boundary the user never set. Only a `user` or a `system`
+  message is written in the harness shape, those being the two roles an importer
+  marks; an injected *assistant* message — which no importer produces — is
+  written as the assistant turn it is and loses the flag, in all three formats,
+  because none of them marks a model turn as the harness's.
 - **A `tool` message's own `content`** is not written: no native record carries
   text beside a result, and every importer in this repository produces a tool
   message with empty content (visible in the three `.expected.json` files under
@@ -78,8 +86,10 @@ Not preserved, and none of it fudged:
 **Determinism.** No clock, no randomness, no network: the output is a function of
 the block, the session and the chunks. The only time value that belongs to no
 message is the summary record's own, and it is `Session.created_at` — the one
-timestamp the canonical schema requires, and the earliest of the session's, so
-the summary is ordered in front of every message it summarizes. A message
+timestamp the canonical schema requires, which is why there is always one to
+write. For every session an importer built it is also the earliest message
+timestamp (`idc.importers.base.SessionBuilder.build` takes the `min`), so the
+summary record is ordered in front of the messages it summarizes. A message
 without a timestamp is written without one. Timestamps are written in UTC with a
 trailing `Z`, the spelling both Claude Code's and Gemini CLI's own files use; the
 instant is preserved, the offset's spelling is not.
@@ -198,9 +208,9 @@ def _lines(records: Iterable[Mapping[str, Any]]) -> str:
 
     Returns:
         One line per record, each a JSON object with no inserted whitespace, and
-        a trailing newline. `ensure_ascii` is off so that text stays the UTF-8 it
-        was — the three agents' own files are UTF-8, and escaping would change
-        every token count T9 measures on the file.
+        a trailing newline. `ensure_ascii` is off, so non-ASCII text is written
+        as the UTF-8 it already is instead of as escape sequences, which would
+        change the file's bytes without changing a character of what it says.
     """
     return "".join(
         json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n" for record in records
@@ -255,7 +265,7 @@ def _claude_record(message: Message, *, session: Session) -> dict[str, Any]:
         and one `tool_use` block per call, and a `user` record otherwise —
         carrying `isMeta` when the harness wrote it.
     """
-    record: dict[str, Any] = {}
+    record: dict[str, Any]
     if message.role is Role.SYSTEM:
         record = {"type": RECORD_SYSTEM, "content": message.content}
     elif message.role is Role.TOOL and message.tool_result is not None:
@@ -358,7 +368,7 @@ def _gemini_record(
         response["response"] = {"error" if result.is_error else "output": result.output}
         record["type"] = "user"
         record["content"] = [{"functionResponse": response}]
-    elif message.is_system_injected:
+    elif message.is_system_injected and message.role is not Role.ASSISTANT:
         record["type"] = "info"
         record["content"] = [{"text": message.content}]
     elif message.role is Role.ASSISTANT:
