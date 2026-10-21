@@ -42,11 +42,14 @@ from idc.parse import (
     ParseError,
     StrayContentError,
     UnterminatedFenceError,
+    closes_fence,
+    fence_opening,
     join_blocks,
     parse_blocks,
     parse_chains,
     placeholder_chunk_id,
     split_blocks,
+    split_lines,
 )
 from idc.schema import Chain
 
@@ -863,6 +866,133 @@ def test_a_zero_width_space_before_a_section_header_is_the_prose_the_writer_coun
     assert [section.header for section in block.sections] == list(SECTION_HEADERS)
     assert block.body(SECTION_HEADERS[1]) == f"{prose}\n"
     assert block.text == text
+
+
+# --- the public line scan the writer's merge shares -----------------------------
+
+
+KEEPENDS_TEXTS = (
+    ("ends in a terminator", "line a\nline b\n"),
+    ("does not end in a terminator", "line a\nline b"),
+    ("empty", ""),
+    ("one terminator and nothing else", "\n"),
+    ("crlf", "line a\r\nline b\r\n"),
+    ("bare cr", "line a\rline b\r"),
+    ("a form feed inside a line", "line a\x0cline b\n"),
+    ("consecutive blank lines", "line a\n\n\n\nline b\n"),
+)
+"""Every text the keepends property is pinned on, the empty one included.
+
+`ParsedBlock.text` is the bytes a block occupied and a kept bullet is copied
+byte for byte, so both callers rest on `"".join(split_lines(text)) == text`.
+The last three are where a split that is not this one loses or gains a byte: a
+bare CR that `\r\n` handling could swallow, a form feed `str.splitlines` would
+break on, and blank lines a filtering split would drop.
+"""
+
+
+@pytest.mark.parametrize(("name", "text"), KEEPENDS_TEXTS)
+def test_the_public_line_split_keeps_every_byte(name, text):
+    assert "".join(split_lines(text)) == text
+
+
+def test_the_public_line_split_cuts_where_the_reader_counts_its_lines():
+    # The line numbers every refusal names are counted off this list, so the
+    # count matters as much as the bytes: a CRLF is one ending and not two, a
+    # text that ends in a terminator gains no trailing empty line, and a form
+    # feed is a character of its line.
+    assert split_lines("line a\r\nline b") == ["line a\r\n", "line b"]
+    assert split_lines("line a\rline b") == ["line a\r", "line b"]
+    assert split_lines("line a\x0cline b\n") == ["line a\x0cline b\n"]
+    assert split_lines("") == []
+    assert split_lines("\n") == ["\n"]
+
+
+def test_a_fence_opens_on_a_run_of_three_or_more_backticks():
+    assert fence_opening("```\n") == "```"
+    assert fence_opening("````python\n") == "````"
+    assert fence_opening("``\n") is None
+    assert fence_opening("- `notes.md`\n") is None
+
+
+def test_an_info_string_that_holds_a_backtick_opens_no_fence():
+    # An inline span is not a fence: without this an ordinary sentence that
+    # quotes code would open one and swallow the headers beneath it.
+    assert fence_opening("``` `x` and more\n") is None
+
+
+@pytest.mark.parametrize("spaces", STRUCTURAL_INDENTS)
+def test_a_fence_indented_like_structure_still_opens(spaces):
+    assert fence_opening(f"{' ' * spaces}```\n") == "```"
+
+
+def test_a_fence_indented_like_content_opens_nothing():
+    assert fence_opening(f"{' ' * CONTENT_INDENT}```\n") is None
+
+
+def test_a_fence_closes_on_a_run_at_least_as_long():
+    assert closes_fence("```\n", "```")
+    assert closes_fence("````\n", "```")
+    assert not closes_fence("```\n", "````")
+
+
+def test_a_closing_run_carries_nothing_but_whitespace():
+    assert closes_fence("```   \n", "```")
+    assert not closes_fence("```python\n", "```")
+
+
+@pytest.mark.parametrize("spaces", STRUCTURAL_INDENTS)
+def test_a_closing_run_indented_like_structure_closes(spaces):
+    assert closes_fence(f"{' ' * spaces}```\n", "```")
+
+
+def test_a_closing_run_indented_like_content_closes_nothing():
+    assert not closes_fence(f"{' ' * CONTENT_INDENT}```\n", "```")
+
+
+def test_the_public_scan_is_exported_once_and_reachable():
+    names = ["closes_fence", "fence_opening", "split_lines"]
+
+    assert [idc.parse.__all__.count(name) for name in names] == [1, 1, 1]
+    assert all(callable(getattr(idc.parse, name)) for name in names)
+
+
+def test_the_reader_opens_its_fences_through_the_public_name(monkeypatch):
+    """The public scan is the one `_scan` runs, not a wrapper beside it.
+
+    A public name nothing internal uses would leave the duplication in place
+    under a new name: `idc.compact.merge` would route through it while the
+    reader kept its own rule. Stubbing the public name therefore has to change
+    what the reader does — here the unterminated fence stops being one, because
+    no line opens a fence any more.
+    """
+    text = built(bodies={SECTION_HEADERS[2]: "- `notes.md`\n```\nstill open"})
+    with pytest.raises(UnterminatedFenceError):
+        parse_blocks(text)
+
+    monkeypatch.setattr("idc.parse.blocks.fence_opening", lambda line: None)
+
+    assert [block.chain_id for block in parse_blocks(text)] == ["C1"]
+
+
+def test_the_reader_cuts_its_lines_through_the_public_name(monkeypatch):
+    """The same for the line split, pinned on the escape it closes.
+
+    With `str.splitlines` in its place the form-feed escape reopens: the closing
+    run behind the form feed becomes a line of its own, looks flush, closes the
+    fence a hand opened flush, and the `### Verification` written inside the
+    Solution body becomes a section whose body shadows the real one. That is the
+    defect of #34's third round, and it is what proves the reader reads its lines
+    through this name.
+    """
+    escape = f"- `x.py`\n```\nline a\n\x0c```\n{SECTION_HEADERS[3]}\n- ESCAPED"
+    text = built(bodies={SECTION_HEADERS[2]: escape})
+    with pytest.raises(UnterminatedFenceError):
+        parse_blocks(text)
+
+    monkeypatch.setattr("idc.parse.blocks.split_lines", lambda text: text.splitlines(True))
+
+    assert parse_blocks(text)[0].body(SECTION_HEADERS[3]) == "- ESCAPED\n"
 
 
 # --- what a caller built wrongly -----------------------------------------------
