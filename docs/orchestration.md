@@ -199,6 +199,22 @@ the review, merging, running "Closing a ticket". Four sub-tickets once sat in `i
 at the same time because the orchestrating session kept activating new work instead of finishing
 what it had; the user stopped it. An open ticket is not progress.
 
+**But waiting on a subagent is not that rule — stack the next ticket immediately.** The moment a
+ticket's implementation or review subagent is running, the next ticket is cut from **that ticket's
+branch** and started; this is the default, not a special case (user instruction, #45). The bound
+above is "nothing is waiting on *me*", not "nothing is open": idling while an agent works buys
+nothing, and the dependency a stacked ticket has on its base is satisfied **as code** by being that
+base. After the base merges into the parent branch, the stacked branch is rebased onto the parent
+branch.
+
+The label consequence contradicts "Status" and is therefore stated rather than left to be broken
+quietly: **a dependant whose only open `Depends on` is the branch it is stacked on carries
+`in-progress`, not `blocked`** — the label was protecting the availability of that code, and the
+stack provides it. `blocked` keeps its dependency meaning for a dependant that is *not* stacked on
+its dependency, and its "waiting on the user" meaning is untouched. The orchestrating session says
+on the stacked ticket, when it starts it, that a change requested on the base means a rebase and
+redoing whatever was built on the changed surface. That is the accepted trade.
+
 ## One subagent per ticket
 
 Every ticket is implemented in its **own subagent with a fresh context**, and reviewed in a second
