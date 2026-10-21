@@ -1,10 +1,12 @@
 """OpenCode: a session's message records read into a canonical `Session`.
 
 OpenCode stores a session as one record per **message** (`session/message/<id>.json`)
-with that message's **parts** beside it (`session/part/<message id>/<part id>.json`).
-This importer reads that stream as JSONL — one message record per line, in transcript
-order, with the record's parts under `parts` — which is the same line-delimited shape
-`idc.importers.jsonl` reads for Claude Code. This module knows that shape and nothing
+with that message's **parts** beside it (`session/part/<message id>/<part id>.json`) —
+its documented storage model, which could not be checked against a real session here (see
+the first of the known limitations below). This importer reads that stream as JSONL — one
+message record per line, in transcript order, with the record's parts under `parts` —
+which is the same line-delimited shape `idc.importers.jsonl` reads for Claude Code. This
+module knows that shape and nothing
 else: reading the file, resolving tool categories, logging unknown tools and validating
 the result are `idc.importers.jsonl` and `idc.importers.base`.
 
@@ -65,6 +67,18 @@ imports as a call without a result.
 
 Known limitations, all of them deliberate:
 
+- **The field names here rest on OpenCode's documented storage model, not on a transcript
+  anyone could read in this repository** — OpenCode is not installed in this environment,
+  so there was no session to check them against. That covers `sessionID`, `role`,
+  `time.created` in epoch milliseconds, `parts`, the part types `text` / `tool` /
+  `reasoning` / `step-start` / `file`, a tool part's `state{status,input,output,error}`,
+  **and the six tool names T2.3 added to the `opencode` table** of
+  `tool_registry.toml`; only the lower-case spellings `read` / `edit` / `bash` with the
+  argument keys `filePath`, `oldString` / `newString` and `command`, the JSONL input
+  shape and the `compaction` record are corroborated from inside the repository. Before
+  the study records its OpenCode condition, **one real session has to be checked against
+  `tests/native/opencode/golden_session.jsonl`**; a different spelling is confined by
+  construction to this module and `tests/native/opencode/`.
 - A `reasoning` part is dropped and noted, for the reason a Claude Code `thinking` block
   is: `Message.content` is the text a later turn reads back, the canonical schema has no
   field for reasoning, and folding it into plain text would make the renderer re-emit it

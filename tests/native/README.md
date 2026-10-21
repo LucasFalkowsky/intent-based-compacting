@@ -70,6 +70,16 @@ which is also the shape `idc.importers.jsonl` reads for Claude Code. A record na
 ISO-8601 strings, and a tool call carries its own result in the same part
 (`state.output` / `state.error`).
 
+Unlike the Claude Code fixtures, these record-level keys were **not** modelled on a
+recorded session: OpenCode is not installed in this environment, so they come from its
+documented storage model (see the known limitations in `src/idc/importers/opencode.py`),
+and the same holds for the six tool names T2.3 added to the `opencode` table of
+`tool_registry.toml`. Corroborated from inside the repository are only the lower-case
+tool spellings `read` / `edit` / `bash` with their argument keys, the JSONL input shape
+and the `compaction` record. **Before the study records its OpenCode condition, one real
+session has to be checked against `golden_session.jsonl` below** — if a key is spelled
+differently, the fix touches only that importer and this directory.
+
 - `golden_session.jsonl` — the full-coverage session: a user prompt with an attached
   `file` part, an assistant turn with `step-start`, `reasoning`, `text` and `tool` parts,
   a `completed` tool state, an `error` one, two tool parts in **one** record, a
