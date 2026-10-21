@@ -88,7 +88,9 @@ __all__ = [
 # answering `0.0`, two spellings of one path are two files, an edit's added
 # lines are the `+` lines of a diff of the strings the agent sent, and the
 # histogram is keyed by exit code over every answered call with `None` as a
-# bucket of its own.
+# bucket of its own. A write whose added lines the transcript does not state —
+# an edit applied to every occurrence, above all — is reported as uncounted
+# rather than given one application's worth.
 from idc.measure.errors import NoToolCallsError
 from idc.measure.statistics import (
     ExitCodeCount,

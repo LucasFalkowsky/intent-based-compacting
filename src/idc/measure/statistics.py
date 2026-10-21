@@ -67,19 +67,22 @@ lines_added(edit) = sum(j2 - j1 for tag, i1, i2, j1, j2 in opcodes
 
 with `opcodes` from `difflib.SequenceMatcher(None, old.splitlines(),
 new.splitlines(), autojunk=False)`. That is the `+` count a unified diff of the
-two strings would print. `autojunk` is off because it would make the result
-depend on how long the replaced block is.
+two strings would print. `autojunk` is off because it only engages from 200
+lines of replacement upward (`difflib` tests `len(b) >= 200`), and a
+measurement must not change its rule at a size threshold.
 
-What the figure over- and under-reports, concretely:
+What the figure reports and what it does not, concretely:
 
 - A whole write **over-reports** whenever it overwrites a file that already
-  held those lines. `rewritten_after_failed_edit` writes `docs/install.md`
-  whole twice and the fixture's 23 added lines are more than the file ever
-  held, because the transcript does not say what was in the file before the
-  first write: a `Write` call carries the new content and nothing else.
-- An edit **under-reports** a line it only touches: a one-line-for-one-line
-  replacement counts as one added line and one removed, which is what `git`
-  reports too, and a reader must not read `lines_added` as "lines of new code".
+  held some of those lines. `rewritten_after_failed_edit` writes
+  `docs/install.md` whole twice, so the fixture's 23 added lines are nearly
+  twice what the file ever held: the transcript does not say what was in the
+  file before a write, because a `Write` call carries the new content and
+  nothing else.
+- A **changed** line counts as an added line. A one-line-for-one-line
+  replacement is one addition and one deletion, which is what `git` reports
+  too, so `lines_added` is not "lines of new code" and must not be read as
+  one.
 - An edit's number is the addition count of **one** diff. `difflib` is
   deterministic, so the number is reproducible, but another diff algorithm can
   distribute the same change differently between additions and deletions.
@@ -87,17 +90,24 @@ What the figure over- and under-reports, concretely:
 **The shapes that are excluded rather than guessed.** `lines_added_of` answers
 `None`, and `tool_statistics` lists the call in `unmeasured_write_ids`, when:
 
-- the call is a write whose patch arguments are spelled in a way this build has
-  never seen (`NotebookEdit` sends `new_source`, not `new_string`) — the new
-  text is in the arguments, but which text it replaces is not, so no addition
-  count follows from them;
-- a write resolves to no file (`file_of` is `None`), in which case the lines
+- the edit says it applies to **every** occurrence (`REPEAT_KEYS`), because the
+  arguments carry one replacement and not how many times it was applied. One
+  application's worth would be right only for a file that held the text once,
+  and `interleaved_intents` carries exactly such a call — a `replace_all`
+  rename — which is why that fixture's total is 8 and not 9;
+- the write's patch arguments are spelled in a way this build has never seen
+  (`NotebookEdit` sends `new_source`, not `new_string`) — the new text is in
+  the arguments, but which text it replaces is not, so no addition count
+  follows from them;
+- the write resolves to no file (`file_of` is `None`), in which case the lines
   cannot be attributed to a file and `lines_added` is the sum over `per_file`
   by construction.
 
-A `NotebookEdit` that *does* name its file still appears in `files_edited`: the
-file is known even when the lines are not, and the two gaps are reported
-separately.
+A call of the first two shapes that *does* name its file still appears in
+`files_edited`: the file is known even when the lines are not, and the two gaps
+are reported separately. There is no fourth shape — a `WriteKind.FULL` write
+always carries its content, because `write_kind` answers `FULL` only for a call
+that holds a string under a content key.
 
 **The exit-code histogram — keyed by the exit code, over every answered call.**
 One bucket per distinct `ToolResult.exit_code`, with `None` its own bucket for
@@ -111,7 +121,7 @@ in `calls_without_result`, so the histogram reconciles —
 `ToolResult.is_error` is a second, independent axis and gets **no** bucket of
 its own: a bucket keyed on something that is not an exit code would make one
 key space mean two things. A failing result lands in the bucket its own exit
-code names — the `None` bucket when it records none, which is where every
+code names — the `None` bucket when it records none, which is where the one
 failed `Edit` of the corpus lands — and `error_results` counts the failures on
 their own axis.
 
@@ -129,6 +139,7 @@ from idc.resolve import REPLACEMENT_KEYS, WriteKind, content_of, file_of, write_
 from idc.schema import Message, Session, ToolCall, ToolCategory, ToolResult
 
 __all__ = [
+    "REPEAT_KEYS",
     "REPLACEMENT_PAIRS",
     "ExitCodeCount",
     "FileEdits",
@@ -157,10 +168,42 @@ inserts text — every line of the replacement is then an addition, which is
 exactly what the diff reports.
 """
 
+REPEAT_KEYS = ("replace_all", "replaceAll")
+"""Argument keys an edit uses to say it replaces **every** occurrence.
+
+Claude Code's `Edit` sends `replace_all` and OpenCode's `edit` sends
+`replaceAll`; both are recorded in the agent-native transcripts under
+`tests/native/`, and `tests/fixtures/interleaved_intents.json` carries the one
+corpus call that sets the flag. Only observed spellings are listed, the
+evidence rule `idc.resolve.calls` states.
+
+A call whose flag is true has **no** computable addition count: the arguments
+carry one replacement and never how many times it was applied, and the file's
+earlier content is not in the transcript either. Such a call is reported in
+`ToolStatistics.unmeasured_write_ids` instead of being counted as a single
+application. The flag is read only to *exclude*; a spelling this build has
+never seen therefore leaves a repeated edit counted once, which is the known
+edge of this exclusion and not a claim about it.
+"""
+
 
 def _lines(text: str) -> list[str]:
     """Return the lines of `text`, a trailing newline terminating the last one."""
     return text.splitlines()
+
+
+def _repeats(call: ToolCall) -> bool:
+    """Return whether the call says it replaces every occurrence in the file.
+
+    Args:
+        call: A write-category call.
+
+    Returns:
+        `True` when one of `REPEAT_KEYS` holds `True`. Any other value — the
+        flag absent, `False`, or something that is not a boolean — is read as a
+        single application, which is what every recorded `false` means.
+    """
+    return any(call.args.get(key) is True for key in REPEAT_KEYS)
 
 
 def _replacement_of(call: ToolCall) -> tuple[str, str] | None:
@@ -212,18 +255,25 @@ def lines_added_of(call: ToolCall) -> int | None:
         For a `WriteKind.FULL` write, every line of its content. For an edit,
         the `+` lines of a line-level diff between the text it replaces and the
         text it replaces it with. `None` for a call that is not a write, and
-        for a write whose shape leaves the count undefined: a patch spelled in
-        a way this build has never seen, or a full write with no content
-        argument. `None` is never silently read as `0` — `tool_statistics`
-        reports such a call in `unmeasured_write_ids`, because a write that
-        added no line and a write whose lines cannot be counted are different
-        findings.
+        for a write whose shape leaves the count undefined: an edit that
+        applies to every occurrence (`REPEAT_KEYS`) or one whose patch
+        arguments are spelled in a way this build has never seen. `None` is
+        never silently read as `0` — `tool_statistics` reports such a call in
+        `unmeasured_write_ids`, because a write that added no line and a write
+        whose lines cannot be counted are different findings.
+
+    The `content is None` branch below is unreachable from a transcript and
+    kept as a type guard: `write_kind` answers `FULL` only for a call that
+    carries a string under a content key, and `content_of` returns that string
+    — the same reasoning `idc.resolve.replay` gives for its own such branch.
     """
     kind = write_kind(call)
     if kind is WriteKind.FULL:
         content = content_of(call)
         return None if content is None else len(_lines(content))
     if kind is WriteKind.EDIT:
+        if _repeats(call):
+            return None
         replacement = _replacement_of(call)
         return None if replacement is None else _inserted_lines(*replacement)
     return None
