@@ -429,7 +429,7 @@ def test_a_broken_score_is_a_bad_value_as_well_as_a_failure_of_the_stage():
 
     adapter = S1MAdapter(TableScorer({"C1": "yes"}))
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="between 0 and 1"):
         adapter.decide(subject(), candidates("C1"))
 
 
