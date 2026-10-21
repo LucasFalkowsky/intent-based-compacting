@@ -425,6 +425,41 @@ def test_an_assistant_record_is_never_marked_as_injected(tmp_path):
     assert session.messages[0].is_system_injected is False
 
 
+def test_an_unreadable_synthetic_flag_keeps_the_turn_and_is_noted_by_its_shape(tmp_path):
+    """`synthetic: "yes"` fails safe *and* is noted, as every unreadable field is."""
+    path = write_jsonl(
+        tmp_path, [user_record("msg_1", [text_part("fix it", "prt_1", synthetic="yes")])]
+    )
+
+    imported = import_opencode(path)
+
+    assert imported.session.messages[0].is_system_injected is False
+    assert imported.session.messages[0].content == "fix it"
+    assert notes(imported, NOTE_DROPPED_BLOCK) == ["text/<synthetic: string>"]
+
+
+def test_a_synthetic_flag_that_is_false_or_null_is_not_noted(tmp_path):
+    """Absent, `null` and `false` all carried nothing to lose — no note."""
+    path = write_jsonl(
+        tmp_path,
+        [
+            user_record(
+                "msg_1",
+                [
+                    text_part("a", "prt_1", synthetic=False),
+                    text_part("b", "prt_2", synthetic=None),
+                    text_part("c", "prt_3"),
+                ],
+            )
+        ],
+    )
+
+    imported = import_opencode(path)
+
+    assert imported.session.messages[0].is_system_injected is False
+    assert notes(imported, NOTE_DROPPED_BLOCK) == []
+
+
 # --- tool calls and their results -------------------------------------------
 
 
