@@ -32,8 +32,8 @@ from idc.chunk import chunk_session
 from idc.classify import FakeAdapter, classify, gold_script
 from idc.resolve import (
     ForeignChunkError,
-    ResolveError,
     Resolution,
+    ResolveError,
     UnknownChunkError,
     path_call_ids,
     resolve,
@@ -182,9 +182,7 @@ def test_the_solution_ids_are_the_kept_writes_and_the_kept_run(name):
     session, chunks, chains = classified(name)
 
     for chain in chains:
-        expected = [
-            entry.call_ids for entry in solution_files(session, chunks, chain)
-        ]
+        expected = [entry.call_ids for entry in solution_files(session, chunks, chain)]
         flat = [call_id for ids in expected for call_id in ids]
         verification = solution_verification(session, chunks, chain)
         if verification is not None:
@@ -278,9 +276,7 @@ def test_a_file_edited_by_a_shell_command_is_in_no_solution_and_the_call_is_path
     resolution = resolve(session, chunks, chains[0])
 
     assert "c04" in resolution.path_call_ids
-    assert "src/billing/rounding.py" not in [
-        entry.path for entry in resolution.solution_files
-    ]
+    assert "src/billing/rounding.py" not in [entry.path for entry in resolution.solution_files]
 
 
 # --- the stage's entry point ----------------------------------------------
@@ -313,24 +309,26 @@ def test_a_chain_that_made_no_tool_call_resolves_to_nothing():
 
 
 def test_the_partition_lists_a_call_two_chunks_both_cover_once():
-    # Two chunks whose ranges overlap locate the same call twice; the path is
-    # the ids, so the call is listed once.
+    # Two chunks whose ranges overlap locate the same call twice. The chunker
+    # produces no such list, but the stage is handed its chunks and does not
+    # require it — and the sides of the partition are ids, so one call is one
+    # entry. The range stops before the fixture's command so that the chain
+    # resolves to writes and reads only.
     session = CORPUS.session(SINGLE)
-    whole = len(session.messages)
-    chain = Chain(id="C1", label="the one intent", chunk_ids=["K1", "K2"])
+    covered = session.messages[0:6]
+    assert [call.id for call in tool_calls(covered)] == ["c01", "c02", "c03"]
     overlapping = [
-        Chunk(id="K1", start_index=0, end_index=whole),
-        Chunk(id="K2", start_index=0, end_index=whole),
+        Chunk(id="K1", start_index=0, end_index=6),
+        Chunk(id="K2", start_index=0, end_index=6),
     ]
+    chain = Chain(id="C1", label="the one intent", chunk_ids=["K1", "K2"])
 
     resolution = resolve(session, overlapping, chain)
     path = resolution.path_call_ids
 
     assert len(set(path)) == len(path)
     assert not set(path) & set(resolution.solution_call_ids)
-    assert sorted(set(path) | set(resolution.solution_call_ids)) == sorted(
-        {call.id for call in tool_calls(session.messages)}
-    )
+    assert sorted(set(path) | set(resolution.solution_call_ids)) == ["c01", "c02", "c03"]
 
 
 def test_a_resolution_that_counts_a_call_twice_is_a_programming_error():
@@ -352,7 +350,7 @@ def test_a_resolution_that_counts_a_call_twice_is_a_programming_error():
 
 
 def test_the_refusals_of_the_entry_point_are_the_stages_own():
-    session, chunks, chain = only_chain(SINGLE)
+    session, chunks, _chain = only_chain(SINGLE)
     unknown = Chain(id="C9", label="a carried-over chain", chunk_ids=["K404"])
     too_long = Chunk(id="K1", start_index=0, end_index=len(session.messages) + 1)
 

@@ -71,6 +71,7 @@ from idc.resolve.calls import (
     write_kind,
 )
 from idc.resolve.errors import ForeignChunkError, ResolveError, UnknownChunkError
+from idc.resolve.resolution import Resolution, path_call_ids, resolve, solution_call_ids
 from idc.resolve.verification import (
     SolutionVerification,
     VerificationRun,
@@ -118,4 +119,13 @@ __all__ += [
     "exec_calls",
     "solution_verification",
     "verification_runs",
+]
+
+# T5.3 (#23) — the path half of the partition and the stage's entry point,
+# appended as a block of its own for the reason the comment above gives.
+__all__ += [
+    "Resolution",
+    "path_call_ids",
+    "resolve",
+    "solution_call_ids",
 ]
