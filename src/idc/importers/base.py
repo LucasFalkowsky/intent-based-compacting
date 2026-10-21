@@ -156,9 +156,13 @@ class ImportedSession:
     transcript nothing can measure — `idc.importers.provenance` would count the
     history the agent dropped as if the agent still had it — and an importer that
     read a summary record always knows which message it was, so producing the
-    half-stated form is a bug here rather than incomplete input. The converse is
-    not checked here because it cannot arise: `Session` itself rejects an
-    identifier under any other provenance (see `idc.schema.models`).
+    half-stated form is a bug here rather than incomplete input. The converse —
+    an identifier without the native provenance — is not checked here: a summary
+    identifier is a legitimate fact under `intent-compaction` too, where it names
+    the summary this tool wrote, and `Session` refuses the one combination that
+    contradicts itself, `raw` plus an identifier (see `idc.schema.models`). No
+    importer produces either form: an importer that read a summary record calls
+    `add_native_summary`, which sets both fields together.
     """
 
     session: Session

@@ -162,15 +162,18 @@ agents and the chunker does not read it as a user turn. Such a notice is recogni
 pastes the notice and keeps typing has opened a real intent, and a prefix test or a guessed
 spelling would reduce that intent away.
 
-Which message the agent's own summary is travels in the document itself, as
-`Session.native_summary_id`, so a `native-compaction` transcript written by one command is
+Which message a compaction's summary is travels in the document itself, as
+`Session.native_summary_id`, so a compacted transcript written by one command is
 still readable by the next — the pipeline is one command per stage with files in between,
-and the baseline the study compares against has to survive that. The identifier and
-`source` have to agree: a summary named by a session that was never natively compacted is
-rejected by the schema. The converse is deliberately left to the stages, exactly as for a
-`ToolResult` whose call the transcript truncated away — a `native-compaction` document that
-names no summary, or one whose identifier names no message in it, still loads, and
-`visible_context` refuses it rather than guessing where the agent's context starts.
+and the baseline the study compares against has to survive that. The field marks where the
+context now starts and `source` says who compacted the transcript, so both compaction
+provenances may name a summary: the agent's own under `native-compaction`, this tool's
+under `intent-compaction`. Only `raw` plus an identifier is rejected by the schema — a
+transcript nothing compacted has no cut. Naming no summary is deliberately left to the
+stages, exactly as for a `ToolResult` whose call the transcript truncated away — a
+`native-compaction` document that names no summary, or one whose identifier names no
+message in it, still loads, and `visible_context` refuses it rather than guessing where
+the agent's context starts.
 Every stage that rebuilds the transcript carries the identifier on, and the message it
 names is exempt from the chunker's noise reduction — the agent's summary block is an
 injected message, so reducing it away would leave the document naming a message it no

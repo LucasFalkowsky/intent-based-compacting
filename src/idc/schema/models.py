@@ -241,19 +241,25 @@ class Session(CanonicalModel):
     compacted, so measurement can take a before and an after without knowing
     which agent produced either.
 
-    For the native-compaction condition the provenance alone is not enough:
-    where the agent's own summary sits is what separates the context the agent
-    still has from the history it threw away, so `native_summary_id` records it
-    and the document stays readable after a `dump`/`load` — one CLI command per
-    stage, with files in between, is what the pipeline is.
+    For either compaction condition the provenance alone is not enough: where
+    the summary sits is what separates the context that is still being sent from
+    the history it replaced, so `native_summary_id` records it and the document
+    stays readable after a `dump`/`load` — one CLI command per stage, with files
+    in between, is what the pipeline is. The two fields answer different
+    questions, which is why they are both here: `source` says **who** compacted
+    the transcript, `native_summary_id` **which message its context now starts
+    at**. A `native-compaction` session names the agent's own summary and an
+    `intent-compaction` one names the summary this tool wrote, and the stages
+    read both the same way: `idc.importers.visible_context` hides what precedes
+    the named message, and `idc.chunk.reduction` keeps the message it names.
 
-    Two things about that identifier are deliberately **not** enforced:
+    Three things about that identifier are deliberately **not** enforced:
 
     - That it names a message of this session. It is a reference like
       `ToolResult.call_id`, and referential completeness is not enforced for
       those either: a transcript truncated at the front loses the summary record
       before it loses anything else, and a document that still says *which*
-      message the agent continued from is more useful than one that dropped the
+      message the context starts at is more useful than one that dropped the
       fact with it. `idc.importers.provenance` refuses such a session, because
       it cannot locate the cut — the stage that needs the reference resolves it.
     - That a `native-compaction` session names one at all. That is an obligation
@@ -263,6 +269,12 @@ class Session(CanonicalModel):
       a schema rule would mean a stage that rebuilds a session without carrying
       the field turns a valid transcript into an unloadable one, and it would be
       the single place this schema stops accepting incomplete data.
+    - That an `intent-compaction` session names one. This tool's own compaction
+      does, because the cut is the point of it, but a session may carry the
+      provenance before a summary has been written into it.
+
+    One combination is refused, and only one: `raw` plus an identifier (see
+    `_check_native_summary_agrees_with_the_provenance`).
     """
 
     id: Identifier = Field(description="Session identifier, taken from the source transcript.")
@@ -278,10 +290,11 @@ class Session(CanonicalModel):
     native_summary_id: Identifier | None = Field(
         default=None,
         description=(
-            "`Message.id` of the summary the agent's own compaction wrote, and the "
-            "message its context now starts at; `null` unless `source` is "
-            "`native-compaction`. A transcript the agent compacted twice names the "
-            "last summary."
+            "`Message.id` of the summary a compaction wrote, and the message the "
+            "context now starts at — the agent's own summary under "
+            "`native-compaction`, this tool's under `intent-compaction`; `null` "
+            "when `source` is `raw`, and `null` is allowed under either "
+            "compaction. A transcript compacted twice names the last summary."
         ),
     )
     created_at: AwareDatetime = Field(description="When the session started.")
@@ -302,26 +315,26 @@ class Session(CanonicalModel):
 
     @model_validator(mode="after")
     def _check_native_summary_agrees_with_the_provenance(self) -> Self:
-        """Reject a named native summary under any other provenance.
+        """Reject a summary identifier on a transcript nothing compacted.
 
-        The two fields say the same thing about the same transcript — *the agent
-        compacted this and continued from that message* — so an identifier under
-        `raw` or `intent-compaction` is not incomplete data but two fields
-        contradicting each other, and no stage could decide which to believe.
+        The identifier marks where the context now starts, which is a fact only
+        a compaction creates: under `raw` nothing replaced anything, so an
+        identifier there is not incomplete data but two fields contradicting
+        each other, and no stage could decide which to believe. Both compaction
+        provenances accept one, because both describe a transcript whose context
+        starts at a summary — the agent's own, or this tool's.
 
-        The converse is deliberately **not** rejected: see the class docstring.
+        Neither converse is rejected: a session of either compaction provenance
+        may name no summary (see the class docstring).
         """
-        if (
-            self.native_summary_id is not None
-            and self.source is not SessionSource.NATIVE_COMPACTION
-        ):
+        if self.native_summary_id is not None and self.source is SessionSource.RAW:
             raise _field_error(
                 type(self),
                 "native_summary_id",
                 self.native_summary_id,
-                f"native_summary_id names {self.native_summary_id!r} as the native "
-                f"summary, but source is {self.source.value!r} rather than "
-                "'native-compaction'",
+                f"native_summary_id names {self.native_summary_id!r} as the message "
+                f"the context starts at, but source is {self.source.value!r}: a "
+                "transcript nothing compacted has no summary its context starts at",
             )
         return self
 

@@ -22,9 +22,13 @@ the document.
 
 **Two reasons hide a message, and nothing else does.**
 
-- `replaced-by-compaction` — it sits before the summary the agent's own
-  compaction wrote. That history is exactly what the agent threw away; counting
-  it would make its compaction look like it saved nothing. Gemini CLI's importer
+- `replaced-by-compaction` — it sits before the summary a compaction wrote,
+  whichever compaction that was: the agent's own in a `native-compaction`
+  transcript, this tool's in an `intent-compaction` one. The message the session
+  names in `native_summary_id` is where its context starts, and the history
+  before it is exactly what was thrown away; counting it would make the
+  compaction look like it saved nothing — the over-count both conditions of the
+  study are measured against. Gemini CLI's importer
   already drops it, because the agent's own `$set.messages` does (see
   `idc.importers.gemini_cli`); for Claude Code and OpenCode the records stay in
   the file, and this is where they stop being context.
@@ -104,7 +108,7 @@ __all__ = [
 ]
 
 HIDDEN_REPLACED_BY_COMPACTION = "replaced-by-compaction"
-"""The message sits before the summary the agent's own compaction wrote."""
+"""The message sits before the summary the session names, so it was replaced."""
 
 HIDDEN_HARNESS_NOTICE = "harness-notice"
 """The message is an injected `system` notice, recorded but never sent."""

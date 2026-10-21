@@ -27,7 +27,7 @@ canonical fields alone — no model call, no agent-specific markup (that lives i
   (`Session.source` is not `raw`) is left alone: that is where a summary block
   sits — this tool's own, which the parser (T8) has to find again, or the
   agent's native one, which the measurement compares against. The block a
-  natively compacted session names in `Session.native_summary_id` is exempt
+  compacted session names in `Session.native_summary_id` is exempt
   wherever it sits, which is not always the preamble: dropping it would leave
   the reduced document naming a message it no longer holds. The preamble rule
   therefore no longer carries that guarantee on its own, and it does not extend
