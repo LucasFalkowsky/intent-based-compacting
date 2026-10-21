@@ -269,9 +269,13 @@ class Session(CanonicalModel):
       a schema rule would mean a stage that rebuilds a session without carrying
       the field turns a valid transcript into an unloadable one, and it would be
       the single place this schema stops accepting incomplete data.
-    - That an `intent-compaction` session names one. This tool's own compaction
-      does, because the cut is the point of it, but a session may carry the
-      provenance before a summary has been written into it.
+    - That an `intent-compaction` session names one. Where this tool's summary
+      block is the first message of the document, the cut is the start of the
+      transcript and nothing precedes it to hide, so the identifier adds
+      nothing: `tests/fixtures/already_compacted_block.json` is that shape and
+      leaves the field `null`. A document whose block sits behind the history it
+      replaced has to name it, or `idc.importers.visible_context` counts that
+      history as context.
 
     One combination is refused, and only one: `raw` plus an identifier (see
     `_check_native_summary_agrees_with_the_provenance`).
