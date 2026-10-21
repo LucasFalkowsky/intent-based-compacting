@@ -418,6 +418,21 @@ def test_a_score_that_is_no_probability_is_a_failure_of_the_stage(answer):
     assert raised.value.chunk_id == "K1"
 
 
+def test_a_broken_score_is_a_bad_value_as_well_as_a_failure_of_the_stage():
+    # The mirror of the assertion `AdapterContractError` carries one level up: a
+    # scorer's unusable answer is a bad *value* and a failure of the *stage*, so
+    # `except ValueError` and `except ClassifyError` each catch it on their own
+    # and no caller has to catch two families for one event. Promised in the
+    # class docstring, and only pinned if both halves are written down.
+    assert issubclass(ScorerContractError, ClassifyError)
+    assert issubclass(ScorerContractError, ValueError)
+
+    adapter = S1MAdapter(TableScorer({"C1": "yes"}))
+
+    with pytest.raises(ValueError):
+        adapter.decide(subject(), candidates("C1"))
+
+
 def test_an_integer_score_is_accepted_and_kept_as_a_float():
     # The one number a *binary* judgment reports most naturally: 1 or 0 rather
     # than 1.0 or 0.0. It is accepted and normalized, which is exactly the line
