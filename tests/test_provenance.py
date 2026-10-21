@@ -487,7 +487,10 @@ def test_the_visible_session_identifies_the_summary_it_starts_at(agent):
     visible = visible_context(imported(agent, COMPACTED_FIXTURES)).session
 
     assert visible.native_summary_id == SUMMARY_IDS[agent]
-    assert visible_context(loads(Session, dumps(visible))).message_ids == COMPACTED_VISIBLE[agent]
+    renormalised = visible_context(loads(Session, dumps(visible)))
+
+    assert list(renormalised.message_ids) == COMPACTED_VISIBLE[agent]
+    assert renormalised.hidden == ()
 
 
 @pytest.mark.parametrize("agent", list(Agent))

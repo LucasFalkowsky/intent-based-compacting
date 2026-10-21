@@ -32,8 +32,9 @@ Four things are shared, so that an agent module is only its own format:
   line by its line number.
 - `idc.importers.base` assembles and validates the canonical `Session`, resolves
   tool categories, logs the unknown tools, reads timestamps and records which
-  message the agent's own compaction summary is. Everything the importers raise
-  themselves is a `TranscriptImportError` naming the file.
+  message the agent's own compaction summary is — in the session itself, so the
+  fact survives a dump to a file. Everything the importers raise themselves is a
+  `TranscriptImportError` naming the file.
 - `idc.importers.provenance` says which of the imported messages are the context
   the agent would see, by the same rule for all three agents.
 - `idc.importers.tool_registry` holds the agents' tool knowledge as a data file,
