@@ -556,15 +556,18 @@ def tool_statistics(session: ImportedSession | Session) -> ToolStatistics:
             if result is not None and result.is_error:
                 failed.append(call.id)
                 continue
+            # Two independent gaps: a write can name no file, and a write
+            # can name one whose added lines do not follow from the arguments.
+            # Either makes the call unmeasured; only the first keeps it out of
+            # the breakdown.
             path = file_of(call)
             added = lines_added_of(call)
             if path is None or added is None:
                 unmeasured.append(call.id)
-            if path is None:
-                continue
-            tally = tallies.setdefault(path, _FileTally())
-            tally.writes += 1
-            tally.lines_added += 0 if added is None else added
+            if path is not None:
+                tally = tallies.setdefault(path, _FileTally())
+                tally.writes += 1
+                tally.lines_added += 0 if added is None else added
     return ToolStatistics(
         session_id=context.session.id,
         read_calls=categories[ToolCategory.READ],
