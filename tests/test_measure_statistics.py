@@ -598,6 +598,37 @@ def test_an_edit_with_an_empty_replacement_adds_nothing() -> None:
     assert lines_added_of(edit("one\ntwo\n", "")) == 0
 
 
+def test_the_rule_does_not_change_at_difflibs_two_hundred_line_threshold() -> None:
+    """`autojunk=False` is load-bearing, and nothing pinned it.
+
+    `difflib.SequenceMatcher` treats an element appearing in more than 1% of a
+    sequence as junk once `len(b) >= 200`, so with `autojunk` left on, an edit
+    crosses into a different rule purely by growing. A review measured it: a
+    220-line replacement whose new text repeats one line every other line
+    counts **110** added lines with the allowance off and **220** with it on —
+    and the mutant `autojunk=False` → `autojunk=True` survived the whole suite,
+    so dropping the argument in a later refactor would silently double a
+    published figure for any edit of 200 lines or more.
+
+    The expected number is hand-computed rather than taken from the
+    implementation: the new text is 110 pairs of (`    pass`, a unique line),
+    and the old text shares none of the unique lines, so every one of the 220
+    new lines is inside an insert or replace opcode — except that the repeated
+    `    pass` lines *can* be matched against the old text's own `    pass`
+    lines, which is exactly the matching `autojunk` would throw away.
+    """
+    old = "".join("    pass\n" for _ in range(110))
+    new = "".join(f"    pass\n    line_{index}()\n" for index in range(110))
+
+    added = lines_added_of(edit(old, new))
+
+    assert len(new.splitlines()) == 220, "the case has to cross difflib's threshold"
+    assert added == 110, (
+        "with autojunk on, the repeated `pass` lines are junked and all 220 new "
+        f"lines count as added; got {added}"
+    )
+
+
 def test_a_write_shape_this_build_cannot_measure_answers_none() -> None:
     notebook = ToolCall(
         id="c01",
