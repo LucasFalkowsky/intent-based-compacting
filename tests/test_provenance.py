@@ -291,10 +291,39 @@ def test_a_compacted_session_without_its_summary_is_refused():
 
 
 def test_a_summary_identifier_that_is_not_in_the_session_is_refused():
-    result = ImportedSession(session=session(message("u1", content="go")), native_summary_id="c9")
+    result = ImportedSession(
+        session=session(message("u1", content="go"), source=SessionSource.NATIVE_COMPACTION),
+        native_summary_id="c9",
+    )
 
     with pytest.raises(TranscriptImportError, match="c9"):
         visible_context(result)
+
+
+# --- provenance and the summary identifier say the same thing ----------------
+
+
+def test_an_imported_compacted_session_that_names_no_summary_cannot_be_built():
+    # The gap this closes: such a session used to normalise silently, with every
+    # message the agent had already dropped counted as context.
+    compacted = session(message("u1", content="go"), source=SessionSource.NATIVE_COMPACTION)
+
+    with pytest.raises(TranscriptImportError, match="native summary"):
+        ImportedSession(session=compacted)
+
+
+def test_an_imported_session_that_names_a_summary_must_be_compacted_natively():
+    summary = message("c1", role=Role.SYSTEM, content="summary", is_system_injected=True)
+
+    for source in (SessionSource.RAW, SessionSource.INTENT_COMPACTION):
+        with pytest.raises(TranscriptImportError, match="native-compaction"):
+            ImportedSession(session=session(summary, source=source), native_summary_id="c1")
+
+
+def test_the_importers_build_sessions_that_satisfy_the_invariant():
+    for agent in Agent:
+        assert imported(agent, RAW_FIXTURES).native_summary_id is None
+        assert imported(agent, COMPACTED_FIXTURES).native_summary_id is not None
 
 
 # --- the result is stable ----------------------------------------------------
