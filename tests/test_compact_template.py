@@ -495,6 +495,7 @@ def test_the_package_exports_the_compaction_stage_and_nothing_more():
     # repeated a sibling's name would look like.
     assert len(set(idc.compact.__all__)) == len(idc.compact.__all__)
     assert set(idc.compact.__all__) == {
+        "CarriedChainError",
         "CompactError",
         "DECISIONS_HEADER",
         "FakeNarrativeCall",

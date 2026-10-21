@@ -65,6 +65,7 @@ the blank line a second time.
 from collections.abc import Callable, Sequence
 
 from idc.chunk import CHUNK_ID_PREFIX
+from idc.compact.errors import CarriedChainError
 from idc.compact.narrative import NarrativeClient, compact_chain
 from idc.resolve import Resolution
 from idc.schema import Chain
@@ -89,6 +90,17 @@ def transcript_chunk_ids(chain: Chain) -> tuple[str, ...]:
         carried over from an earlier run and not extended by this one: the ids
         such a chain carries stand in for a membership its block does not
         state.
+
+    The test is `startswith` and deliberately **looser** than
+    `idc.classify.gold`'s, which also requires the remainder to be digits. The
+    schema admits any non-empty string as an `Identifier`, so the two can
+    disagree — on `"K"`, `"Kompakt1"`, `"Knope"` — and the looser test is the
+    one that fails safely. Counting such an id as a chunk makes a carried chain
+    look *extended*, so it is rewritten and `idc.resolve` refuses loudly;
+    the stricter test would make it look *carried*, so its block would be
+    copied and a chunk the chain really gained would be **lost from the
+    summary** with the suite green. No id this tool produces reaches either
+    reading; the direction of the disagreement is what is chosen here.
     """
     return tuple(chunk_id for chunk_id in chain.chunk_ids if chunk_id.startswith(CHUNK_ID_PREFIX))
 
@@ -125,13 +137,14 @@ def transcript_chain(chain: Chain) -> Chain:
         `transcript_chunk_ids(chain)`.
 
     Raises:
-        ValueError: If the chain holds no chunk of this transcript. There is no
-            such chain to resolve, and `Chain.chunk_ids` could not hold it:
-            `is_carried_over` is the question to ask first.
+        CarriedChainError: If the chain holds no chunk of this transcript.
+            There is no such chain to resolve, and `Chain.chunk_ids` could not
+            hold it: `is_carried_over` is the question to ask first. A
+            `ValueError` too, so a caller that catches that still works.
     """
     chunk_ids = transcript_chunk_ids(chain)
     if not chunk_ids:
-        raise ValueError(
+        raise CarriedChainError(
             f"chain {chain.id!r} holds no chunk of this transcript, so it has no part in it to "
             f"resolve; it is carried over from an earlier run and its block is copied"
         )

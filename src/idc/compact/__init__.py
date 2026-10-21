@@ -28,6 +28,7 @@ headers, and the instruction is read from the versioned data file
 """
 
 from idc.compact.errors import (
+    CarriedChainError,
     CompactError,
     InstructionError,
     NarrativeContractError,
@@ -142,3 +143,9 @@ __all__ += [
     "transcript_chain",
     "transcript_chunk_ids",
 ]
+
+# T6.3 (#28) — the refusal `transcript_chain` raises, appended as a block of its
+# own for the reason the comment above gives. It was a bare `ValueError` until a
+# review showed it escaping the stage's public entry point, where a caller could
+# not tell it from a built-in failure.
+__all__ += ["CarriedChainError"]

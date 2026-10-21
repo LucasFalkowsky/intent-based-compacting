@@ -343,7 +343,12 @@ def test_the_same_inputs_write_the_same_bytes() -> None:
 
 
 def test_a_malformed_block_is_refused_by_the_parser() -> None:
-    """The refusal comes from `idc.parse` and this stage puts nothing in front of it."""
+    """The refusal comes from `idc.parse` and this stage puts nothing in front of it.
+
+    `parse_chains` raises inside the argument expression, so this says nothing
+    about the stage's own body on its own — `test_the_stage_wraps_no_refusal_of
+    _the_parsers` is the half that does.
+    """
     malformed = block_text().replace("## [C1]", "## [c1]", 1)
 
     with pytest.raises(ParseError) as caught:
@@ -421,3 +426,88 @@ def test_the_transcript_chain_of_a_carried_over_chain_is_refused() -> None:
 
     with pytest.raises(ValueError, match=carried.id):
         transcript_chain(carried)
+
+
+# --- the edge the predicate's two halves meet at --------------------------------
+
+
+def test_a_chain_that_was_never_compacted_is_not_carried_over() -> None:
+    """Both halves of the `iff` are load-bearing, not only the chunk-id half.
+
+    A chain carrying a placeholder id but no summary is not an earlier run's —
+    the schema admits it, because `Identifier` is any non-empty string and
+    nothing ties the id's spelling to the flag. Judging it carried would copy a
+    `compacted_text` that is `None`, which is how the literal text `None` would
+    reach the output. Pinned because dropping `chain.compacted` from the
+    predicate otherwise leaves the whole suite green.
+    """
+    never_compacted = Chain(
+        id=UNTOUCHED, label="L", chunk_ids=[placeholder_chunk_id(UNTOUCHED)], compacted=False
+    )
+
+    assert not is_carried_over(never_compacted)
+
+
+def test_a_chain_with_no_part_in_this_transcript_is_refused_as_a_compact_error() -> None:
+    """The refusal a caller can reach is this stage's own, not a bare `ValueError`.
+
+    `transcript_chain` is asked only about chains that are written, so a chain
+    that is neither carried over nor present in this transcript is the one
+    input that can reach it. It stays a `ValueError`, so a caller that catches
+    that still works, but it is a `CompactError` too — the stage's refusals are
+    one family, and a bare `ValueError` would put a raw traceback on the CLI.
+    """
+    orphan = Chain(
+        id=UNTOUCHED, label="L", chunk_ids=[placeholder_chunk_id(UNTOUCHED)], compacted=False
+    )
+
+    with pytest.raises(CompactError) as caught:
+        compact_incrementally([orphan], resolution_of=_unexpected, client=FakeNarrativeClient([]))
+    assert isinstance(caught.value, ValueError)
+    assert UNTOUCHED in str(caught.value)
+
+
+def test_the_stage_wraps_no_refusal_of_the_parsers() -> None:
+    """Nothing in this stage catches a `ParseError` and re-raises it as its own.
+
+    The sibling test hands `compact_incrementally` an already-raising argument,
+    so it never enters the body. This one puts the refusal inside the body, by
+    way of a lookup that raises it, and asserts it comes back out unchanged.
+    """
+
+    def raising(chain: Chain) -> Resolution:
+        raise ParseError("from inside the stage")
+
+    chains = list(parse_chains(block_text()))
+    extended = next(chain for chain in chains if chain.id == EXTENDED)
+    chains[chains.index(extended)] = Chain(
+        id=extended.id,
+        label=extended.label,
+        chunk_ids=[*extended.chunk_ids, "K1"],
+        compacted=extended.compacted,
+        compacted_text=extended.compacted_text,
+    )
+
+    with pytest.raises(ParseError, match="from inside the stage"):
+        compact_incrementally(chains, resolution_of=raising, client=FakeNarrativeClient(["x"]))
+
+
+def test_an_id_only_a_looser_reading_calls_a_chunk_fails_towards_rewriting() -> None:
+    """The prefix test is looser than the gold reader's, and that is the safe side.
+
+    `Identifier` is any non-empty string, so an id like `Kompakt1` is possible
+    even though nothing here produces one. Counting it as a chunk makes the
+    chain look extended — it is rewritten, and a wrong resolution is refused
+    loudly. The stricter reading would make it look carried, and a chunk the
+    chain really gained would vanish from the summary with the suite green.
+    """
+    odd = Chain(
+        id=UNTOUCHED,
+        label="L",
+        chunk_ids=[placeholder_chunk_id(UNTOUCHED), "Kompakt1"],
+        compacted=True,
+        compacted_text=parse_chains(block_text())[0].compacted_text,
+    )
+
+    assert not is_carried_over(odd)
+    assert transcript_chunk_ids(odd) == ("Kompakt1",)

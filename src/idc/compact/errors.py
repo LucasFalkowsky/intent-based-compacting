@@ -33,6 +33,7 @@ is not made wrong.
 """
 
 __all__ = [
+    "CarriedChainError",
     "CompactError",
     "InstructionError",
     "NarrativeContractError",
@@ -97,3 +98,20 @@ class NarrativeScriptExhaustedError(CompactError):
             f"the scripted narrative client ran out of responses at chain {chain_id!r}: "
             f"its script holds {script_length} response(s)"
         )
+
+
+class CarriedChainError(CompactError, ValueError):
+    """A chain with no part in the transcript at hand was asked to be resolved.
+
+    `idc.compact.incremental.transcript_chain` reduces a chain to the chunks
+    this transcript holds, and a chain that has none is carried over from an
+    earlier run: its block is copied, and there is nothing in it to resolve.
+    Only a caller that asked the wrong question of the wrong chain reaches this
+    — `is_carried_over` is the question to ask first.
+
+    `CompactError` **and** `ValueError`, exactly as `NarrativeContractError`
+    is: the mistake is in input the stage was handed, and the stage's refusals
+    are one family a caller can catch. It was a bare `ValueError` once, which a
+    caller could not tell from a pydantic or a built-in failure and which would
+    have reached a CLI as a raw traceback.
+    """
