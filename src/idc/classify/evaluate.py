@@ -15,8 +15,21 @@ numbers per transcript and one pair for the whole corpus:
   the run found the same *partition*, independently of what it called the parts.
 
 The two differ, and both are reported because of it. A run that opens one chain
-too few can score 0.5 accuracy and 0.33 Rand index; a run that gets the
-partition right and only the names wrong scores 0.0 accuracy and 1.0 Rand index.
+too few can score 0.5 accuracy and 0.33 Rand index; a labelling that gets the
+partition right and only the names wrong scores 0.0 accuracy and 1.0 Rand index
+— that divergence is reachable for two arbitrary labellings scored through
+`per_chunk_accuracy` and `rand_index`, but **not for a run of this pipeline**,
+because `classify_chunks` numbers chains in opening order and a gold labelling
+that does not is refused (`idc.classify.gold`).
+
+Both numbers carry a **floor that is a property of the corpus** rather than of
+the backend, and every report states it: the first chunk of a transcript is
+offered no candidate, so `NEW` is the only decision the classifier accepts and
+that chunk is scored right in every run that completes. A corpus of mostly
+one-chunk transcripts therefore cannot score low, and its Rand index rests on
+the few pairs the multi-chunk transcripts form. The numbers are derived from the
+cases (`CorpusAgreement.floor_accuracy`, `forced_chunks`, `forced_transcripts`,
+`pair_count`), never written down, so a fixture added to the corpus moves them.
 
 ```python
 from idc.classify import FakeAdapter, evaluate_adapter, gold_script, load_gold
@@ -291,6 +304,31 @@ class Agreement:
         return self.agreeing_pairs / self.pair_count if self.pair_count else 1.0
 
     @property
+    def forced_chunks(self) -> int:
+        """Return how many of the chunks could not be labelled wrongly.
+
+        A transcript's **first** chunk is offered no candidate — there is no
+        chain yet — so `NEW` is the only decision `classify_chunks` accepts, and
+        both sides name the chain it opens `C1`: the store numbers chains in
+        opening order (`idc.classify.ids`) and a gold labelling is refused
+        unless it does too (`idc.classify.gold`). Every run that completes
+        therefore scores that one chunk right, in every transcript. It holds for
+        the runs this harness performs, which start from no chain; a store
+        seeded with chains parsed back out of a summary block (#33) is a
+        different situation.
+        """
+        return min(self.chunk_count, 1)
+
+    @property
+    def admits_no_wrong_decision(self) -> bool:
+        """Return whether every decision of this transcript was forced.
+
+        True for a one-chunk transcript: its only decision is the forced one, so
+        the transcript contributes a guaranteed match and no chunk pair at all.
+        """
+        return self.chunk_count == self.forced_chunks
+
+    @property
     def is_perfect(self) -> bool:
         """Return whether the run agrees with the gold labels everywhere."""
         return self.matches == self.chunk_count and self.agreeing_pairs == self.pair_count
@@ -379,6 +417,12 @@ class CorpusAgreement:
     transcripts are not in one chain in any labelling, and counting them would
     inflate both sides with agreements nobody decided.
 
+    Both numbers therefore have a **structural floor** that says more about the
+    corpus than about the classifier, and it is derived here rather than written
+    down anywhere: `floor_accuracy` is the share of chunks whose decision was
+    forced, and `pair_count` is how little the Rand index rests on. A corpus of
+    mostly one-chunk transcripts scores high whatever the backend does.
+
     Attributes:
         cases: One agreement per transcript, in the order they were evaluated.
         source: Where the decisions came from. Required, because the numbers
@@ -432,6 +476,34 @@ class CorpusAgreement:
     def rand_index(self) -> float:
         """Return the Rand index over all chunk pairs; `1.0` when there is none."""
         return self.agreeing_pairs / self.pair_count if self.pair_count else 1.0
+
+    @property
+    def forced_chunks(self) -> int:
+        """Return how many chunks of the corpus could not be labelled wrongly.
+
+        One per transcript — its first; see `Agreement.forced_chunks`.
+        """
+        return sum(case.forced_chunks for case in self.cases)
+
+    @property
+    def forced_transcripts(self) -> int:
+        """Return how many transcripts admit no wrong decision at all.
+
+        The one-chunk ones: they contribute a guaranteed match to the accuracy
+        and no pair to the Rand index.
+        """
+        return sum(1 for case in self.cases if case.admits_no_wrong_decision)
+
+    @property
+    def floor_accuracy(self) -> float:
+        """Return the accuracy no run that completes can fall below.
+
+        The share of chunks whose decision was forced. It is a property of the
+        corpus, not of a backend: a run can only lose the chunks above it, which
+        is what makes the distance between `accuracy` and this number the part
+        that measures anything.
+        """
+        return self.forced_chunks / self.chunk_count
 
     @property
     def is_perfect(self) -> bool:
@@ -585,8 +657,10 @@ def format_report(result: CorpusAgreement) -> str:
     """Return the agreement as the report the command prints.
 
     A `source:` line, one row per transcript, the corpus line — which repeats
-    the source, because that is the line a reader pastes — and, only when there
-    are any, the chunks that went into another chain than the gold labels name.
+    the source, because that is the line a reader pastes — the two `floor:`
+    lines that say how much of the corpus number is structural, and, only when
+    there are any, the chunks that went into another chain than the gold labels
+    name.
 
     Args:
         result: What `evaluate_cases` returned, source included.
@@ -625,6 +699,16 @@ def format_report(result: CorpusAgreement) -> str:
         f"{_plural(result.chunk_count, 'chunk')}, "
         f"{_plural(result.pair_count, 'chunk pair')}; "
         f"accuracy {result.accuracy:.3f}, rand index {result.rand_index:.3f}"
+    )
+    lines.append(
+        f"floor: accuracy {result.floor_accuracy:.3f} — {result.forced_chunks} of "
+        f"{_plural(result.chunk_count, 'chunk')} are a transcript's first chunk, where NEW is "
+        f"the only decision the classifier accepts, so no run that completes scores below it"
+    )
+    lines.append(
+        f"floor: the rand index rests on {_plural(result.pair_count, 'chunk pair')}; "
+        f"{result.forced_transcripts} of {_plural(result.transcript_count, 'transcript')} hold "
+        f"a single chunk and form no pair at all"
     )
     disagreements = [
         f"  {case.transcript} {entry.chunk_id}: {entry.predicted} / {entry.gold}"

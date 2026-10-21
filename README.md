@@ -127,7 +127,20 @@ scored 1.000 are otherwise indistinguishable, so a number without its source say
 ```
 source: gold baseline, 1.000 by construction — the gold labels played back through gold_script, …
 corpus [gold baseline, 1.000 by construction]: 9 transcripts, 12 chunks, 4 chunk pairs; accuracy 1.000, …
+floor: accuracy 0.750 — 9 of 12 chunks are a transcript's first chunk, where NEW is the only …
+floor: the rand index rests on 4 chunk pairs; 7 of 9 transcripts hold a single chunk and form no …
 ```
+
+The two `floor:` lines are the second thing to read before any corpus number: both metrics
+have a floor that belongs to the **corpus**, not to the classifier. A transcript's first
+chunk is offered no candidate chain, so `NEW` is the only decision the classifier accepts
+and that chunk is scored right in every run that completes — and a transcript of a single
+chunk therefore admits no wrong decision at all. The Rand index, in turn, rests only on
+the pairs the multi-chunk transcripts form. Only the distance between `accuracy` and the
+accuracy floor measures a backend. The figures above are the ones the command printed for
+the corpus as it stands; they are **derived from the cases on every run**, so read them
+from the output rather than from this paragraph — a fixture added to `tests/fixtures/`
+moves all of them.
 
 ## Layout
 

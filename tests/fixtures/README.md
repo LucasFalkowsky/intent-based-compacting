@@ -72,6 +72,12 @@ would be scoring itself.
   labelled differently under other circumstances says so (see
   `gold/already_compacted_block.json`).
 
+Most transcripts of this corpus hold a **single chunk**, and a transcript's first chunk
+admits only `NEW` — so it is scored right in every run that completes. The harness states
+that floor on the two `floor:` lines of every report, derived from the cases it was given;
+a corpus number has to be read next to it, and adding a multi-chunk fixture is what moves
+it.
+
 Load a labelling by name, never by path:
 
 ```python
