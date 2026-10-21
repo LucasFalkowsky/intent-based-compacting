@@ -14,8 +14,11 @@ the Markdown an earlier run rendered, reachable only as the body of the block's
 **rendered bullet**: the old body is cut into one segment per flush `- ` bullet,
 `idc.compact.solution_section` renders the new resolution and is cut the same
 way, and the two are overlaid by path. The cost is that this module reads the
-writer's own output, so the cut has to agree with how `idc.parse` reads a block
-— see `_bullet_starts`, and the two tests named there. The alternative, turning
+writer's own output, so the cut has to agree with how `idc.parse` reads a block.
+It agrees by **running the reader's own scan**: `idc.parse.split_lines`,
+`idc.parse.fence_opening` and `idc.parse.closes_fence` are what `_bullet_starts`
+and `_segments` are written with, imported inside those functions because the
+reader imports this package at module level — see `_bullet_starts`. The alternative, turning
 a bullet back into something `idc.resolve.SolutionFile`-shaped, was rejected: a
 rendered bullet carries no `ToolCall`, so it would be a second, lossy type with
 no transcript behind it, and the conversion would throw away the very prose a
@@ -63,10 +66,10 @@ __all__ = [
 _BULLET = "- "
 """What a bullet line starts with, flush and with no indent allowance.
 
-Deliberately stricter than the indentation rule `idc.parse` applies to a header
-or a fence: the writer emits its bullets flush, and an indented `- ` line is a
-hand's nested list inside the bullet above it rather than a file of its own —
-`tests/test_compact_merge.py` pins that it stays with that bullet.
+Deliberately stricter than the indentation rule `idc.parse.MAX_STRUCTURE_INDENT`
+allows a header or a fence: the writer emits its bullets flush, and an indented
+`- ` line is a hand's nested list inside the bullet above it rather than a file
+of its own — `tests/test_compact_merge.py` pins that it stays with that bullet.
 """
 
 _BULLET_PATH = re.compile(r"^- `([^`]+)`")
@@ -78,68 +81,6 @@ file: `EMPTY_SECTION` is the one the writer emits, and a hand's own bullet is
 carried over where it stands rather than being read as a path.
 """
 
-_FENCE_LINE = re.compile(r"^(`{3,})(.*)$")
-"""A line that may open a code fence: a run of backticks and an info string.
-
-The same pattern `idc.parse` matches, for the same reason and with the same two
-conditions — no indent allowance of its own, and no backtick in the info string,
-so an inline span opens nothing.
-"""
-
-_LINE_ENDING = re.compile(r"(?<=\n)|(?<=\r)(?!\n)")
-"""Where one line ends and the next begins: after an LF, a CRLF or a bare CR.
-
-CommonMark's three endings and nothing else, as `idc.parse` splits them, and for
-the reason its own copy of this pattern gives: `str.splitlines` also breaks on
-the form feed and six other characters, and a fence run written behind a form
-feed would then look like a line of its own and close a fence it is inside of.
-Here that truncates a kept file's content at the form feed and overlays the rest
-away — `test_a_fence_run_behind_a_form_feed_closes_nothing` constructs that body
-and counts the path, because the truncated text is a prefix of what is overlaid
-in and a substring check passes either way.
-"""
-
-
-def _lines(text: str) -> list[str]:
-    """Return the lines of `text`, their terminators kept.
-
-    Args:
-        text: The text to cut into lines.
-
-    Returns:
-        One entry per line, each ending in its own terminator except a last line
-        the text does not terminate, so that `"".join` of them is `text` again —
-        which is what lets a kept bullet be copied byte for byte. An empty text
-        holds no line.
-    """
-    lines = _LINE_ENDING.split(text)
-    if lines and not lines[-1]:
-        lines.pop()
-    return lines
-
-
-def _dedented(line: str, allowance: int) -> str | None:
-    """Return a line without its structural indent, or `None` when it has too much.
-
-    Args:
-        line: One line as `_lines` returned it, terminator included.
-        allowance: How many leading spaces still count as structure —
-            `idc.parse.MAX_STRUCTURE_INDENT`, read from there rather than
-            written out again.
-
-    Returns:
-        The line without its terminator and without its leading spaces, when
-        there are at most `allowance` of them; `None` when it is indented
-        further, which makes it content and no kind of structure. Only the
-        literal space is counted, which is the rule `idc.parse` applies to a
-        fence line.
-    """
-    bare = line.rstrip("\r\n")
-    stripped = bare.lstrip(" ")
-    if len(bare) - len(stripped) > allowance:
-        return None
-    return stripped
-
 
 def _bullet_starts(lines: list[str]) -> list[int]:
     """Return the indices of the lines that open a bullet, fences skipped.
@@ -149,58 +90,47 @@ def _bullet_starts(lines: list[str]) -> list[int]:
 
     Returns:
         The index of every flush `- ` line that no fence encloses, ascending.
-        The fence scan is the one `idc.parse._scan` runs when it finds a block's
-        section headers: a fence opens on `_FENCE_LINE` with no backtick in its
-        info string and closes on a run of at least as many backticks, indented
-        by at most the allowance and followed by nothing but whitespace. It is
-        spelled a second time here because that scan is the reader's own
-        private one, and the two are held together by test, not by trust:
+        The fence scan is **the reader's own**, not a second spelling of its
+        rules: `idc.parse.fence_opening` is what opens a fence here and
+        `idc.parse.closes_fence` is what ends it, which are the two functions
+        `idc.parse._scan` finds a block's section headers with. They carry the
+        indent bound, the info-string condition and the "at least as long"
+        closing rule, so no number and no pattern is written out here.
+
+        That the cut needs a fence scan at all is pinned by
         `test_a_bullet_line_inside_a_fence_is_content` and
-        `test_a_fence_run_behind_a_form_feed_closes_nothing` both feed a body
-        whose fenced content holds a bullet line naming a file the new
+        `test_a_fence_run_behind_a_form_feed_closes_nothing`, which both feed a
+        body whose fenced content holds a bullet line naming a file the new
         resolution writes. Without the scan the first of them splices the new
         bullets into that file's fenced content: its `markdown` fence closes
         around the new path line, the file content beneath lands outside any
         fence, and the rest of the checklist is gone. Checked by dropping the
-        scan and reading the result, not assumed.
+        scan and reading the result, not assumed. That the scan is the reader's
+        and not a copy is pinned by stubbing the public names.
 
         A fence that is opened and never closed encloses the rest of the body,
         and this raises nothing of its own: `idc.parse` is what refuses an
         unterminated fence, so a body that came out of a parsed block has none.
-    """
-    allowance = _indent_allowance()
-    starts: list[int] = []
-    fence: str | None = None
-    for index, line in enumerate(lines):
-        dedented = _dedented(line, allowance)
-        if fence is None:
-            match = None if dedented is None else _FENCE_LINE.match(dedented)
-            if match is not None and "`" not in match.group(2):
-                fence = match.group(1)
-            elif line.startswith(_BULLET):
-                starts.append(index)
-            continue
-        if dedented is None:
-            continue
-        closing = dedented.rstrip()
-        if closing and set(closing) == {"`"} and len(closing) >= len(fence):
-            fence = None
-    return starts
-
-
-def _indent_allowance() -> int:
-    """Return how many leading spaces still count as structure.
-
-    Returns:
-        `idc.parse.MAX_STRUCTURE_INDENT`, so the number has one definition.
 
     The import is deferred for the reason `idc.compact.incremental`'s module
     docstring gives: `idc.parse` imports this package's format at module level,
     so importing it here at module level is a cycle.
     """
-    from idc.parse import MAX_STRUCTURE_INDENT
+    from idc.parse import closes_fence, fence_opening
 
-    return MAX_STRUCTURE_INDENT
+    starts: list[int] = []
+    fence: str | None = None
+    for index, line in enumerate(lines):
+        if fence is None:
+            opening = fence_opening(line)
+            if opening is not None:
+                fence = opening
+            elif line.startswith(_BULLET):
+                starts.append(index)
+            continue
+        if closes_fence(line, fence):
+            fence = None
+    return starts
 
 
 def _segments(body: str) -> list[tuple[str | None, str]]:
@@ -219,8 +149,21 @@ def _segments(body: str) -> list[tuple[str | None, str]]:
         is lost in the cut. Text before the first bullet that is *not* blank is
         a pair of its own with no path: a hand wrote it, and this module is not
         the one to decide it away.
+
+    What a line is here is `idc.parse.split_lines` — LF, CRLF and a bare CR and
+    nothing else — so that `"".join` of the cut is the body again and a kept
+    bullet is copied byte for byte. `str.splitlines` would break on seven
+    further characters, and a fence run written behind a form feed would then
+    look like a line of its own and close a fence it is inside of: that
+    truncates a kept file's content at the form feed and overlays the rest away,
+    which `test_a_fence_run_behind_a_form_feed_closes_nothing` constructs and
+    counts the path for, because the truncated text is a prefix of what is
+    overlaid in and a substring check passes either way. The import is deferred
+    for the reason `_bullet_starts` gives.
     """
-    lines = _lines(body)
+    from idc.parse import split_lines
+
+    lines = split_lines(body)
     starts = _bullet_starts(lines)
     segments: list[tuple[str | None, str]] = []
     if not starts:
