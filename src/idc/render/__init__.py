@@ -13,6 +13,7 @@ from idc.render.assembly import AssembledTranscript, assemble, latest_messages, 
 from idc.render.errors import (
     MissingWriterError,
     RenderError,
+    SummaryIdInUseError,
     UnanchoredToolResultError,
     UncompactedChainError,
     UnknownLatestChunkError,
@@ -54,3 +55,10 @@ __all__ += [
     "render_transcript",
     "write_transcript",
 ]
+
+# T7.2 (#32), second block — the refusal a review showed the schema does not
+# cover uniformly: Gemini CLI's importer drops the older of two records sharing
+# an id, so a kept message called `SUMMARY_MESSAGE_ID` lost the whole summary
+# without an error. Appended rather than merged into the sorted literal above,
+# for the reason the first comment in this file gives.
+__all__ += ["SummaryIdInUseError"]

@@ -177,3 +177,38 @@ class UnanchoredToolResultError(RenderError):
             f"chunk issued; {agent.value} carries a result inside its own call's record, so "
             f"there is no record to write it as"
         )
+
+
+class SummaryIdInUseError(RenderError):
+    """A kept message already carries the identifier the renderer invents.
+
+    `idc.render.native.SUMMARY_MESSAGE_ID` is a constant rather than a derived
+    name, so a message of the latest chunk can hold it. The clash used to rest
+    on the canonical schema refusing a duplicated message id on re-import, and
+    that cover is **not** uniform: Claude Code and OpenCode do refuse, but
+    Gemini CLI's importer has append-log semantics, so the later of two records
+    sharing an id wins and the `<state_snapshot>` record is **dropped**. A
+    review constructed it and the whole compacted block vanished with no error,
+    leaving a `raw` session — a summary silently lost, which is the one outcome
+    this format exists to prevent.
+
+    So the refusal is the renderer's and it happens before anything is written:
+    the renderer invents the identifier, so it owns the clash, and one refusal
+    across the three agents beats cover that two of them happen to provide.
+    """
+
+    def __init__(self, summary_id: str, message_ids: Sequence[str]) -> None:
+        """Build the error from the invented id and the ids it clashed with.
+
+        Args:
+            summary_id: The identifier the renderer would have written.
+            message_ids: Identifiers of the messages that are being kept.
+        """
+        self.summary_id = summary_id
+        self.message_ids = tuple(message_ids)
+        super().__init__(
+            f"the kept chunk already holds a message called {summary_id!r}, which is the "
+            f"identifier the summary record is written under; rendering it would put two "
+            f"records under one identity, and Gemini CLI's importer would drop the summary "
+            f"without a word"
+        )

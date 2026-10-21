@@ -49,6 +49,7 @@ from idc.render import (
     WRITERS,
     MissingWriterError,
     RenderError,
+    SummaryIdInUseError,
     UnanchoredToolResultError,
     assemble,
     render_transcript,
@@ -60,7 +61,6 @@ from idc.schema import (
     CompactedBlock,
     Message,
     Role,
-    SchemaValidationError,
     Session,
     SessionSource,
     ToolCall,
@@ -596,22 +596,40 @@ def test_a_sub_millisecond_timestamp_is_kept_except_for_opencode(
         assert back.timestamp == stamp
 
 
-def test_the_summary_id_collides_loudly_with_a_message_of_the_same_name(
-    tmp_path: Path,
-) -> None:
-    """The one identifier the renderer invents is not merged into silently.
+@pytest.mark.parametrize("agent", AGENTS)
+def test_the_summary_id_is_refused_before_a_file_is_written(agent: Agent) -> None:
+    """The one identifier the renderer invents is refused at the source.
 
     `SUMMARY_MESSAGE_ID` is a constant rather than a derived name, so a kept
-    message could carry it. The canonical schema rejects a duplicated message
-    id, so the clash surfaces on re-import as a validation error instead of two
-    records sharing one identity.
+    message can carry it. This used to rest on the canonical schema rejecting a
+    duplicated message id on re-import — which **two** of the three formats
+    provide and Gemini CLI does not: its importer has append-log semantics, so
+    the later record of two sharing an id wins and the `<state_snapshot>`
+    record is dropped. A review constructed that case and the whole compacted
+    block vanished with no error at all, leaving a `raw` session.
+
+    So the refusal is the renderer's, uniform across the three: it invents the
+    identifier, so it owns the clash, and no file is written at all.
     """
     session = inline_session(Message(id=SUMMARY_MESSAGE_ID, role=Role.USER, content="go"))
-    block, chunks = inline_block(session, Agent.CLAUDE_CODE)
-    path = write_transcript(block, session=session, chunks=chunks, path=tmp_path / "clash.jsonl")
+    block, chunks = inline_block(session, agent)
 
-    with pytest.raises(SchemaValidationError, match="message id"):
-        import_transcript(Agent.CLAUDE_CODE, path)
+    with pytest.raises(SummaryIdInUseError) as caught:
+        render_transcript(block, session=session, chunks=chunks)
+    assert isinstance(caught.value, RenderError)
+    assert SUMMARY_MESSAGE_ID in str(caught.value)
+
+
+@pytest.mark.parametrize("agent", AGENTS)
+def test_nothing_is_written_when_the_summary_id_is_in_use(agent: Agent, tmp_path: Path) -> None:
+    """The refusal happens before the file exists, not after it is half-written."""
+    session = inline_session(Message(id=SUMMARY_MESSAGE_ID, role=Role.USER, content="go"))
+    block, chunks = inline_block(session, agent)
+    path = tmp_path / "clash.jsonl"
+
+    with pytest.raises(SummaryIdInUseError):
+        write_transcript(block, session=session, chunks=chunks, path=path)
+    assert not path.exists()
 
 
 def opencode_pair() -> Session:

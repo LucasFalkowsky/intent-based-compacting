@@ -150,7 +150,11 @@ from idc.importers.claude_code import (
 from idc.importers.gemini_cli import SNAPSHOT_MARKER
 from idc.importers.opencode import PART_TEXT, PART_TOOL, RECORD_COMPACTION, SYNTHETIC_FLAG
 from idc.render.assembly import AssembledTranscript, assemble
-from idc.render.errors import MissingWriterError, UnanchoredToolResultError
+from idc.render.errors import (
+    MissingWriterError,
+    SummaryIdInUseError,
+    UnanchoredToolResultError,
+)
 from idc.schema import Agent, Chunk, CompactedBlock, Message, Role, Session
 
 __all__ = [
@@ -525,7 +529,9 @@ def render_transcript(block: CompactedBlock, *, session: Session, chunks: Sequen
         The transcript file's whole text, ending in a newline.
 
     Raises:
-        RenderError: If the run cannot be rendered — `MissingWriterError` when
+        RenderError: If the run cannot be rendered — `SummaryIdInUseError` when a
+            kept message already carries `SUMMARY_MESSAGE_ID`,
+            `MissingWriterError` when
             no writer is registered for `block.rendered_for`,
             `UnanchoredToolResultError` when an OpenCode result's call is not in
             the chunk, plus the refusals `idc.render.assemble` raises about the
@@ -536,7 +542,11 @@ def render_transcript(block: CompactedBlock, *, session: Session, chunks: Sequen
     writer = WRITERS.get(block.rendered_for)
     if writer is None:
         raise MissingWriterError(block.rendered_for, WRITERS)
-    return writer(assemble(block, session=session, chunks=chunks), session=session)
+    assembled = assemble(block, session=session, chunks=chunks)
+    kept_ids = [message.id for message in assembled.messages]
+    if SUMMARY_MESSAGE_ID in kept_ids:
+        raise SummaryIdInUseError(SUMMARY_MESSAGE_ID, kept_ids)
+    return writer(assembled, session=session)
 
 
 def write_transcript(
