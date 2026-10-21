@@ -272,7 +272,7 @@ def verification_runs(
         the same `exec` call twice (`chunk_session` produces no such list); a
         run is a call, so the second sighting is the same run and is dropped
         here — the de-duplication `idc.resolve.resolution` does for the ids of
-        the partition, one layer down. Kept because without it the doubly
+        the partition, one layer up. Kept because without it the doubly
         located run reaches `SolutionVerification` as the kept *and* a
         discarded run, which that object refuses with a plain `ValueError`
         (#79).
