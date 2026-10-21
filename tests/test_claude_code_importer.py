@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 
 from idc.importers import (
+    IMPORTERS,
     NOTE_DROPPED_BLOCK,
     NOTE_SKIPPED_RECORD,
     NOTE_UNKNOWN_TOOL,
-    IMPORTERS,
     PENDING_IMPORTERS,
     TranscriptImportError,
     import_claude_code,
