@@ -107,14 +107,14 @@ and reads both back, so there are fixtures in both:
 
 - `*.json` — one JSON document: `sessionId`, `projectHash`, `startTime`, `lastUpdated`, an
   optional `summary` and a `messages` array, pretty-printed over many lines. **This is the
-  shape every session on the machine this was written on has**, and it is not JSONL.
+  shape recorded sessions were observed to have**, and it is not JSONL.
 - `*.jsonl` — the append log of the current version: the metadata as the first record, one
   record per message, and the two operations `$set` (a metadata update, which may replace
   the whole message list) and `$rewindTo`. A message is appended again whenever it changes,
   so one identifier occurs on several lines and the last one wins.
 
 The keys, record types, tool names and argument spellings of the `*.json` fixtures come
-from a **structure-only survey** of the 56 real sessions on this machine (key names only,
+from a **structure-only survey** of recorded Gemini CLI sessions (key names only,
 never content). The `*.jsonl` fixtures and three markers — `<state_snapshot>`,
 `<session_context>` and the shell tool's `Exit Code:` line — are absent from those
 sessions, which all predate the installed version; they are taken from the installed Gemini

@@ -128,9 +128,9 @@ invented identifier would add a turn the agent itself no longer has.
 **Where the knowledge in this module comes from.** Two sources, and the
 difference matters when a future version changes something:
 
-- *Observed in real session files.* A structure-only survey of the 56 sessions
-  on the machine this was written on (key names, type names, tool names and
-  argument keys only, never content) established: the single-document shape and
+- *Observed in real session files.* A structure-only survey of recorded
+  sessions (key names, type names, tool names and argument keys only, never
+  content) established: the single-document shape and
   its five top-level keys; the message keys `id`, `timestamp`, `type`,
   `content`, `displayContent`, `model`, `thoughts`, `tokens`, `toolCalls`; the
   types `user`, `gemini`, `info` and `error`; content as a string or a list of

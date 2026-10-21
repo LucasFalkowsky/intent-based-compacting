@@ -112,9 +112,9 @@ Artifact = { category = "other" }
 # --- Gemini CLI --------------------------------------------------------------
 #
 # The first four entries are recorded in the fixture corpus. The next four were
-# added by T2.4 from real sessions under `~/.gemini/tmp/*/chats/*.json`: a
-# structure-only survey of them turned up exactly six tool names, four of which
-# were not declared yet. That answers the directory listing, globbing and
+# added by T2.4 as tool names observed in recorded Gemini CLI sessions: a
+# structure-only survey turned up six tool names, four of which were not
+# declared yet. That answers the directory listing, globbing and
 # content search T2.1 left open, and the web access in part.
 #
 # The last group is declared from the installed agent's own tool reference
