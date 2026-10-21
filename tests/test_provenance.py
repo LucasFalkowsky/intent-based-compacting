@@ -283,6 +283,30 @@ def test_a_raw_session_can_be_normalised_on_its_own():
     assert isinstance(context, VisibleContext)
 
 
+@pytest.mark.parametrize("source", [SessionSource.RAW, SessionSource.INTENT_COMPACTION])
+def test_a_session_the_agent_never_compacted_is_normalised_as_it_is(source):
+    # Only `native-compaction` needs the summary identifier; the other two
+    # provenances are normalised on their own, which is what the module promises.
+    plain = session(message("u1", content="go"), source=source)
+
+    context = visible_context(plain)
+
+    assert list(context.message_ids) == ["u1"]
+    assert context.hidden == ()
+    assert context.session.source is source
+
+
+@pytest.mark.parametrize("source", [SessionSource.RAW, SessionSource.INTENT_COMPACTION])
+def test_an_imported_session_without_a_native_summary_is_normalised_as_it_is(source):
+    result = ImportedSession(session=session(message("u1", content="go"), source=source))
+
+    context = visible_context(result)
+
+    assert list(context.message_ids) == ["u1"]
+    assert context.hidden == ()
+    assert context.session.source is source
+
+
 def test_a_compacted_session_without_its_summary_is_refused():
     plain = session(message("u1", content="go"), source=SessionSource.NATIVE_COMPACTION)
 
