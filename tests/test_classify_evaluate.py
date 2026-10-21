@@ -27,6 +27,7 @@ from fixture_corpus import CORPUS, FIXTURES_DIR, GOLD_DIR
 from idc.chunk import chunk_session
 from idc.classify import (
     EXIT_INPUT_ERROR,
+    GOLD_CHUNKING,
     NEW,
     Agreement,
     CorpusAgreement,
@@ -287,7 +288,9 @@ def test_an_agreement_carries_the_counts_the_report_is_built_from():
 
 
 def test_agreement_scores_a_labelling_without_running_an_adapter():
-    gold = GoldChains.from_mapping("a_fixture", {"K1": "C1", "K2": "C2", "K3": "C1"})
+    gold = GoldChains.from_mapping(
+        "a_fixture", {"K1": "C1", "K2": "C2", "K3": "C1"}, chunking=GOLD_CHUNKING
+    )
 
     result = agreement({"K1": "C1", "K2": "C2", "K3": "C3"}, gold)
 
@@ -296,7 +299,7 @@ def test_agreement_scores_a_labelling_without_running_an_adapter():
 
 
 def test_agreement_refuses_a_run_that_covers_other_chunks_than_the_gold():
-    gold = GoldChains.from_mapping("a_fixture", {"K1": "C1", "K2": "C2"})
+    gold = GoldChains.from_mapping("a_fixture", {"K1": "C1", "K2": "C2"}, chunking=GOLD_CHUNKING)
 
     with pytest.raises(GoldCoverageError, match="K2"):
         agreement({"K1": "C1"}, gold)

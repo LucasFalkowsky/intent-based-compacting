@@ -277,12 +277,12 @@ def test_load_gold_reads_the_optional_note_as_empty_when_absent(tmp_path):
 
 def test_gold_chains_rejects_an_empty_labelling():
     with pytest.raises(GoldLabellingError, match="at least one chunk"):
-        GoldChains.from_mapping("a_fixture", {})
+        GoldChains.from_mapping("a_fixture", {}, chunking=GOLD_CHUNKING)
 
 
 def test_gold_chains_rejects_a_blank_transcript_name():
     with pytest.raises(GoldLabellingError, match="transcript"):
-        GoldChains.from_mapping("  ", {"K1": "C1"})
+        GoldChains.from_mapping("  ", {"K1": "C1"}, chunking=GOLD_CHUNKING)
 
 
 @pytest.mark.parametrize(
@@ -310,18 +310,18 @@ def test_gold_chains_rejects_a_blank_chunking():
 @pytest.mark.parametrize("chain_id", ["K1", "c1", "C0", "C01", "chain one", ""])
 def test_gold_chains_rejects_a_chain_id_of_the_wrong_shape(chain_id):
     with pytest.raises(GoldLabellingError, match="C<n>"):
-        GoldChains.from_mapping("a_fixture", {"K1": chain_id})
+        GoldChains.from_mapping("a_fixture", {"K1": chain_id}, chunking=GOLD_CHUNKING)
 
 
 @pytest.mark.parametrize("chunk_id", ["C1", "k1", "K0", "K01", "chunk one", ""])
 def test_gold_chains_rejects_a_chunk_id_of_the_wrong_shape(chunk_id):
     with pytest.raises(GoldLabellingError, match="K<n>"):
-        GoldChains.from_mapping("a_fixture", {chunk_id: "C1"})
+        GoldChains.from_mapping("a_fixture", {chunk_id: "C1"}, chunking=GOLD_CHUNKING)
 
 
 def test_gold_chains_rejects_chunk_ids_that_are_not_in_transcript_order():
     with pytest.raises(GoldLabellingError, match="transcript order"):
-        GoldChains.from_mapping("a_fixture", {"K2": "C1", "K1": "C1"})
+        GoldChains.from_mapping("a_fixture", {"K2": "C1", "K1": "C1"}, chunking=GOLD_CHUNKING)
 
 
 @pytest.mark.parametrize(
@@ -337,11 +337,13 @@ def test_gold_chains_rejects_a_chain_numbering_the_classifier_cannot_produce(lab
     # chain to appear is `C<k>`. Without that, per-chunk accuracy would compare
     # two different naming schemes and mean nothing.
     with pytest.raises(GoldLabellingError, match="opening order"):
-        GoldChains.from_mapping("a_fixture", labels)
+        GoldChains.from_mapping("a_fixture", labels, chunking=GOLD_CHUNKING)
 
 
 def test_gold_chains_exposes_its_ids_and_its_mapping():
-    gold = GoldChains.from_mapping("a_fixture", {"K1": "C1", "K2": "C2", "K3": "C1"})
+    gold = GoldChains.from_mapping(
+        "a_fixture", {"K1": "C1", "K2": "C2", "K3": "C1"}, chunking=GOLD_CHUNKING
+    )
 
     assert len(gold) == 3
     assert gold.chunk_ids == ("K1", "K2", "K3")
@@ -351,7 +353,9 @@ def test_gold_chains_exposes_its_ids_and_its_mapping():
 
 
 def test_gold_script_opens_a_chain_once_and_extends_it_afterwards():
-    gold = GoldChains.from_mapping("a_fixture", {"K1": "C1", "K2": "C2", "K3": "C1"})
+    gold = GoldChains.from_mapping(
+        "a_fixture", {"K1": "C1", "K2": "C2", "K3": "C1"}, chunking=GOLD_CHUNKING
+    )
 
     assert gold_script(gold) == (NEW, NEW, "C1")
 

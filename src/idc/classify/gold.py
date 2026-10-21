@@ -118,14 +118,17 @@ class GoldChains:
             labelling: it is what `gold_script` plays and what the chain
             numbering is checked against.
         chunking: Which chunking the chunk ids are those of; see
-            `GOLD_CHUNKING`.
+            `GOLD_CHUNKING`. Required, and deliberately without a default: a
+            chunk id is a *position*, so a labelling whose chunking nobody
+            stated is not a reference at all, and a document cannot leave it
+            out either (`REQUIRED_KEYS`).
         note: Why the labelling is what it is, in the labeller's own words.
             Empty when the document carries none.
     """
 
     transcript: str
     labels: tuple[tuple[str, str], ...]
-    chunking: str = GOLD_CHUNKING
+    chunking: str
     note: str = ""
 
     def __post_init__(self) -> None:
@@ -186,7 +189,7 @@ class GoldChains:
         transcript: str,
         labels: Mapping[str, str] | Iterable[tuple[str, str]],
         *,
-        chunking: str = GOLD_CHUNKING,
+        chunking: str,
         note: str = "",
     ) -> Self:
         """Return the labelling for a `chunk id -> chain id` mapping.
@@ -196,7 +199,8 @@ class GoldChains:
             labels: The labels, in transcript order. A mapping is read in its
                 own order, which for a document parsed from JSON is the order
                 the keys were written in.
-            chunking: Which chunking the chunk ids are those of.
+            chunking: Which chunking the chunk ids are those of; required,
+                like on the dataclass itself.
             note: Why the labelling is what it is.
 
         Returns:
