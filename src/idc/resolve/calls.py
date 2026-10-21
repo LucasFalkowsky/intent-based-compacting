@@ -224,13 +224,16 @@ def content_of(call: ToolCall) -> str | None:
         a call that is a `WriteKind.FULL` write; `None` for an edit, for a
         non-write call, and for a full write whose content argument is missing.
 
-    No production code calls this yet — T5.4 (#24), the edit replay, is the
-    stage that would, and it is `optional`. It is public anyway because
-    `CONTENT_KEYS` is: exporting the keys without the one lookup that applies
-    them is an invitation to re-implement that lookup per caller, which is the
-    duplication the two copies of `FILE_PATH_KEYS` already cost this stage. It
-    is also what makes `write_kind`'s `FULL` checkable from outside — the test
-    that asserts a full write is exactly a write carrying whole content.
+    `idc.resolve.replay` is the caller T5.1 kept this public for: the edit
+    replay (T5.4, #24) takes a file's accepted full write as the base it
+    applies the following edits to, and this is where that base comes from —
+    content the agent itself sent, so the base infers nothing. It is public
+    for the same reason `CONTENT_KEYS` is, too: exporting the keys without the
+    one lookup that applies them is an invitation to re-implement that lookup
+    per caller, which is the duplication the two copies of `FILE_PATH_KEYS`
+    already cost this stage. It is also what makes `write_kind`'s `FULL`
+    checkable from outside — the test that asserts a full write is exactly a
+    write carrying whole content.
     """
     if write_kind(call) is not WriteKind.FULL:
         return None
