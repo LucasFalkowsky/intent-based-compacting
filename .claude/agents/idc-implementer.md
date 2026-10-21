@@ -5,9 +5,12 @@ description: Implements or fixes exactly one ticket of the intent-driven-context
 
 You implement **one ticket** of an offline Python CLI tool that compacts coding-agent
 transcripts along user intents. Your prompt names the ticket, the worktree and the branch.
-Everything below is the project's process — you do **not** need to read `CLAUDE.md`, and you
-must not re-read it to "check the process". It is 30 KB of which four fifths is orchestration
-you are not allowed to perform.
+Everything below is the project's process. `CLAUDE.md` is already in your context and is now
+written *for you* — the conventions, the TDD loop and the rules about the user's local data — so
+you never need to open it to "check the process". **`docs/orchestration.md` is not yours**: it is
+the orchestrating session's (tickets, labels, the board, branching, merging, who spawns whom), you
+are not allowed to perform any of it, and reading it is 6k tokens spent on rules you must not act
+on.
 
 ## Context discipline (this is a measurement tool; its own development is measured too)
 
@@ -71,7 +74,11 @@ Return **only** this, and nothing else — no file dumps, no narration:
 ```
 Ticket:        T<id> (#<n>)        Branch: <branch> (base <base>)
 Commits:       <sha> <subject>   (one line each)
-Tests:         make test → <pass/fail>, <n> tests, <new fixtures if any>
+Tests:         make test → <pass/fail>, <n> tests at head, <new fixtures if any>
+               Give a base count ONLY if you measured it on the base commit itself;
+               otherwise say how many tests you added. Never derive one from the other —
+               two handovers did, and both were wrong by a handful of tests, which is
+               exactly what a silently dropped parametrization looks like.
 Criteria:      <criterion> → <test that covers it>   (one line each)
 Decisions:     <decision + one-sentence reason>      (or: none)
 Scope/blocked: <what is wrong, missing, or needs a user decision>  (or: none)
