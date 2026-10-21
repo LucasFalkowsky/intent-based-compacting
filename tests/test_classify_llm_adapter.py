@@ -395,9 +395,12 @@ def test_an_unusable_answer_is_refused_with_the_reason_it_is_unusable(answer, re
 
 
 @pytest.mark.parametrize(("answer", "reason"), UNREADABLE_ANSWERS)
-def test_an_unusable_answer_is_a_failure_of_the_stage(answer, reason):
+def test_an_unusable_answer_is_a_failure_of_the_stage_whose_message_says_why(answer, reason):
     # One `except ClassifyError` is what T10's CLI is written against, and the
     # answer is a bad value as well, exactly like `AdapterContractError` (#16).
+    # The family alone does not depend on the answer, so every case but the
+    # first would be free — the *message* does: what a CLI user is shown is the
+    # error's own text, not the `reasons` tuple the sibling test reads.
     adapter = adapter_for(answer, max_attempts=1)
 
     with pytest.raises(ClassifyError) as caught:
@@ -405,6 +408,7 @@ def test_an_unusable_answer_is_a_failure_of_the_stage(answer, reason):
 
     assert isinstance(caught.value, AdapterContractError)
     assert isinstance(caught.value, ValueError)
+    assert reason in str(caught.value)
 
 
 def test_an_invalid_json_answer_is_retried_and_the_second_answer_is_used():
