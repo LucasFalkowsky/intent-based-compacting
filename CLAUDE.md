@@ -183,6 +183,15 @@ thing that keeps the order correct.
   (the stack) and rebased onto the parent branch after the sibling merges.
 - A ticket that depends on a *parent* ticket (e.g. #26 → #20) waits for that parent to be closed and
   merged into `main`, not merely for its sub-tickets.
+- **A cross-parent `Depends on` edge on a *sub-ticket* gives ordering, not code.** The edge is
+  satisfied for ordering as soon as the dependency closes — but closing a sub-ticket merges it into
+  **its own parent branch**, so its code is reachable only once *that parent* is merged into `main`.
+  "Concurrently implementable" and "can import each other's code" are different questions and only
+  the first one is in the graph (this bit #14 → #6). When the code is genuinely needed, in this
+  order of preference: **inject** the dependency at the stage boundary and defer the wiring;
+  **sequence** the two parents; or — worst — pull the other branch in, which duplicates its merge.
+  Where injection is chosen, record the still-open **call site** as a pointer on the ticket that
+  wires the stages: an injected predicate that is never wired fails *silently*, with the suite green.
 - The per-ticket rules do not change: one implementation subagent and one separate review subagent
   per ticket, labels and board column moved in the same step, and "Closing a ticket" run in order.
 
@@ -190,6 +199,13 @@ The orchestrating session works the graph **autonomously** through to merge. It 
 when a ticket is genuinely unimplementable as written — a subagent's `Scope/blocked`, or a
 contradiction between tickets. Everything else is decided and recorded as a `**Decision:**` comment
 on the ticket (see "Recording decisions and process changes").
+
+**Work in progress is driven to closed before new work starts.** Parallelism is bounded by the
+graph, but the number of *in-flight* tickets is bounded by this rule: never start a ticket while an
+already-started one is waiting on nothing but this session's own next step — opening the PR, reading
+the review, merging, running "Closing a ticket". Four sub-tickets once sat in `in-progress`/`review`
+at the same time because the orchestrating session kept activating new work instead of finishing
+what it had; the user stopped it. An open ticket is not progress.
 
 ## One subagent per ticket
 
@@ -213,14 +229,16 @@ tool exists, applied to its own development.
 **Starting the implementation subagent** — the prompt names the ticket and nothing else; the
 subagent fetches the scope itself:
 
-> *"Implement ticket T<id> (issue #<n>) in this repository. Read `CLAUDE.md` and
-> `gh issue view <n>` first — the issue body is the scope and the acceptance criteria. Work on
-> branch `<branch>`, which is already cut from `<base>`. Follow the mandatory TDD loop (failing
-> tests first, commits `test(T<id>): …` / `feat(T<id>): …` / `refactor(T<id>): …`), use the shared
-> fixture corpus, no network and no real model calls in tests. Do not touch any other ticket's
-> scope, do not edit issues, labels or the board, and do not open the PR. When `make test` is green,
-> return the handover report described in `CLAUDE.md` → "One subagent per ticket" and nothing
-> else."*
+> *"Implement ticket T<id> (issue #<n>) in this repository. Work in `<worktree path>` and nowhere
+> else. Read `CLAUDE.md` and `gh issue view <n>` first — the issue body is the scope and the
+> acceptance criteria. Work on branch `<branch>`, which is already cut from `<base>`. Follow the
+> mandatory TDD loop (failing tests first, commits `test(T<id>): …` / `feat(T<id>): …` /
+> `refactor(T<id>): …`), use the shared fixture corpus, no network and no real model calls in tests.
+> Do not use WebSearch or WebFetch. Never read the user's real agent transcripts and never write
+> anything about this machine's usage into the repository — see "Working with local agent data".
+> Do not touch any other ticket's scope, do not edit issues, labels or the board, and do not open the
+> PR. When `make test` is green, return the handover report described in `CLAUDE.md` → "One subagent
+> per ticket" and nothing else."*
 
 **Handover report** (what the subagent returns — a compact summary, never raw file dumps):
 
@@ -246,17 +264,51 @@ subagent, and run "Closing a ticket". A `Scope/blocked` entry means: `blocked` l
   stacked and strictly sequential.
 - Concurrent implementation subagents never share a working directory: each one runs in its own
   `git worktree`, so one ticket's uncommitted state can never leak into another's.
+- **Preparing the worktree is the orchestrating session's job, and it is sequential.** Run
+  `make setup` in every fresh worktree *before* launching a subagent into it, one worktree after the
+  other. Two subagents once stalled at the 600 s watchdog having done no work at all: both ran
+  `uv sync` at the same moment and blocked on the shared uv cache lock.
+- Implementation subagents are told **not to use WebSearch or WebFetch**. The scope is in the
+  repository and in the issues; the one time a subagent went researching, that was its whole budget.
 - A subagent is never reused for a second ticket, and never for the review of its own work. If a
   ticket comes back `changes-requested`, the fixes may run in a **new** implementation subagent
   with the review findings in the prompt.
 - If a subagent needs something outside its ticket (a missing fixture is fine, another ticket's
   scope is not), it stops and reports it under `Scope/blocked`.
 
+## Working with local agent data
+
+The three importers describe real transcript formats, and this machine has real transcripts on it.
+They are the user's private data, and the mandate to work the tickets autonomously is a mandate over
+ticket decisions — **not** over that data. An agent cannot authorise access to it, and neither can
+this session on the user's behalf.
+
+- A **structure-only survey** of a locally installed agent's sessions is permitted: key names,
+  record types, tool names, argument keys.
+- **Message content is never read.**
+- **Nothing about the user's own usage is written into the repository** — no session counts, no
+  concrete paths to their files, no project names, no identifiers. What a reader needs is the
+  *evidence class* ("observed in recorded sessions" vs. "read off the installed version"), and that
+  is what gets written down. A documented path layout with placeholders is the software's own and
+  stays.
+- Fixtures are **hand-written**, with synthetic ids and invented content — never excerpts.
+- Before merging, the orchestrating session scans the whole branch **diff and every commit message**
+  for home paths, names, addresses and statements about usage.
+
+The cost of this is accepted openly: T2.3 (OpenCode) carries a documented limitation precisely
+because OpenCode is not installed here, so its record-level field names rest on the documented
+storage model rather than on a readable file. That is the honest trade-off, and it is recorded on the
+ticket instead of being papered over.
+
 ## Closing a ticket
 
 In this order, so that the board, the labels and the dependency graph stay consistent:
 
-1. Merge the PR into its base branch, delete the branch.
+1. Merge the PR into its base branch, then delete the branch **on `origin` as well as locally** — a
+   squash merge leaves the head branch behind, and `git branch -d` only touches the local one. Watch
+   the matching trap: after a squash merge the original commits are **not** ancestors of the base, so
+   `git merge-base --is-ancestor` reports every merged branch as unmerged. The PR state says whether
+   a branch is done; ancestry does not.
 2. Close the issue with a comment naming the merge commit SHA; remove `review`.
 3. Move the card to `Done` (verify, see "Board").
 4. Tick the entry in the parent's task list.
@@ -264,6 +316,7 @@ In this order, so that the board, the labels and the dependency graph stay consi
    `Depends on` issues are now closed, remove its `blocked` label. Siblings of the active parent
    are already in `Ready` and stay there; tickets of a parent that is not activated yet keep their
    card in `Backlog` until that parent is activated.
+
 ## Branching and stacked PRs
 
 ```
@@ -306,6 +359,14 @@ Rules:
 - The full suite must be green before a PR is opened: `make test` (lint + unit tests).
 - Keep each test independent and deterministic. No network, no clock, no randomness
   without a seed.
+- **A test parametrized over a table that may legitimately empty needs an assertion on the table
+  itself.** An empty parametrization is a *skip*, not a pass. `PENDING_IMPORTERS` emptied when T2.4
+  landed, which would have silently removed the dispatcher's pending path from the suite without one
+  red test; it took a monkeypatched table plus an explicit `PENDING_IMPORTERS == {}` assertion to
+  keep the coverage. The same applies to any fixture-derived parameter list.
+- When a verification depends on bytes on disk rather than on the test suite (mutation runs, golden
+  comparisons), clear stale caches first: `PYTHONDONTWRITEBYTECODE=1` and a removed `__pycache__`.
+  A stale `.pyc` once produced a false mutation verdict for two mutants of equal byte length.
 
 ## Definition of done (per ticket)
 
@@ -354,7 +415,11 @@ scope. It is not a design review. The verdict is posted as a comment on the issu
 (prefix `**Review:**`).
 
 - **approved** → merge the PR into its base branch (squash for sub-tickets, merge commit
-  for parent → `main`), then run "Closing a ticket" above.
+  for parent → `main`), then run "Closing a ticket" above. **Whenever an original commit message
+  must not survive, the squash message has to be written by hand**: GitHub's default body
+  concatenates the originals, so rewriting the commits (`git filter-branch --msg-filter` and a
+  force-push) is only half the job — in T2.4 the removed sentences would have reappeared in the
+  squash body.
 - **changes-requested** → fix the `developer`-owned findings on the same branch, re-run
   the review. Findings owned by `user` set the label `blocked` and move the card back to
   `Backlog`; ask the user.
