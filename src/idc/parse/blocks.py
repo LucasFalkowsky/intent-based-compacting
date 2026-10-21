@@ -248,6 +248,39 @@ class ParsedBlock:
         )
 
 
+def _bare(line: str) -> str:
+    """Return one line without its terminator, so a pattern can anchor at its end.
+
+    Args:
+        line: A line as `str.splitlines(keepends=True)` handed it over.
+
+    Returns:
+        The line without its line terminator, LF or CRLF. Nothing else is
+        stripped: leading
+        space is what tells an indented fence from a flush one, and trailing
+        space is part of the text a block has to survive with.
+    """
+    return line.rstrip("\r\n")
+
+
+def _spans(starts: Sequence[int], total: int) -> list[tuple[int, int]]:
+    """Return each start paired with the line the next one begins on.
+
+    Args:
+        starts: The indices that begin a region, in ascending order.
+        total: How many lines there are, which bounds the last region.
+
+    Returns:
+        One `(start, bound)` pair per start, the last bounded by `total`, and an
+        empty list for no starts at all. This is the one arithmetic the block
+        split and the section split share: both cut a line range at the next
+        line of the same kind.
+    """
+    if not starts:
+        return []
+    return list(zip(starts, [*starts[1:], total], strict=True))
+
+
 def _scan(text: str) -> tuple[list[str], list[int]]:
     """Return the lines of `text` and the indices of those no fence encloses.
 
@@ -270,7 +303,7 @@ def _scan(text: str) -> tuple[list[str], list[int]]:
     fence: str | None = None
     opened = 0
     for index, line in enumerate(lines):
-        bare = line.rstrip("\r\n")
+        bare = _bare(line)
         if fence is None:
             match = _FENCE_LINE.match(bare)
             if match is not None and "`" not in match.group(2):
@@ -304,7 +337,7 @@ def _headings(lines: Sequence[str], structural: Iterable[int]) -> list[tuple[int
     """
     headings: list[tuple[int, re.Match[str]]] = []
     for index in structural:
-        bare = lines[index].rstrip("\r\n")
+        bare = _bare(lines[index])
         if bare.startswith(_SECTION_START) or not bare.startswith(_HEADING_START):
             continue
         match = HEADING_PATTERN.match(bare)
@@ -357,9 +390,10 @@ def _cut(text: str) -> list[tuple[int, re.Match[str], str]]:
     starts = [index for index, _ in headings]
     stray = _first_stray(lines, 0, starts[0])
     if stray is not None:
-        raise StrayContentError(stray + 1, lines[stray].rstrip("\r\n"))
+        raise StrayContentError(stray + 1, _bare(lines[stray]))
     cuts: list[tuple[int, re.Match[str], str]] = []
-    for (start, heading), bound in zip(headings, [*starts[1:], len(lines)], strict=True):
+    spans = _spans(starts, len(lines))
+    for (start, bound), (_, heading) in zip(spans, headings, strict=True):
         end = bound
         while end > start + 1 and not lines[end - 1].strip():
             end -= 1
@@ -444,19 +478,13 @@ def _parse_block(line: int, heading: re.Match[str], text: str) -> ParsedBlock:
     """
     lines, structural = _scan(text)
     chain_id, label = heading.group(1), heading.group(2)
-    starts = [
-        index for index in structural if lines[index].rstrip("\r\n").startswith(_SECTION_START)
-    ]
+    starts = [index for index in structural if _bare(lines[index]).startswith(_SECTION_START)]
     stray = _first_stray(lines, 1, starts[0] if starts else len(lines))
     if stray is not None:
-        raise StrayContentError(line + stray, lines[stray].rstrip("\r\n"), chain_id)
-    bounds = [*starts[1:], len(lines)] if starts else []
+        raise StrayContentError(line + stray, _bare(lines[stray]), chain_id)
     sections = tuple(
-        ParsedSection(
-            header=lines[start].rstrip("\r\n"),
-            body="".join(lines[start + 1 : bound]),
-        )
-        for start, bound in zip(starts, bounds, strict=True)
+        ParsedSection(header=_bare(lines[start]), body="".join(lines[start + 1 : bound]))
+        for start, bound in _spans(starts, len(lines))
     )
     headers = {section.header for section in sections}
     missing = [header for header in SECTION_HEADERS if header not in headers]
