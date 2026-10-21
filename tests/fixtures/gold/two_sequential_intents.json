@@ -1,0 +1,9 @@
+{
+  "transcript": "two_sequential_intents",
+  "chunking": "user-boundaries",
+  "note": "Two unrelated turns over disjoint file sets: the second documents the option in README.md and shares nothing with the first, so it opens C2 instead of extending C1.",
+  "chains": {
+    "K1": "C1",
+    "K2": "C2"
+  }
+}

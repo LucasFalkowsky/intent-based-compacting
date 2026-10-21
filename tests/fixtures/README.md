@@ -46,6 +46,40 @@ session = CORPUS.session("interleaved_intents")  # validated on load
   turn that rewrites a file of `C2`'s solution and adds another: the re-entry input for the
   parser, the candidate feed and the solution merge.
 
+## Gold chain labels
+
+`gold/<name>.json` holds, for every transcript, which intent chain each of its chunks
+belongs to — the reference the classifier evaluation harness scores a run against
+(T4.4, #19). The labels are **hand-written judgments and a separate artifact on purpose**:
+nothing derives them from a transcript or from a classifier's own output, or the harness
+would be scoring itself.
+
+```json
+{
+  "transcript": "interleaved_intents",
+  "chunking": "user-boundaries",
+  "note": "why the labelling is what it is",
+  "chains": {"K1": "C1", "K2": "C2", "K3": "C1"}
+}
+```
+
+- `transcript` names the fixture and must equal the file name; `chunking` says which
+  chunking the chunk ids are those of (`user-boundaries` is `idc.chunk.chunk_session`).
+- `chains` maps `Chunk.id` to `Chain.id`, in transcript order, and the chains are numbered
+  `C1…Ck` in the order they open — the numbering `idc.classify` itself assigns, which is
+  what makes per-chunk accuracy comparable at all.
+- `note` is the human reason for the labelling, and the place where a case that would be
+  labelled differently under other circumstances says so (see
+  `gold/already_compacted_block.json`).
+
+Load a labelling by name, never by path:
+
+```python
+from fixture_corpus import CORPUS
+
+gold = CORPUS.gold("interleaved_intents")  # validated on load
+```
+
 ## Conventions the corpus follows
 
 - Each file is byte-identical to what `idc.schema.dump` writes (indent 2, trailing
@@ -62,7 +96,8 @@ session = CORPUS.session("interleaved_intents")  # validated on load
 
 ## Adding a fixture
 
-Drop a `<name>.json` canonical `Session` into this directory and add one `- \`<name>.json\` —
-…` line here. Discovery is automatic: `CORPUS.names()` and the corpus-wide tests pick the
+Drop a `<name>.json` canonical `Session` into this directory, add one `- \`<name>.json\` —
+…` line here, and write its gold chain labels into `gold/<name>.json` — a fixture without
+them fails `tests/test_classify_gold.py`, which pins the two sides against each other. Discovery is automatic: `CORPUS.names()` and the corpus-wide tests pick the
 file up without any list to update. If the fixture exists for a specific structural
 property, pin that property in `tests/test_fixture_cases.py`.

@@ -1,0 +1,456 @@
+"""The evaluation harness: agreement between a classifier run and the gold labels.
+
+The two tests the ticket asks for (#19) are
+`test_the_gold_script_scores_a_perfect_run` and
+`test_a_wrong_script_scores_below_one`, run over the shared corpus through the
+fake adapter — no model, no network, no clock.
+
+Around them, two things are tested the way the ticket requires them to be:
+
+- **The metrics are arithmetic.** `METRIC_CASES` holds hand-worked labellings
+  with the accuracy and the Rand index computed on paper, so the formulas have
+  an oracle that is independent of any adapter. The table deliberately includes
+  the two cases that show the metrics measure different things: a renaming that
+  costs all of the accuracy and none of the Rand index, and a single wrong
+  decision that costs a quarter of the accuracy and half of the Rand index.
+- **The gold labels are input.** Everything scored here is scored against
+  `tests/fixtures/gold/`, which no code in this repository writes.
+"""
+
+import json
+
+import pytest
+from idc.classify.evaluate import EXIT_INPUT_ERROR, main
+
+from fixture_corpus import CORPUS, FIXTURES_DIR, GOLD_DIR
+from idc.chunk import chunk_session
+from idc.classify import (
+    NEW,
+    Agreement,
+    CorpusAgreement,
+    DecisionRecordError,
+    Disagreement,
+    EvaluationCase,
+    FakeAdapter,
+    GoldChains,
+    GoldCoverageError,
+    GoldLabellingError,
+    UnknownChainError,
+    agreement,
+    chunks_for,
+    classify_chunks,
+    evaluate_adapter,
+    evaluate_cases,
+    format_report,
+    gold_script,
+    load_decisions,
+    per_chunk_accuracy,
+    predicted_labels,
+    rand_index,
+)
+
+FIXTURE_NAMES = CORPUS.names()
+"""Every fixture of the shared corpus, discovered at collection time."""
+
+MULTI_CHUNK_FIXTURES = ("interleaved_intents", "two_sequential_intents")
+"""The fixtures a classifier can get wrong at all.
+
+Seven of the nine transcripts hold a single chunk, where the only decision an
+adapter may make is `NEW` — naming a chain is `UnknownChainError`, because none
+is on offer yet. A wrong script therefore exists only for these two, which
+`test_a_single_chunk_transcript_admits_only_the_gold_decision` pins.
+"""
+
+METRIC_CASES = (
+    # (id, predicted, gold, accuracy, rand index) — all four numbers by hand.
+    (
+        "identical",
+        {"K1": "C1", "K2": "C1", "K3": "C2", "K4": "C2"},
+        {"K1": "C1", "K2": "C1", "K3": "C2", "K4": "C2"},
+        1.0,
+        1.0,
+    ),
+    (
+        # K2 moved to the other chain: 3 of 4 chunks right, and of the 6 pairs
+        # only (K1,K3), (K1,K4) and (K3,K4) agree.
+        "one-chunk-misplaced",
+        {"K1": "C1", "K2": "C2", "K3": "C2", "K4": "C2"},
+        {"K1": "C1", "K2": "C1", "K3": "C2", "K4": "C2"},
+        0.75,
+        0.5,
+    ),
+    (
+        # Everything merged into one chain: the 2 chunks of C1 keep their label,
+        # and of the 6 pairs the 2 that are together in the gold agree.
+        "all-merged",
+        {"K1": "C1", "K2": "C1", "K3": "C1", "K4": "C1"},
+        {"K1": "C1", "K2": "C1", "K3": "C2", "K4": "C2"},
+        0.5,
+        1 / 3,
+    ),
+    (
+        # One gold chain split into three: only K1 keeps its label and no pair
+        # of the 3 is together any more.
+        "all-split",
+        {"K1": "C1", "K2": "C2", "K3": "C3"},
+        {"K1": "C1", "K2": "C1", "K3": "C1"},
+        1 / 3,
+        0.0,
+    ),
+    (
+        # The partition is right and both names are wrong: the Rand index does
+        # not read a label, the accuracy reads nothing else.
+        "chains-renamed",
+        {"K1": "C2", "K2": "C1"},
+        {"K1": "C1", "K2": "C2"},
+        0.0,
+        1.0,
+    ),
+    (
+        # One chunk, so there is no pair to disagree about.
+        "single-chunk-mislabelled",
+        {"K1": "C2"},
+        {"K1": "C1"},
+        0.0,
+        1.0,
+    ),
+    (
+        # The third chunk opens a chain instead of rejoining the first — the
+        # mistake `interleaved_intents` is in the corpus for.
+        "returning-intent-missed",
+        {"K1": "C1", "K2": "C2", "K3": "C3"},
+        {"K1": "C1", "K2": "C2", "K3": "C1"},
+        2 / 3,
+        2 / 3,
+    ),
+)
+
+METRIC_IDS = [entry[0] for entry in METRIC_CASES]
+"""Readable ids for the hand-worked metric cases."""
+
+
+def gold_of(name: str) -> GoldChains:
+    """Return one fixture's gold labelling."""
+    return CORPUS.gold(name)
+
+
+def evaluation_case(name: str, script: object) -> EvaluationCase:
+    """Return the evaluation case that runs `script` over one fixture."""
+    return EvaluationCase(
+        gold=gold_of(name),
+        session=CORPUS.session(name),
+        adapter=FakeAdapter(script),
+    )
+
+
+def write_decisions(directory, name, decisions, **overrides):
+    """Write a recorded-run document for one transcript and return its path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    document = {"transcript": name, "decisions": decisions} | overrides
+    path = directory / f"{name}.json"
+    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def recorded(decision: object) -> str:
+    """Return a scripted decision as a recorded-run document writes it."""
+    return "NEW" if decision is NEW else str(decision)
+
+
+@pytest.mark.parametrize(
+    ("predicted", "gold", "expected"),
+    [(entry[1], entry[2], entry[3]) for entry in METRIC_CASES],
+    ids=METRIC_IDS,
+)
+def test_per_chunk_accuracy_is_the_share_of_chunks_labelled_as_in_the_gold(
+    predicted, gold, expected
+):
+    assert per_chunk_accuracy(predicted, gold) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("predicted", "gold", "expected"),
+    [(entry[1], entry[2], entry[4]) for entry in METRIC_CASES],
+    ids=METRIC_IDS,
+)
+def test_rand_index_is_the_share_of_chunk_pairs_the_two_partitions_agree_on(
+    predicted, gold, expected
+):
+    assert rand_index(predicted, gold) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("predicted", "gold"),
+    [(entry[1], entry[2]) for entry in METRIC_CASES],
+    ids=METRIC_IDS,
+)
+def test_the_rand_index_does_not_depend_on_which_side_is_the_gold(predicted, gold):
+    assert rand_index(predicted, gold) == pytest.approx(rand_index(gold, predicted))
+
+
+@pytest.mark.parametrize("metric", [per_chunk_accuracy, rand_index])
+def test_a_metric_refuses_two_labellings_over_different_chunks(metric):
+    with pytest.raises(GoldCoverageError, match="K2"):
+        metric({"K1": "C1"}, {"K1": "C1", "K2": "C1"})
+
+
+@pytest.mark.parametrize("metric", [per_chunk_accuracy, rand_index])
+def test_a_metric_refuses_an_empty_labelling(metric):
+    with pytest.raises(ValueError, match="at least one chunk"):
+        metric({}, {})
+
+
+@pytest.mark.parametrize("name", FIXTURE_NAMES)
+def test_the_gold_script_scores_a_perfect_run(name):
+    # The ticket's first test: the fake adapter playing the gold decisions
+    # agrees with the gold labels everywhere, on every fixture.
+    result = evaluate_adapter(
+        gold_of(name), CORPUS.session(name), FakeAdapter(gold_script(gold_of(name)))
+    )
+
+    assert result.accuracy == 1.0
+    assert result.rand_index == 1.0
+    assert result.disagreements == ()
+    assert result.is_perfect
+
+
+def test_the_gold_script_scores_a_perfect_run_over_the_whole_corpus():
+    result = evaluate_cases(
+        [evaluation_case(name, gold_script(gold_of(name))) for name in FIXTURE_NAMES]
+    )
+
+    assert result.transcript_count == len(FIXTURE_NAMES)
+    assert result.accuracy == 1.0
+    assert result.rand_index == 1.0
+    assert result.is_perfect
+
+
+@pytest.mark.parametrize(
+    ("name", "script", "accuracy", "rand"),
+    [
+        # Three chains instead of two: the returning intent is missed.
+        ("interleaved_intents", [NEW, NEW, NEW], 2 / 3, 2 / 3),
+        # One chain instead of two: the unrelated turn is swallowed.
+        ("two_sequential_intents", [NEW, "C1"], 0.5, 0.0),
+    ],
+)
+def test_a_wrong_script_scores_below_one(name, script, accuracy, rand):
+    # The ticket's second test, with the numbers worked out by hand.
+    result = evaluate_adapter(gold_of(name), CORPUS.session(name), FakeAdapter(script))
+
+    assert result.accuracy == pytest.approx(accuracy)
+    assert result.rand_index == pytest.approx(rand)
+    assert result.accuracy < 1.0
+    assert not result.is_perfect
+
+
+def test_a_wrong_script_names_the_chunks_it_got_wrong():
+    result = evaluate_adapter(
+        gold_of("interleaved_intents"),
+        CORPUS.session("interleaved_intents"),
+        FakeAdapter([NEW, NEW, NEW]),
+    )
+
+    assert result.disagreements == (Disagreement(chunk_id="K3", predicted="C3", gold="C1"),)
+    assert result.predicted_chains == 3
+    assert result.gold_chains == 2
+
+
+@pytest.mark.parametrize(
+    "name", [name for name in FIXTURE_NAMES if name not in MULTI_CHUNK_FIXTURES]
+)
+def test_a_single_chunk_transcript_admits_only_the_gold_decision(name):
+    # Why the wrong-script test covers two fixtures and not nine: with no chain
+    # open yet, naming one is refused by the classifier before any scoring.
+    with pytest.raises(UnknownChainError):
+        evaluate_adapter(gold_of(name), CORPUS.session(name), FakeAdapter(["C1"]))
+
+
+def test_an_agreement_carries_the_counts_the_report_is_built_from():
+    result = evaluate_adapter(
+        gold_of("interleaved_intents"),
+        CORPUS.session("interleaved_intents"),
+        FakeAdapter([NEW, NEW, NEW]),
+    )
+
+    assert isinstance(result, Agreement)
+    assert result.transcript == "interleaved_intents"
+    assert result.chunk_count == 3
+    assert result.matches == 2
+    assert result.pair_count == 3
+    assert result.agreeing_pairs == 2
+
+
+def test_agreement_scores_a_labelling_without_running_an_adapter():
+    gold = GoldChains.from_mapping("a_fixture", {"K1": "C1", "K2": "C2", "K3": "C1"})
+
+    result = agreement({"K1": "C1", "K2": "C2", "K3": "C3"}, gold)
+
+    assert result.accuracy == pytest.approx(2 / 3)
+    assert result.rand_index == pytest.approx(2 / 3)
+
+
+def test_agreement_refuses_a_run_that_covers_other_chunks_than_the_gold():
+    gold = GoldChains.from_mapping("a_fixture", {"K1": "C1", "K2": "C2"})
+
+    with pytest.raises(GoldCoverageError, match="K2"):
+        agreement({"K1": "C1"}, gold)
+
+
+def test_predicted_labels_reads_one_label_per_assignment():
+    session = CORPUS.session("interleaved_intents")
+    classification = classify_chunks(session, chunk_session(session), FakeAdapter([NEW, NEW, "C1"]))
+
+    assert predicted_labels(classification) == {"K1": "C1", "K2": "C2", "K3": "C1"}
+
+
+def test_chunks_for_performs_the_chunking_the_gold_declares():
+    session = CORPUS.session("interleaved_intents")
+
+    assert chunks_for(gold_of("interleaved_intents"), session) == chunk_session(session)
+
+
+def test_chunks_for_refuses_a_chunking_it_cannot_perform():
+    gold = GoldChains.from_mapping("a_fixture", {"K1": "C1"}, chunking="subagent-chunks")
+
+    with pytest.raises(GoldLabellingError, match="subagent-chunks"):
+        chunks_for(gold, CORPUS.session("single_intent"))
+
+
+def test_evaluate_cases_aggregates_over_the_chunks_and_the_pairs_of_the_corpus():
+    # By hand: interleaved contributes 2 of 3 chunks and 2 of 3 pairs,
+    # single_intent 1 of 1 chunk and no pair at all.
+    result = evaluate_cases(
+        [
+            evaluation_case("interleaved_intents", [NEW, NEW, NEW]),
+            evaluation_case("single_intent", [NEW]),
+        ]
+    )
+
+    assert isinstance(result, CorpusAgreement)
+    assert result.transcript_count == 2
+    assert result.chunk_count == 4
+    assert result.matches == 3
+    assert result.accuracy == pytest.approx(0.75)
+    assert result.pair_count == 3
+    assert result.agreeing_pairs == 2
+    assert result.rand_index == pytest.approx(2 / 3)
+
+
+def test_evaluate_cases_refuses_an_empty_corpus():
+    with pytest.raises(ValueError, match="at least one"):
+        evaluate_cases([])
+
+
+def test_the_report_names_every_transcript_its_numbers_and_its_disagreements():
+    result = evaluate_cases(
+        [
+            evaluation_case("interleaved_intents", [NEW, NEW, NEW]),
+            evaluation_case("single_intent", [NEW]),
+        ]
+    )
+
+    report = format_report(result).splitlines()
+
+    assert report[0].split() == ["transcript", "chunks", "chains", "accuracy", "rand"]
+    assert report[1].split() == ["interleaved_intents", "3", "3/2", "0.667", "0.667"]
+    assert report[2].split() == ["single_intent", "1", "1/1", "1.000", "1.000"]
+    assert report[3] == (
+        "corpus: 2 transcripts, 4 chunks, 3 chunk pairs; accuracy 0.750, rand index 0.667"
+    )
+    assert report[4] == "disagreements (predicted / gold):"
+    assert report[5] == "  interleaved_intents K3: C3 / C1"
+
+
+def test_the_report_of_a_perfect_run_lists_no_disagreement():
+    report = format_report(evaluate_cases([evaluation_case("single_intent", [NEW])]))
+
+    assert "disagreements" not in report
+
+
+def test_the_command_scores_the_gold_baseline_over_the_corpus(capsys):
+    status = main([str(GOLD_DIR), str(FIXTURES_DIR)])
+
+    out = capsys.readouterr().out
+    assert status == 0
+    assert all(name in out for name in FIXTURE_NAMES)
+    assert "accuracy 1.000, rand index 1.000" in out
+
+
+def test_the_command_scores_a_recorded_run(tmp_path, capsys):
+    decisions_dir = tmp_path / "decisions"
+    for name in FIXTURE_NAMES:
+        script = [NEW, NEW, NEW] if name == "interleaved_intents" else gold_script(gold_of(name))
+        write_decisions(decisions_dir, name, [recorded(entry) for entry in script])
+
+    status = main([str(GOLD_DIR), str(FIXTURES_DIR), "--decisions", str(decisions_dir)])
+
+    out = capsys.readouterr().out
+    # 10 of 11 chunks and 3 of 4 chunk pairs, worked out by hand.
+    assert status == 0
+    assert "accuracy 0.909, rand index 0.750" in out
+    assert "interleaved_intents K3: C3 / C1" in out
+
+
+def test_the_command_reports_a_missing_gold_directory_without_a_traceback(tmp_path, capsys):
+    status = main([str(tmp_path / "nowhere"), str(FIXTURES_DIR)])
+
+    captured = capsys.readouterr()
+    assert status == EXIT_INPUT_ERROR
+    assert "nowhere" in captured.err
+    assert captured.out == ""
+
+
+def test_the_command_reports_a_missing_transcript(tmp_path, capsys):
+    status = main([str(GOLD_DIR), str(tmp_path)])
+
+    assert status == EXIT_INPUT_ERROR
+    assert "already_compacted_block" in capsys.readouterr().err
+
+
+def test_the_command_reports_a_missing_recorded_run(tmp_path, capsys):
+    decisions_dir = tmp_path / "decisions"
+    write_decisions(decisions_dir, "single_intent", ["NEW"])
+
+    status = main([str(GOLD_DIR), str(FIXTURES_DIR), "--decisions", str(decisions_dir)])
+
+    assert status == EXIT_INPUT_ERROR
+    assert "already_compacted_block" in capsys.readouterr().err
+
+
+def test_the_command_reports_a_recorded_run_of_the_wrong_length(tmp_path, capsys):
+    decisions_dir = tmp_path / "decisions"
+    for name in FIXTURE_NAMES:
+        write_decisions(decisions_dir, name, ["NEW"])
+
+    status = main([str(GOLD_DIR), str(FIXTURES_DIR), "--decisions", str(decisions_dir)])
+
+    assert status == EXIT_INPUT_ERROR
+    assert "interleaved_intents" in capsys.readouterr().err
+
+
+def test_load_decisions_reads_new_and_a_chain_id(tmp_path):
+    path = write_decisions(tmp_path, "a_run", ["NEW", "C1"])
+
+    assert load_decisions(path) == (NEW, "C1")
+
+
+def test_load_decisions_rejects_an_entry_that_is_no_decision(tmp_path):
+    path = write_decisions(tmp_path, "a_run", ["NEW", "K1"])
+
+    with pytest.raises(DecisionRecordError, match="a_run"):
+        load_decisions(path)
+
+
+def test_load_decisions_rejects_a_transcript_name_that_is_not_the_file_name(tmp_path):
+    path = write_decisions(tmp_path, "a_run", ["NEW"], transcript="another_run")
+
+    with pytest.raises(DecisionRecordError, match="another_run"):
+        load_decisions(path)
+
+
+def test_load_decisions_rejects_an_unknown_key(tmp_path):
+    path = write_decisions(tmp_path, "a_run", ["NEW"], chains={"K1": "C1"})
+
+    with pytest.raises(DecisionRecordError, match="chains"):
+        load_decisions(path)

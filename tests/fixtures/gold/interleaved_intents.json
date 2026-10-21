@@ -1,0 +1,10 @@
+{
+  "transcript": "interleaved_intents",
+  "chunking": "user-boundaries",
+  "note": "The discriminating case: the turns pursue A, B, A. The third turn returns to the sampler intent of the first and re-edits its file, so K3 extends C1 instead of opening a third chain. The middle turn shares no file with either neighbour and is C2.",
+  "chains": {
+    "K1": "C1",
+    "K2": "C2",
+    "K3": "C1"
+  }
+}

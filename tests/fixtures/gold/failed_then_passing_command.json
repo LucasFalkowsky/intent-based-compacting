@@ -1,0 +1,8 @@
+{
+  "transcript": "failed_then_passing_command",
+  "chunking": "user-boundaries",
+  "note": "One intent. The failed run of the verification command and its repetition are the path to the same solution, not a second intent, so the transcript holds one chain.",
+  "chains": {
+    "K1": "C1"
+  }
+}

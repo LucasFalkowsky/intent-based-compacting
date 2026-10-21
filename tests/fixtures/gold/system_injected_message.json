@@ -1,0 +1,8 @@
+{
+  "transcript": "system_injected_message",
+  "chunking": "user-boundaries",
+  "note": "Three harness-injected messages, one of them in the user role in the middle of the agent's work. None of them is a user turn, so the transcript holds one chunk and one chain.",
+  "chains": {
+    "K1": "C1"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "transcript": "write_then_two_edits",
+  "chunking": "user-boundaries",
+  "note": "One intent. A file written and then twice corrected within the same turn is one intent; the superseded writes are path, which is T5's question and not a chain of its own.",
+  "chains": {
+    "K1": "C1"
+  }
+}
