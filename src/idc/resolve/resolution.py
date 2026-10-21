@@ -175,13 +175,6 @@ def solution_call_ids(session: Session, chunks: Sequence[Chunk], chain: Chain) -
     Raises:
         ResolveError: If the chain and the chunks or the chunks and the session
             do not fit together; see `idc.resolve.errors`.
-
-            One input shape escapes this family and is tracked as #79: an
-            *overlapping* chunk list that covers a verification run twice
-            reaches `SolutionVerification` with that run on both sides, and
-            raises a plain `ValueError` from there. `chunk_session` produces no
-            overlapping list, so the pipeline cannot reach it — but this clause
-            does not hold for a caller that builds one by hand.
     """
     return _solution_ids(
         solution_files(session, chunks, chain),
@@ -208,13 +201,6 @@ def path_call_ids(session: Session, chunks: Sequence[Chunk], chain: Chain) -> tu
     Raises:
         ResolveError: If the chain and the chunks or the chunks and the session
             do not fit together; see `idc.resolve.errors`.
-
-            One input shape escapes this family and is tracked as #79: an
-            *overlapping* chunk list that covers a verification run twice
-            reaches `SolutionVerification` with that run on both sides, and
-            raises a plain `ValueError` from there. `chunk_session` produces no
-            overlapping list, so the pipeline cannot reach it — but this clause
-            does not hold for a caller that builds one by hand.
     """
     kept = set(solution_call_ids(session, chunks, chain))
     walked = _unique(located.id for located in chain_calls(session, chunks, chain))
@@ -224,10 +210,15 @@ def path_call_ids(session: Session, chunks: Sequence[Chunk], chain: Chain) -> tu
 def resolve(session: Session, chunks: Sequence[Chunk], chain: Chain) -> Resolution:
     """Resolve one chain into its solution and its path.
 
-    The stage's entry point: it asks the three questions of the resolver once
-    each and returns their answers as one value, so a caller never has to know
-    that the files, the verification and the path are computed by three
-    different modules.
+    The stage's entry point: it asks the three questions of the resolver — the
+    accepted writes, the run that proves them, the path that led there — and
+    returns their answers as one value, so a caller never has to know that
+    they are computed by three different modules. The path is the complement of
+    the other two, so computing it asks them again: `solution_files` and
+    `solution_verification` each run twice per `resolve` call. Both are
+    computed from these three arguments alone, so the second answer is the
+    first one — the repetition costs time and nothing else, and is counted in
+    the tests rather than memoised away.
 
     Args:
         session: The transcript the chunks range over.
@@ -237,18 +228,12 @@ def resolve(session: Session, chunks: Sequence[Chunk], chain: Chain) -> Resoluti
     Returns:
         The chain's `Resolution`. Computed from the transcript alone — no git,
         no filesystem, no clock, no model — so the same inputs always resolve
-        to the same value.
+        to the same value. A call that two chunks of the list both cover is
+        one call and is counted once, on one side (#79).
 
     Raises:
         ResolveError: If the chain and the chunks or the chunks and the session
             do not fit together; see `idc.resolve.errors`.
-
-            One input shape escapes this family and is tracked as #79: an
-            *overlapping* chunk list that covers a verification run twice
-            reaches `SolutionVerification` with that run on both sides, and
-            raises a plain `ValueError` from there. `chunk_session` produces no
-            overlapping list, so the pipeline cannot reach it — but this clause
-            does not hold for a caller that builds one by hand.
     """
     return Resolution(
         solution_files=solution_files(session, chunks, chain),

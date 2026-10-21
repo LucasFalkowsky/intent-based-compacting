@@ -193,6 +193,35 @@ def test_resolving_the_same_chain_twice_gives_the_same_answer(name):
         assert resolve(session, chunks, chain) == resolve(session, chunks, chain)
 
 
+@pytest.mark.parametrize("name", FIXTURE_NAMES)
+def test_every_chain_resolves_the_same_over_a_doubled_chunk_list(name):
+    # The invariant behind #79, over the whole corpus: a chunk list that covers
+    # every message twice is *handed* input and not a caller's mistake, so the
+    # stage resolves it — with every call counted once, on one side — instead
+    # of refusing from outside `idc.resolve.errors`.
+    session, chunks, chains = classified(name)
+    doubled = [
+        *chunks,
+        *(
+            Chunk(id=f"{chunk.id}-again", start_index=chunk.start_index, end_index=chunk.end_index)
+            for chunk in chunks
+        ),
+    ]
+
+    for chain in chains:
+        expected = resolve(session, chunks, chain)
+        both = Chain(
+            id=chain.id,
+            label=chain.label,
+            chunk_ids=[*chain.chunk_ids, *(f"{chunk_id}-again" for chunk_id in chain.chunk_ids)],
+        )
+
+        resolution = resolve(session, doubled, both)
+
+        assert resolution.solution_call_ids == expected.solution_call_ids
+        assert resolution.path_call_ids == expected.path_call_ids
+
+
 # --- one example per kind of path call ------------------------------------
 
 
@@ -325,6 +354,104 @@ def test_the_partition_lists_a_call_two_chunks_both_cover_once():
     assert sorted(set(path) | set(resolution.solution_call_ids)) == ["c01", "c02", "c03"]
 
 
+def test_the_partition_lists_a_run_two_chunks_both_cover_once():
+    # The repro of #79. The range reaches the end of the transcript, so it
+    # covers the fixture's command — which the test above deliberately stops
+    # short of. Before the fix, the overlapping list made the command two
+    # verification runs, the kept run was also among the discarded ones, and
+    # `SolutionVerification` raised a plain `ValueError` at the caller, for
+    # input the stage was handed.
+    session = CORPUS.session(SINGLE)
+    assert [call.id for call in tool_calls(session.messages)] == ["c01", "c02", "c03", "c04"]
+    single = [Chunk(id="K1", start_index=0, end_index=len(session.messages))]
+    overlapping = [*single, Chunk(id="K2", start_index=0, end_index=len(session.messages))]
+    one = Chain(id="C1", label="the one intent", chunk_ids=["K1"])
+    both = Chain(id="C1", label="the one intent", chunk_ids=["K1", "K2"])
+
+    resolution = resolve(session, overlapping, both)
+    path = resolution.path_call_ids
+
+    assert resolution.solution_call_ids == resolve(session, single, one).solution_call_ids
+    assert path == resolve(session, single, one).path_call_ids
+    assert resolution.verification is not None
+    assert resolution.verification.discarded == ()
+    assert len(set(path)) == len(path)
+    assert not set(path) & set(resolution.solution_call_ids)
+    assert sorted(set(path) | set(resolution.solution_call_ids)) == ["c01", "c02", "c03", "c04"]
+
+
+def test_an_overlapping_chunk_list_over_a_write_resolves_to_the_same_ids():
+    # The write half already counted a doubly located write once when #79 was
+    # filed, and the fix is not allowed to change that side: the range is the
+    # write-and-read range of the overlap test above, resolved once overlapping
+    # and once not. The ids are what the partition is in, so they are what is
+    # compared; the entries themselves are not, because a doubly located write
+    # is still held twice inside its own `SolutionFile`.
+    session = CORPUS.session(SINGLE)
+    assert [call.id for call in tool_calls(session.messages[0:6])] == ["c01", "c02", "c03"]
+    single = [Chunk(id="K1", start_index=0, end_index=6)]
+    overlapping = [*single, Chunk(id="K2", start_index=0, end_index=6)]
+    one = Chain(id="C1", label="the one intent", chunk_ids=["K1"])
+    both = Chain(id="C1", label="the one intent", chunk_ids=["K1", "K2"])
+
+    resolution = resolve(session, overlapping, both)
+    expected = resolve(session, single, one)
+
+    assert resolution.solution_call_ids == expected.solution_call_ids == ("c03",)
+    assert resolution.path_call_ids == expected.path_call_ids == ("c01", "c02")
+    assert [entry.path for entry in resolution.solution_files] == [
+        entry.path for entry in expected.solution_files
+    ]
+    assert resolution.verification is None
+    assert expected.verification is None
+
+
+def test_the_partition_claims_no_refusal_outside_the_stages_own_family():
+    # While #79 was open, all three `Raises` clauses of this module carried a
+    # paragraph saying that one input shape — an overlapping chunk list —
+    # escaped the family as a plain `ValueError`. Nothing escapes it now, so no
+    # clause may still say that one does.
+    module = importlib.import_module("idc.resolve.resolution")
+    documented = {
+        function.__name__: function.__doc__ or ""
+        for function in (module.resolve, module.path_call_ids, module.solution_call_ids)
+    }
+
+    assert len(documented) == 3, "all three partition functions must be covered"
+    for name, documentation in documented.items():
+        assert "ResolveError" in documentation, name
+        assert "ValueError" not in documentation, name
+        assert "escapes" not in documentation, name
+
+
+def test_the_entry_point_asks_each_half_as_often_as_it_documents(monkeypatch):
+    # `resolve` documents that the two halves of the solution are computed
+    # twice per call — once directly, once through the path — and that the
+    # repetition changes nothing because both are deterministic. Counted here
+    # so the sentence cannot drift from the code again, and so a later
+    # memoisation is a deliberate change with a test that says so.
+    session, chunks, chain = only_chain(SINGLE)
+    module = importlib.import_module("idc.resolve.resolution")
+    counted = {"solution_files": 0, "solution_verification": 0}
+
+    def counting(name: str):
+        inner = getattr(module, name)
+
+        def wrapper(*args, **kwargs):
+            counted[name] += 1
+            return inner(*args, **kwargs)
+
+        return wrapper
+
+    for name in counted:
+        monkeypatch.setattr(module, name, counting(name))
+
+    resolution = module.resolve(session, chunks, chain)
+
+    assert counted == {"solution_files": 2, "solution_verification": 2}
+    assert resolution == resolve(session, chunks, chain), "the repeated answers are one answer"
+
+
 def test_a_resolution_that_counts_a_call_twice_is_a_programming_error():
     session, chunks, chain = only_chain(SINGLE)
     resolution = resolve(session, chunks, chain)
@@ -363,17 +490,19 @@ def test_the_path_holds_no_content_of_the_calls_it_names():
     # The parent's second criterion (#20): a tool result is never summarized,
     # so the path side names calls and carries nothing of what they said.
     session, chunks, chain = only_chain(FAILED_THEN_PASSING)
-    outputs = [
-        message.tool_result.output
+    answered = {
+        message.tool_result.call_id
         for message in session.messages
-        if message.tool_result is not None
-    ]
-    assert outputs, "the fixture must hold tool results to look for"
+        if message.tool_result is not None and message.tool_result.output
+    }
 
     path = resolve(session, chunks, chain).path_call_ids
 
     assert set(path) <= {call.id for call in tool_calls(session.messages)}
-    assert not [entry for entry in path if any(entry in output for output in outputs)]
+    assert set(path) & answered, (
+        "the path must name a call whose result holds output, or the subset assertion "
+        "above holds for a path that drops nothing"
+    )
 
 
 def test_the_module_documents_the_limitation_of_the_partition():

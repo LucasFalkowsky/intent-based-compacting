@@ -407,6 +407,28 @@ def test_a_chain_resolves_only_the_runs_of_its_own_chunks():
     assert ids(verification_runs(session, chunks, second)) == ["c09"]
 
 
+@pytest.mark.parametrize("name", [ONE_RUN, THREE_RUNS])
+def test_a_run_two_chunks_both_cover_is_one_run(name):
+    # Two chunks whose ranges overlap locate the same `exec` call twice. The
+    # chunker produces no such list, but the stage is handed its chunks: a run
+    # is a call, so one call is one run — and the kept run must not end up
+    # among the discarded ones as well, which is how an overlapping list used
+    # to raise a plain `ValueError` out of `SolutionVerification` (#79).
+    session = CORPUS.session(name)
+    single = [Chunk(id="K1", start_index=0, end_index=len(session.messages))]
+    overlapping = [*single, Chunk(id="K2", start_index=0, end_index=len(session.messages))]
+    one = Chain(id="C1", label="the whole transcript", chunk_ids=["K1"])
+    both = Chain(id="C1", label="the whole transcript", chunk_ids=["K1", "K2"])
+
+    runs = verification_runs(session, overlapping, both)
+
+    assert runs, "the fixture must run a verification for the overlap to double one"
+    assert ids(runs) == ids(verification_runs(session, single, one))
+    assert solution_verification(session, overlapping, both) == solution_verification(
+        session, single, one
+    )
+
+
 def test_the_exec_calls_of_a_chain_are_its_exec_calls_and_nothing_else():
     session, chunks, chain = only_chain(FAILED_THEN_PASSING)
 
