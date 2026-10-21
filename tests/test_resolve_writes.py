@@ -23,6 +23,8 @@ import json
 import pytest
 
 from fixture_corpus import CORPUS
+from fixture_corpus import FILE_PATH_KEYS as CORPUS_FILE_PATH_KEYS
+from fixture_corpus import file_of as corpus_file_of
 from idc.chunk import chunk_session
 from idc.classify import FakeAdapter, classify, gold_script
 from idc.resolve import (
@@ -116,6 +118,28 @@ def session_with_renamed_argument(name: str, call_id: str, old: str, new: str) -
     return loads(Session, json.dumps(document))
 
 
+def session_with_respelled_file(name: str, call_id: str, path: str) -> Session:
+    """Return a fixture with one call's file argument respelled, via the load path.
+
+    Built the same way as `session_with_renamed_argument` and for the same
+    reason: the corpus spells every file one way per transcript, so the two
+    cases that need a second spelling — one file written under two names, and a
+    path argument that holds no word — are made by rewriting the fixture's own
+    document and loading it through `loads`.
+    """
+    document = json.loads(CORPUS.text(name))
+    respelled = 0
+    for message in document["messages"]:
+        for call in message.get("tool_calls", []):
+            if call["id"] == call_id:
+                for key in CORPUS_FILE_PATH_KEYS:
+                    if key in call["args"]:
+                        call["args"][key] = path
+                        respelled += 1
+    assert respelled == 1, f"{call_id} must name its file exactly once in {name}"
+    return loads(Session, json.dumps(document))
+
+
 # --- the two acceptance criteria -------------------------------------------
 
 
@@ -183,7 +207,7 @@ def test_a_chain_resolves_only_the_writes_of_its_own_chunks():
     assert resolved["C2"] == {"config/settings.toml", "src/config/loader.py"}
     assert resolved["C1"] & resolved["C2"] == set()
     assert resolved["C1"] | resolved["C2"] == {
-        path for call in all_write_calls(session) if (path := file_of(call)) is not None
+        path for call in all_write_calls(session) if (path := corpus_file_of(call)) is not None
     }
 
 
@@ -324,6 +348,63 @@ def test_a_write_whose_file_argument_is_spelled_unknown_is_attributed_to_no_file
         "the write that cannot be attributed does not become the file's accepted write"
     )
     assert ids(entries["/repo/src/text/slug.py"].edits) == ["c05", "c07"]
+
+
+def test_the_stage_and_the_corpus_agree_on_the_file_argument_spellings():
+    # One list exists twice: the stage reads a call's file with its own
+    # `FILE_PATH_KEYS`, and `tests/fixture_corpus.py` holds an independent copy
+    # so that no stage is its own oracle here. Nothing else compares them, so a
+    # spelling added on one side only would leave both sides agreeing with
+    # themselves and the oracle silently weaker.
+    assert FILE_PATH_KEYS == CORPUS_FILE_PATH_KEYS
+
+
+def test_a_write_whose_file_argument_holds_no_word_is_attributed_to_no_file():
+    blank = ToolCall(id="c01", name="Write", category=ToolCategory.WRITE, args={"file_path": "   "})
+    empty = ToolCall(id="c02", name="Write", category=ToolCategory.WRITE, args={"file_path": ""})
+
+    assert file_of(blank) is None, "a path that holds no word names no file"
+    assert file_of(empty) is None
+
+
+def test_a_write_whose_file_argument_holds_no_word_does_not_refuse_the_resolution():
+    # An argument that holds no word is input the stage was handed, so it is
+    # reported the way every other unattributable write is. Grouping it would
+    # build a `SolutionFile` whose path states nothing, and that constructor
+    # raises a plain `ValueError` — outside the `ResolveError` family both
+    # `write_calls` and `solution_files` document, so a caller catching the
+    # stage would miss it.
+    session = session_with_respelled_file(WRITE_THEN_TWO_EDITS, "c03", "   ")
+    chunks = chunk_session(session)
+    chain = Chain(id="C1", label="the one intent", chunk_ids=[chunks[0].id])
+    entries = {entry.path: entry for entry in solution_files(session, chunks, chain)}
+
+    assert [located.path for located in write_calls(session, chunks, chain)] == [
+        "/repo/tests/text/test_slug.py",
+        None,
+        "/repo/src/text/slug.py",
+        "/repo/src/text/slug.py",
+    ], "the call is still reported, it is only attributed to no file"
+    assert list(entries) == ["/repo/tests/text/test_slug.py", "/repo/src/text/slug.py"]
+    assert entries["/repo/src/text/slug.py"].write is None
+    assert ids(entries["/repo/src/text/slug.py"].edits) == ["c05", "c07"]
+
+
+def test_two_spellings_of_one_file_are_two_entries():
+    # The non-detection `file_of` documents, pinned: without a filesystem
+    # `docs/install.md` and `./docs/install.md` cannot be compared, so the rule
+    # is applied per spelling and each entry presents its own write as the
+    # accepted one. The second write therefore does not supersede the first.
+    session = session_with_respelled_file(REWRITTEN, "c04", "./docs/install.md")
+    chunks = chunk_session(session)
+    chain = Chain(id="C1", label="the one intent", chunk_ids=[chunks[0].id])
+    entries = {entry.path: entry for entry in solution_files(session, chunks, chain)}
+
+    assert list(entries) == ["docs/install.md", "./docs/install.md"]
+    assert ids(entries["docs/install.md"].kept) == ["c02"], "the first write is accepted"
+    assert ids(entries["./docs/install.md"].kept) == ["c04"], "and so is the second"
+    assert entries["docs/install.md"].superseded == (), "neither overwrote the other"
+    assert entries["./docs/install.md"].superseded == ()
 
 
 # --- the chain's calls -----------------------------------------------------

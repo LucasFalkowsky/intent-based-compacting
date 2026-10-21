@@ -78,18 +78,18 @@ EXPECTED_CHAINS: dict[str, dict[str, object]] = {
     },
     # A, B, A — the third turn returns to the first intent, so it is appended to
     # `C1` and the transcript has two chains, not three.
-    # A write, a patch the file refused and a second write of the same file:
-    # one intent, and which write is the solution is T5's question.
-    "rewritten_after_failed_edit": {
-        "script": [NEW],
-        "chains": [("C1", ["K1"], "`docs/install.md` still tells people to use pip and a…")],
-    },
     "interleaved_intents": {
         "script": [NEW, NEW, "C1"],
         "chains": [
             ("C1", ["K1", "K3"], "`tests/rates/test_sampler.py::test_weighted_pick` fails…"),
             ("C2", ["K2"], "Unrelated: rename the config key `retry_limit` to…"),
         ],
+    },
+    # A write, a patch the file refused and a second write of the same file:
+    # one intent, and which write is the solution is T5's question.
+    "rewritten_after_failed_edit": {
+        "script": [NEW],
+        "chains": [("C1", ["K1"], "`docs/install.md` still tells people to use pip and a…")],
     },
     # One intent, one chunk, one chain: the minimal case.
     "single_intent": {
