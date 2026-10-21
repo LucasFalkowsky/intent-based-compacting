@@ -52,7 +52,7 @@ from idc.parse import (
     placeholder_chunk_id,
     split_blocks,
 )
-from idc.resolve import Resolution, resolve
+from idc.resolve import Resolution, UnknownChunkError, resolve
 from idc.schema import Chain
 
 SEEDED = "already_compacted_block"
@@ -85,11 +85,7 @@ def narrative(label: str) -> str:
 def block_text() -> str:
     """Return the compacted block the fixture's transcript carries."""
     session = CORPUS.session(SEEDED)
-    blocks = [
-        message.content
-        for message in session.messages
-        if message.content.startswith("## [C")
-    ]
+    blocks = [m.content for m in session.messages if m.content.startswith("## [C")]
     assert len(blocks) == 1, f"{SEEDED} is used as the one-block fixture, found {len(blocks)}"
     return blocks[0]
 
@@ -146,7 +142,9 @@ def test_only_the_extended_chain_changes() -> None:
     before = by_id(split_blocks(block_text()))
     client = FakeNarrativeClient([narrative("Give the rate limiter a Retry-After header")])
 
-    after = by_id(split_blocks(compact_incrementally(chains, resolution_of=resolution_of, client=client)))
+    written = compact_incrementally(chains, resolution_of=resolution_of, client=client)
+
+    after = by_id(split_blocks(written))
 
     assert after[UNTOUCHED] == before[UNTOUCHED]
     assert after[EXTENDED] != before[EXTENDED]
@@ -397,6 +395,24 @@ def test_the_transcript_chain_drops_the_placeholder() -> None:
     assert current.compacted_text == extended.compacted_text
     assert current.chunk_ids == list(transcript_chunk_ids(extended))
     assert placeholder_chunk_id(EXTENDED) not in current.chunk_ids
+
+
+def test_the_resolver_is_handed_a_chain_it_can_resolve() -> None:
+    """Why `transcript_chain` exists: the carried placeholder names no chunk here.
+
+    The extended chain as the classifier returns it cannot be resolved — its
+    first id came out of a block and no chunk of this transcript answers to it —
+    so the stage hands the resolver the chain reduced to this transcript's
+    chunks, and the run goes through.
+    """
+    chains, resolution_of = seeded_run()
+    extended = chains[1]
+    client = FakeNarrativeClient([narrative("Give the rate limiter a Retry-After header")])
+
+    with pytest.raises(UnknownChunkError, match=placeholder_chunk_id(EXTENDED)):
+        resolution_of(extended)
+
+    assert compact_incrementally(chains, resolution_of=resolution_of, client=client)
 
 
 def test_the_transcript_chain_of_a_carried_over_chain_is_refused() -> None:

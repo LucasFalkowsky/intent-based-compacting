@@ -29,6 +29,13 @@ from idc.compact.errors import (
     NarrativeScriptExhaustedError,
 )
 from idc.compact.fake import FakeNarrativeCall, FakeNarrativeClient
+from idc.compact.incremental import (
+    compact_incrementally,
+    incremental_blocks,
+    is_carried_over,
+    transcript_chain,
+    transcript_chunk_ids,
+)
 from idc.compact.instruction import (
     INSTRUCTION_PATH,
     INSTRUCTION_VERSION,
@@ -117,4 +124,16 @@ __all__ += [
     "load_instruction",
     "rejected_section",
     "render_narrative_block",
+]
+
+# T6.3 (#28) — the stage that writes a whole run: a model call for a chain this
+# run opened or extended, and the earlier run's own bytes for every other one.
+# Appended as a block of its own for the reason the comment above `__all__`
+# gives.
+__all__ += [
+    "compact_incrementally",
+    "incremental_blocks",
+    "is_carried_over",
+    "transcript_chain",
+    "transcript_chunk_ids",
 ]

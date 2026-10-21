@@ -531,6 +531,12 @@ def test_the_package_exports_the_compaction_stage_and_nothing_more():
         "render_block",
         "solution_section",
         "verification_section",
+        # T6.3 (#28): the run-level stage, which writes only what changed.
+        "compact_incrementally",
+        "incremental_blocks",
+        "is_carried_over",
+        "transcript_chain",
+        "transcript_chunk_ids",
     }
     for name in idc.compact.__all__:
         assert hasattr(idc.compact, name)
