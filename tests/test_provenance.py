@@ -359,8 +359,9 @@ def test_a_raw_session_can_be_normalised_on_its_own():
 
 @pytest.mark.parametrize("source", [SessionSource.RAW, SessionSource.INTENT_COMPACTION])
 def test_a_session_the_agent_never_compacted_is_normalised_as_it_is(source):
-    # Only `native-compaction` needs the summary identifier; the other two
-    # provenances are normalised on their own, which is what the module promises.
+    # A session that names no summary has no cut, whatever its provenance, so it is
+    # normalised as it is — which is what the module promises. The identifier is
+    # permitted under `intent-compaction` since T1.4, but it is never required.
     plain = session(message("u1", content="go"), source=source)
 
     context = visible_context(plain)
@@ -416,15 +417,50 @@ def test_an_imported_compacted_session_that_names_no_summary_cannot_be_built():
         ImportedSession(session=compacted)
 
 
-def test_a_session_that_names_a_summary_must_be_compacted_natively():
-    # The other half of the pair is now a canonical invariant: both fields live on
-    # `Session`, so the contradiction is refused by the schema and `ImportedSession`
-    # can no longer be handed one — the identifier is read off the session it names.
+def test_a_session_that_names_a_summary_must_have_been_compacted_by_someone():
+    # One half of the old pair survives as a canonical invariant: `raw` plus an
+    # identifier is refused by the schema, because a transcript nothing compacted
+    # has no message its context starts at. The other half is a document this tool
+    # has to be able to write (T1.4) — an `intent-compaction` session whose own
+    # summary marks the cut — and it loads, with `ImportedSession` reading the
+    # identifier off the session rather than holding a second copy.
     summary = message("c1", role=Role.SYSTEM, content="summary", is_system_injected=True)
 
-    for source in (SessionSource.RAW, SessionSource.INTENT_COMPACTION):
-        with pytest.raises(SchemaValidationError, match="native-compaction"):
-            session(summary, source=source, native_summary_id="c1")
+    with pytest.raises(SchemaValidationError, match="native_summary_id"):
+        session(summary, source=SessionSource.RAW, native_summary_id="c1")
+
+    compacted = session(summary, source=SessionSource.INTENT_COMPACTION, native_summary_id="c1")
+
+    assert compacted.native_summary_id == "c1"
+    assert ImportedSession(session=compacted).native_summary_id == "c1"
+
+
+def test_an_intent_compacted_session_hides_what_its_own_summary_replaced():
+    # The reason T1.4 exists: this tool writes its summary into the session it
+    # produces, and the measurement has to count the context that starts there.
+    # Without the cut, every message the summary replaced would count as context —
+    # which is the over-count the study is built to measure.
+    compacted = session(
+        message("u1", content="go"),
+        message("a1", role=Role.ASSISTANT, content="done"),
+        message("s1", role=Role.SYSTEM, content="## [C1] Intent", is_system_injected=True),
+        message("u2", content="next"),
+        source=SessionSource.INTENT_COMPACTION,
+        native_summary_id="s1",
+    )
+
+    context = visible_context(compacted)
+
+    assert list(context.message_ids) == ["s1", "u2"]
+    assert list(context.hidden) == [
+        HiddenMessage("u1", HIDDEN_REPLACED_BY_COMPACTION),
+        HiddenMessage("a1", HIDDEN_REPLACED_BY_COMPACTION),
+    ]
+    assert context.session.source is SessionSource.INTENT_COMPACTION
+    assert context.session.native_summary_id == "s1"
+    # Read off the document either way, so the stage that compacts and the one
+    # that loads the file back measure the same context.
+    assert list(visible_context(ImportedSession(session=compacted)).message_ids) == ["s1", "u2"]
 
 
 def test_the_imported_session_reads_its_summary_identifier_off_the_session():
