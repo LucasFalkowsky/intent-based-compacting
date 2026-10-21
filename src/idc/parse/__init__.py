@@ -26,8 +26,15 @@ bytes — and it is why there is no second definition of
 A block a hand has touched is read the way a Markdown reader would read it on
 two points that matter. The first is **what a line is**: LF, CRLF and a bare CR
 end one, and nothing else does — a form feed or a LINE SEPARATOR inside a line
-is a character of that line, not a break, however `str.splitlines` reads it. The
-second is **indentation**. A chain heading, a section header and
+is a character of that line, not a break, however `str.splitlines` reads it.
+`split_lines` is that rule, `fence_opening` and `closes_fence` are the two ends
+of a fence under it, and all three are **public because the writer needs them**:
+`idc.compact.merge` cuts a rendered `Solution` body into bullets and has to skip
+the fences exactly as this package finds them. They were two copied patterns
+until T8.3 (#94); now there is one definition, and the reader's own scan is
+written in terms of the same three names.
+
+The second point is **indentation**. A chain heading, a section header and
 either end of a code fence may carry up to `MAX_STRUCTURE_INDENT` leading spaces
 and are still that; indented further, they are content of the section they stand
 in. One rule for all four, because applying it to some of them is how content
@@ -61,11 +68,14 @@ from idc.parse.blocks import (
     PLACEHOLDER_CHUNK_PREFIX,
     ParsedBlock,
     ParsedSection,
+    closes_fence,
+    fence_opening,
     join_blocks,
     parse_blocks,
     parse_chains,
     placeholder_chunk_id,
     split_blocks,
+    split_lines,
 )
 from idc.parse.errors import (
     HEADING_SHAPE,
@@ -104,4 +114,14 @@ __all__ = [
     "parse_chains",
     "placeholder_chunk_id",
     "split_blocks",
+]
+
+# T8.3 (#94) — the line scan the writer's merge shares, appended as a block of
+# its own for the reason the comment above gives. The patterns behind these stay
+# private: what a caller needs is the question answered, not the regex, and
+# `_FENCE_LINE` on its own answers neither the indent bound nor the info string.
+__all__ += [
+    "closes_fence",
+    "fence_opening",
+    "split_lines",
 ]

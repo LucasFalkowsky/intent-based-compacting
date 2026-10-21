@@ -16,9 +16,13 @@ Three things are under test here, and the second is the reason for the first:
   indentation in front of them**, down to a single space and up past the four
   that would make CommonMark call the line a code block, and so are a Setext
   underline and an HTML comment left open — the consumer of a block is a parser
-  keyed on the header literals, so an indented copy of one is a copy. A
-  legitimately *empty* narrative section is not malformed and renders
-  `EMPTY_SECTION`.
+  keyed on the header literals, so an indented copy of one is a copy. A line
+  that opens with two **or more** `#` goes with them whatever follows the hashes:
+  `##` is the chain-heading marker, and the parser refuses a `##` line that is
+  not a heading, so `##NOTE` was the one shape the writer called prose and the
+  reader called structure (T8.4, #97 — the agreement itself is asserted in
+  `tests/test_compact_parse_agreement.py`). A legitimately *empty* narrative
+  section is not malformed and renders `EMPTY_SECTION`.
 - **The model is called once per chain, and nothing else it returns can move.**
   The call count is read off the fake's record, and the two deterministic
   sections are compared byte for byte against what `render_block` produces
@@ -321,6 +325,10 @@ MALFORMED = {
     "injected_solution_indented_by_three_spaces": _with_tail(f"   {SOLUTION_HEADER}"),
     "injected_solution_indented_by_four_spaces": _with_tail(f"    {SOLUTION_HEADER}"),
     "injected_heading_deeper_than_the_headers": _with_tail("#### Solution"),
+    "chain_heading_marker_without_a_space": _with_tail("##NOTE"),
+    "indented_chain_heading_marker_without_a_space": _with_tail("   ##NOTE"),
+    "section_marker_without_a_space": _with_tail("###NOTE"),
+    "a_deeper_run_starting_with_the_section_marker": _with_tail("######NOTE"),
     "injected_solution_header_padded_with_spaces": _with_tail("###  Solution "),
     "injected_solution_header_after_a_tab": _with_tail("###\tSolution"),
     "indented_tilde_fence": _with_tail("  ~~~"),
@@ -346,10 +354,14 @@ def test_the_malformed_table_covers_every_enumerated_shape():
     assert set(MALFORMED) == {
         "blank",
         "blank_intent_label",
+        "chain_heading_marker_without_a_space",
         "content_before_the_first_header",
         "empty",
         "fence_with_an_info_string",
         "indented_backtick_fence",
+        "indented_chain_heading_marker_without_a_space",
+        "section_marker_without_a_space",
+        "a_deeper_run_starting_with_the_section_marker",
         "indented_tilde_fence",
         "injected_code_fence",
         "injected_heading_deeper_than_the_headers",
@@ -404,6 +416,10 @@ UNWRITABLE_BODY_LINES = {
     "a_header": SOLUTION_HEADER,
     "a_header_indented_by_one_space": f" {SOLUTION_HEADER}",
     "a_header_indented_by_four_spaces": f"    {SOLUTION_HEADER}",
+    "a_chain_heading_marker_without_a_space": "##NOTE",
+    "an_indented_chain_heading_marker_without_a_space": "   ##NOTE",
+    "a_section_marker_without_a_space": "###NOTE",
+    "a_deeper_run_starting_with_the_section_marker": "######NOTE",
     "a_backtick_fence": "```",
     "an_indented_backtick_fence": "   ```",
     "an_indented_tilde_fence": "  ~~~",
@@ -436,7 +452,10 @@ def test_a_narrative_built_with_a_structural_body_line_is_refused(shape):
 
 def test_the_unwritable_body_lines_cover_every_enumerated_shape():
     assert set(UNWRITABLE_BODY_LINES) == {
+        "a_deeper_run_starting_with_the_section_marker",
+        "a_section_marker_without_a_space",
         "a_backtick_fence",
+        "a_chain_heading_marker_without_a_space",
         "a_header",
         "a_header_indented_by_four_spaces",
         "a_header_indented_by_one_space",
@@ -445,6 +464,7 @@ def test_the_unwritable_body_lines_cover_every_enumerated_shape():
         "a_setext_underline_with_a_trailing_tab",
         "a_setext_underline_with_trailing_spaces",
         "an_indented_backtick_fence",
+        "an_indented_chain_heading_marker_without_a_space",
         "an_indented_setext_underline_with_trailing_spaces",
         "an_indented_tilde_fence",
         "an_unclosed_html_comment",
