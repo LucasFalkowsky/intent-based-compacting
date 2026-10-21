@@ -77,3 +77,34 @@ __all__ = [
     "message_parts",
     "model_family",
 ]
+
+# T9.2 (#38) — exploration rate, write counts and the exit-code histogram.
+# Appended as its own block, with its own imports and its own `__all__ +=`,
+# the way the comment above asks: nothing here edits the list T9.1 wrote.
+#
+# `idc.measure.statistics` carries this part's decisions in its docstring —
+# the denominator is the visible context (the same message set the token
+# counts are over), a session with no tool call refuses a rate instead of
+# answering `0.0`, two spellings of one path are two files, an edit's added
+# lines are the `+` lines of a diff of the strings the agent sent, and the
+# histogram is keyed by exit code over every answered call with `None` as a
+# bucket of its own. A write whose added lines the transcript does not state —
+# an edit applied to every occurrence, above all — is reported as uncounted
+# rather than given one application's worth.
+from idc.measure.errors import NoToolCallsError
+from idc.measure.statistics import (
+    ExitCodeCount,
+    FileEdits,
+    ToolStatistics,
+    lines_added_of,
+    tool_statistics,
+)
+
+__all__ += [
+    "ExitCodeCount",
+    "FileEdits",
+    "NoToolCallsError",
+    "ToolStatistics",
+    "lines_added_of",
+    "tool_statistics",
+]
