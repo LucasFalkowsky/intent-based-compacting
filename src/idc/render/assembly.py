@@ -59,9 +59,13 @@ class AssembledTranscript:
     Attributes:
         summary: The chains' summary blocks, in the block's own order, joined by
             `idc.parse.BLOCK_SEPARATOR` — so the text that is written is the
-            text `idc.parse.parse_chains` reads back on the next run. The empty
-            string for a block that holds no chains, which is what a first run
-            that compacted nothing produces.
+            text `idc.parse.parse_chains` reads back on the next run, **with
+            one exception**: the empty string, for a block that holds no chains,
+            which is what a first run that compacted nothing produces.
+            `parse_chains("")` refuses it with `NoHeadingError`, because a text
+            with no heading holds no chain — a refusal and not a crash, and the
+            next run has nothing to read back anyway. Pinned by
+            `test_an_empty_summary_is_not_a_block_the_parser_reads_back`.
         messages: The messages of the chunk the block named as the one to keep
             verbatim, in transcript order and as the `Session`'s own objects.
     """

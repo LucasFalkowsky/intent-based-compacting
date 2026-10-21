@@ -28,6 +28,7 @@ import pytest
 from fixture_corpus import CORPUS
 from idc.chunk import chunk_session
 from idc.parse import BLOCK_SEPARATOR, join_blocks, parse_chains, split_blocks
+from idc.parse.errors import NoHeadingError
 from idc.render import (
     AssembledTranscript,
     RenderError,
@@ -363,3 +364,50 @@ def test_the_assembled_result_is_immutable() -> None:
     assert isinstance(assembled.messages, tuple)
     with pytest.raises(AttributeError):
         assembled.summary = "rewritten"  # type: ignore[misc]
+
+
+def test_an_empty_summary_is_not_a_block_the_parser_reads_back() -> None:
+    """The one exception to "what is written is what the parser reads back".
+
+    A block that compacted nothing assembles to the empty string, and
+    `parse_chains("")` refuses that with `NoHeadingError` rather than returning
+    no chains. The round-trip sentence on `AssembledTranscript.summary` claimed
+    no exception until a review found this one, so the exception is pinned here
+    rather than only described.
+    """
+    session = CORPUS.session(TWO_CHAINS)
+    chunks = chunk_session(session)
+    block = CompactedBlock(chains=[], latest_chunk_id=chunks[-1].id, rendered_for=Agent.CLAUDE_CODE)
+
+    assembled = assemble(block, session=session, chunks=chunks)
+
+    assert assembled.summary == ""
+    with pytest.raises(NoHeadingError):
+        parse_chains(assembled.summary)
+
+
+def test_the_right_hand_chunk_boundary_is_where_the_chunker_put_it() -> None:
+    """The end of the slice, pinned over every chunk and not only the last.
+
+    Every other message test names `chunks[-1]`, whose `end_index` is
+    `len(session.messages)` — and Python clips a slice there, so `end_index + 1`
+    is invisible to all of them. A review found the right boundary rested on one
+    test over one fixture; this walks every chunk of every multi-chunk fixture
+    so the pin cannot quietly leave the suite with a fixture.
+    """
+    walked = 0
+    for name in CORPUS.compact_names():
+        session = CORPUS.session(name)
+        chunks = chunk_session(session)
+        if len(chunks) < 2:
+            continue
+        for chunk in chunks:
+            block = CompactedBlock(
+                chains=golden_chains(name),
+                latest_chunk_id=chunk.id,
+                rendered_for=Agent.CLAUDE_CODE,
+            )
+            assembled = assemble(block, session=session, chunks=chunks)
+            assert list(assembled.messages) == messages_of(session, chunk)
+            walked += 1
+    assert walked > 1, "no multi-chunk fixture left to walk; the boundary would be unpinned"
