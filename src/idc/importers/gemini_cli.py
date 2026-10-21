@@ -180,6 +180,7 @@ from idc.importers.base import (
     NOTE_SKIPPED_RECORD,
     ImportedSession,
     SessionBuilder,
+    TranscriptImportError,
     block_message_id,
     joined_text,
     note_unreadable_content,
@@ -312,13 +313,16 @@ def import_gemini_cli(path: str | Path, *, registry: ToolRegistry | None = None)
         TranscriptImportError: If the file cannot be read, a line is not a JSON
             object, a record this importer has to read is malformed, or the
             transcript names no session, holds no message or records no
-            timestamp.
+            timestamp. A transcript whose only `messages` sit in a record that
+            is not recognised as the metadata record names the key that is
+            missing, rather than reporting that it holds no message.
         SchemaValidationError: If the messages the transcript yields do not
             satisfy the canonical schema.
     """
     builder = SessionBuilder(Agent.GEMINI_CLI, registry=registry, source=path)
     log = _MessageLog()
     session_id: Any = None
+    unread_metadata: tuple[int, tuple[str, ...]] | None = None
     for line in _read_records(path):
         record = line.data
         session_id = _session_id(builder, record, session_id)
@@ -346,12 +350,16 @@ def import_gemini_cli(path: str | Path, *, registry: ToolRegistry | None = None)
                 log.extend(builder, line, embedded)
             builder.note(NOTE_SKIPPED_RECORD, METADATA_RECORD)
             continue
+        if unread_metadata is None:
+            unread_metadata = _metadata_shortfall(line)
         builder.note(NOTE_SKIPPED_RECORD, type_name(record))
     for message_id, line, record in log.messages():
         kind = type_name(record)
         reader = READERS.get(kind)
         if reader is None or not reader(builder, line, record, message_id):
             builder.note(NOTE_SKIPPED_RECORD, kind)
+    if unread_metadata is not None and not log.messages():
+        raise _unread_metadata_error(builder, unread_metadata)
     return builder.build(session_id=session_id)
 
 
@@ -475,6 +483,55 @@ class _MessageLog:
 def _is_metadata_record(record: Mapping[str, Any]) -> bool:
     """Return whether the record is the one carrying the session's metadata."""
     return isinstance(record.get(FIELD_SESSION), str) and isinstance(record.get(FIELD_PROJECT), str)
+
+
+def _metadata_shortfall(line: JsonLine) -> tuple[int, tuple[str, ...]] | None:
+    """Return the metadata keys a record holding `messages` does not name.
+
+    Args:
+        line: A record the dispatch could place nowhere else, and its line
+            number.
+
+    Returns:
+        `(line number, missing keys)` when the record carries a `messages` list
+        but is not recognised as the metadata record, else `None`. Every session
+        file this importer has been written against names both keys, so the
+        predicate is left as it is and the shortfall is reported instead: a
+        record this shape had its messages ignored, and the caller needs to be
+        able to say which key is the reason.
+    """
+    record = line.data
+    if not isinstance(record.get(FIELD_MESSAGES), list) or _is_metadata_record(record):
+        return None
+    missing = tuple(
+        field for field in (FIELD_SESSION, FIELD_PROJECT) if not isinstance(record.get(field), str)
+    )
+    return (line.number, missing) if missing else None
+
+
+def _unread_metadata_error(
+    builder: SessionBuilder, unread: tuple[int, tuple[str, ...]]
+) -> TranscriptImportError:
+    """Build the error for a `messages` holder that is no metadata record.
+
+    Args:
+        builder: The session being assembled, for the file name.
+        unread: The line number and the missing keys, from
+            `_metadata_shortfall`.
+
+    Returns:
+        The error to raise. Without it the import fails on `the transcript holds
+        no message record`, which is true and useless: the transcript holds the
+        messages, in a record this importer did not read because it names no
+        `projectHash`.
+    """
+    number, missing = unread
+    keys = " and no ".join(f"`{field}`" for field in missing)
+    return builder.fail(
+        f"the record that holds the session's {FIELD_MESSAGES} names no {keys}, "
+        "so it is not read as the session's metadata record",
+        line=number,
+    )
 
 
 def _session_id(builder: SessionBuilder, holder: Mapping[str, Any], current: Any) -> Any:

@@ -1211,18 +1211,30 @@ def test_an_undeclared_tool_is_logged_once_per_name(tmp_path, caplog):
     ]
 
 
-def test_a_document_that_looks_like_metadata_but_names_no_project_hash_says_so(tmp_path):
+@pytest.mark.parametrize(
+    ("named", "expected"),
+    [
+        ({"sessionId": SESSION_ID}, r"names no `projectHash`"),
+        ({"projectHash": PROJECT_HASH}, r"names no `sessionId`"),
+        ({}, r"names no `sessionId` and no `projectHash`"),
+    ],
+)
+def test_a_document_that_holds_messages_but_is_no_metadata_record_names_the_cause(
+    tmp_path, named, expected
+):
     """The diagnostic names the key that kept the document from being read.
 
     A single-document session whose metadata names no `projectHash` is not
-    recognised as the metadata record, so its `messages` are never read. The
-    error says that rather than claiming the transcript holds no message.
+    recognised as the metadata record, so its `messages` are never read and the
+    import fails. The error names the missing key instead of reporting that the
+    transcript holds no message record — which is what it said before, and which
+    is true of the records read while being silent about the ones that were not.
     """
     path = tmp_path / "session-legacy.json"
     path.write_text(
         json.dumps(
             {
-                "sessionId": SESSION_ID,
+                **named,
                 "startTime": "2026-09-20T12:00:00.000Z",
                 "messages": [user_record("u1", "fix the exporter")],
             }
@@ -1230,8 +1242,30 @@ def test_a_document_that_looks_like_metadata_but_names_no_project_hash_says_so(t
         encoding="utf-8",
     )
 
-    with pytest.raises(TranscriptImportError, match="projectHash"):
+    with pytest.raises(TranscriptImportError, match=expected) as error:
         import_gemini_cli(path)
+
+    assert "line 1" in str(error.value)
+
+
+def test_a_document_that_names_both_metadata_keys_is_read_as_before(tmp_path):
+    """The predicate is unchanged: the complete shape still imports."""
+    path = tmp_path / "session-whole.json"
+    path.write_text(
+        json.dumps(
+            {
+                "sessionId": SESSION_ID,
+                "projectHash": PROJECT_HASH,
+                "startTime": "2026-09-20T12:00:00.000Z",
+                "messages": [user_record("u1", "fix the exporter")],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    imported = import_gemini_cli(path)
+
+    assert [message.id for message in imported.session.messages] == ["u1"]
 
 
 def test_a_declared_tool_is_not_logged(caplog):
