@@ -93,8 +93,10 @@ CommonMark's three endings and nothing else, as `idc.parse` splits them, and for
 the reason its own copy of this pattern gives: `str.splitlines` also breaks on
 the form feed and six other characters, and a fence run written behind a form
 feed would then look like a line of its own and close a fence it is inside of.
-Here that would cut a file's fence in half and overlay away what the merge is
-there to keep — `tests/test_compact_merge.py` constructs exactly that body.
+Here that truncates a kept file's content at the form feed and overlays the rest
+away — `test_a_fence_run_behind_a_form_feed_closes_nothing` constructs that body
+and counts the path, because the truncated text is a prefix of what is overlaid
+in and a substring check passes either way.
 """
 
 
@@ -156,8 +158,11 @@ def _bullet_starts(lines: list[str]) -> list[int]:
         `test_a_bullet_line_inside_a_fence_is_content` and
         `test_a_fence_run_behind_a_form_feed_closes_nothing` both feed a body
         whose fenced content holds a bullet line naming a file the new
-        resolution writes, so a cut that disagreed with the reader would overlay
-        that line away and leave the fence unbalanced.
+        resolution writes. Without the scan the first of them splices the new
+        bullets into that file's fenced content: its `markdown` fence closes
+        around the new path line, the file content beneath lands outside any
+        fence, and the rest of the checklist is gone. Checked by dropping the
+        scan and reading the result, not assumed.
 
         A fence that is opened and never closed encloses the rest of the body,
         and this raises nothing of its own: `idc.parse` is what refuses an
@@ -229,20 +234,25 @@ def _segments(body: str) -> list[tuple[str | None, str]]:
     return segments
 
 
-def _is_placeholder(text: str) -> bool:
-    """Say whether a pathless segment is the empty-section placeholder.
+def _pathless(text: str) -> list[str]:
+    """Return what a segment that names no file contributes to the merge.
 
     Args:
-        text: The segment's text.
+        text: The segment's text — a bullet with no backtick span, or the text a
+            side holds before its first bullet.
 
     Returns:
-        True when it holds nothing but `EMPTY_SECTION`. Such a segment names no
-        file and is dropped; a pathless segment that holds anything else is a
-        hand's and is carried over. The test is on the whole segment and not on
-        its first line, so a fence somebody put beneath an `EMPTY_SECTION`
-        bullet is not thrown away with it.
+        `[text]` for anything but the empty-section placeholder, which
+        contributes nothing: `EMPTY_SECTION` names no file, and carrying it over
+        would put `- (none)` above the bullets of the other side. Anything else
+        is a hand's and is kept where it stands — this module is not the one to
+        decide a sentence away.
+
+        The placeholder is matched on the whole segment and not on its first
+        line, so a fence somebody put beneath an `EMPTY_SECTION` bullet is not
+        dropped with it.
     """
-    return text.strip() == EMPTY_SECTION
+    return [] if text.strip() == EMPTY_SECTION else [text]
 
 
 def merge_solution_bodies(old: str, new: str) -> str:
@@ -278,8 +288,7 @@ def merge_solution_bodies(old: str, new: str) -> str:
     overlaid: set[str] = set()
     for path, text in old_segments:
         if path is None:
-            if not _is_placeholder(text):
-                merged.append(text)
+            merged.extend(_pathless(text))
         elif path not in new_bullets:
             merged.append(text)
         elif path not in overlaid:
@@ -287,8 +296,7 @@ def merge_solution_bodies(old: str, new: str) -> str:
             merged.extend(new_bullets[path])
     for path, text in new_segments:
         if path is None:
-            if not _is_placeholder(text):
-                merged.append(text)
+            merged.extend(_pathless(text))
         elif path not in overlaid:
             merged.append(text)
     return "".join(merged) or f"{EMPTY_SECTION}\n"

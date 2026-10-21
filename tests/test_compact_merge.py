@@ -304,15 +304,20 @@ def test_a_fence_run_behind_a_form_feed_closes_nothing() -> None:
 
     `idc.parse` splits lines on LF, CRLF and a bare CR only, and documents what
     `str.splitlines` would reopen: a closing run written behind a form feed
-    would look flush, close the fence, and hand the lines beneath it to the
-    splitter. Here that would make the fenced `- ` line a bullet of its own,
-    overlay it away as the overwritten file, and cut this fence in half.
+    would look like a line of its own, close the fence, and hand the lines
+    beneath it to the splitter. Here that truncates the kept file's content at
+    the form feed and overlays the rest away as the overwritten file — which
+    `odd in body` alone does **not** catch, because what is overlaid in begins
+    with the same two lines the cut dropped. Counting the path is what catches
+    it: the right answer states it twice, once inside this file's fence and once
+    as the file the new chunk wrote.
     """
     odd = f"- `docs/odd.md`\n```\n\f```\n- `{OVERWRITTEN}`\n```\n"
 
     body = merged_body(odd)
 
     assert odd in body
+    assert body.count(f"- `{OVERWRITTEN}`") == 2
 
 
 def test_an_indented_bullet_belongs_to_the_bullet_above_it() -> None:
