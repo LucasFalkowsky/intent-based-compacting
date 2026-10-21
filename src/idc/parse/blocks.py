@@ -154,8 +154,8 @@ _LINE_ENDING = re.compile(r"(?<=\n)|(?<=\r)(?!\n)")
 """Where one line ends and the next begins: after an LF, a CRLF or a bare CR.
 
 CommonMark's three line endings and nothing else, written as a zero-width split
-so that `split_lines` keeps every byte of the input. The lookahead is what keeps a
-CRLF one ending rather than two: the CR of a CRLF does not break a line of its
+so that `split_lines` keeps every byte of the input. The lookahead is what keeps
+a CRLF one ending rather than two: the CR of a CRLF does not break a line of its
 own, so no empty line appears between a line and the next.
 
 Deliberately **not** `str.splitlines`, which also breaks on the vertical tab, the
@@ -413,11 +413,12 @@ def fence_opening(line: str) -> str | None:
         The run of three or more backticks the line opens a fence with — what
         `closes_fence` then needs, because a fence is closed only by a run at
         least as long — or `None` for every line that opens none. Three
-        conditions have to hold, and each of them has let content escape its
-        section when it did not: the run stands at the start of the line, the
+        conditions have to hold: the run stands at the start of the line, the
         line carries at most `MAX_STRUCTURE_INDENT` leading spaces (indented
         further it is content), and the info string after the run holds no
-        backtick, so an inline span opens nothing.
+        backtick, so an inline span opens nothing. The defect on record is
+        against the closing half of the rule rather than this one — see
+        `closes_fence`.
     """
     dedented = _dedented(_bare(line))
     if dedented is None:

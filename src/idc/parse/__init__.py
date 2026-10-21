@@ -32,8 +32,9 @@ of a fence under it, and all three are **public because the writer needs them**:
 `idc.compact.merge` cuts a rendered `Solution` body into bullets and has to skip
 the fences exactly as this package finds them. They were two copied patterns
 until T8.3 (#94); now there is one definition, and the reader's own scan is
-written in terms of the same three names. The
-second is **indentation**. A chain heading, a section header and
+written in terms of the same three names.
+
+The second point is **indentation**. A chain heading, a section header and
 either end of a code fence may carry up to `MAX_STRUCTURE_INDENT` leading spaces
 and are still that; indented further, they are content of the section they stand
 in. One rule for all four, because applying it to some of them is how content

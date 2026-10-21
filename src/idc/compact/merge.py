@@ -18,7 +18,9 @@ writer's own output, so the cut has to agree with how `idc.parse` reads a block.
 It agrees by **running the reader's own scan**: `idc.parse.split_lines`,
 `idc.parse.fence_opening` and `idc.parse.closes_fence` are what `_bullet_starts`
 and `_segments` are written with, imported inside those functions because the
-reader imports this package at module level — see `_bullet_starts`. The alternative, turning
+reader imports this package at module level — see `_bullet_starts`.
+
+The alternative, turning
 a bullet back into something `idc.resolve.SolutionFile`-shaped, was rejected: a
 rendered bullet carries no `ToolCall`, so it would be a second, lossy type with
 no transcript behind it, and the conversion would throw away the very prose a
@@ -66,10 +68,11 @@ __all__ = [
 _BULLET = "- "
 """What a bullet line starts with, flush and with no indent allowance.
 
-Deliberately stricter than the indentation rule `idc.parse.MAX_STRUCTURE_INDENT`
-allows a header or a fence: the writer emits its bullets flush, and an indented
-`- ` line is a hand's nested list inside the bullet above it rather than a file
-of its own — `tests/test_compact_merge.py` pins that it stays with that bullet.
+Deliberately stricter than the `MAX_STRUCTURE_INDENT` spaces `idc.parse` allows
+a header or either end of a fence: the writer emits its bullets flush, and an
+indented `- ` line is a hand's nested list inside the bullet above it rather
+than a file of its own — `tests/test_compact_merge.py` pins that it stays with
+that bullet.
 """
 
 _BULLET_PATH = re.compile(r"^- `([^`]+)`")
@@ -86,7 +89,8 @@ def _bullet_starts(lines: list[str]) -> list[int]:
     """Return the indices of the lines that open a bullet, fences skipped.
 
     Args:
-        lines: The lines of a `Solution` body, as `_lines` cut them.
+        lines: The lines of a `Solution` body, as `idc.parse.split_lines` cut
+            them.
 
     Returns:
         The index of every flush `- ` line that no fence encloses, ascending.
@@ -277,7 +281,7 @@ def merged_solution_section(chain: Chain, resolution: Resolution) -> str:
     if chain.compacted_text is None:
         return new
 
-    # Deferred for the reason `_indent_allowance` gives: the reader imports this
+    # Deferred for the reason `_bullet_starts` gives: the reader imports this
     # package's format, so this package cannot import it at module level.
     from idc.parse import parse_blocks
 
