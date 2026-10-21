@@ -113,13 +113,15 @@ Four properties hold for every importer:
 
   A record whose content cannot be read **at all** — a number, an object — is the one case
   where the importers deliberately differ, and each of them notes what it did. Claude Code
-  yields **no message** and notes the record as skipped: one of its `user` records is a
+  **and Gemini CLI** yield **no message** and note the record both for the content
+  (`dropped-block: <content: object>`) and as skipped: one of their `user` records is a
   typed prompt and the next is a tool result, so an unreadable content means the record's
   kind is unknown too, and an invented user turn would be an invented intent boundary.
-  OpenCode **keeps the user turn**, with empty content and a note for the unreadable
-  `parts`: a `role = user` record there is always the user's turn and never a result
-  carrier, so the turn is still attested — dropping it would fabricate the chain structure
-  T3.1 splits on.
+  OpenCode is the outlier: it **keeps the user turn**, with empty content and a note for the
+  unreadable `parts`: a `role = user` record there is always the user's turn and never a
+  result carrier, so the turn is still attested — dropping it would fabricate the chain
+  structure T3.1 splits on. Each of the three has a test of its own on this, so which side
+  an agent is on is pinned rather than described.
 
   It is a property of the *message content*, and only of that. The record-level fields an
   importer deliberately never reads carry no note — for Claude Code `isSidechain`,

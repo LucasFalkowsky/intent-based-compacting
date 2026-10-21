@@ -435,6 +435,13 @@ def test_an_unknown_tool_is_logged_once_per_name(caplog):
     assert not any("'Agent'" in message for message in warnings)
 
 
+def test_a_declared_tool_is_not_logged(caplog):
+    with caplog.at_level(logging.WARNING, logger="idc.importers"):
+        import_claude_code(native("golden_session"))
+
+    assert [record for record in caplog.records if record.levelno >= logging.WARNING] == []
+
+
 def test_the_same_unknown_tool_called_twice_is_noted_with_its_count(tmp_path):
     path = write_jsonl(
         tmp_path,
@@ -553,6 +560,27 @@ def test_the_content_a_user_record_could_not_be_read_from_is_noted(tmp_path):
     imported = import_claude_code(path)
 
     assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
+
+
+def test_an_unreadable_user_content_yields_no_message_and_is_noted_twice(tmp_path):
+    """Claude Code drops the turn: the side of the README's one difference it is on.
+
+    A `user` record is either a typed prompt or a tool-result carrier, so a
+    content this importer cannot read leaves the record's kind unknown as well,
+    and an invented user turn would be an invented intent boundary. The record is
+    therefore noted twice: for the content it carried and for carrying no
+    message. Gemini CLI does the same; OpenCode keeps the turn.
+    """
+    path = write_jsonl(
+        tmp_path,
+        [user_record("u1", "fix the exporter"), user_record("u2", {"text": "lost"})],
+    )
+
+    imported = import_claude_code(path)
+
+    assert [message.id for message in imported.session.messages] == ["u1"]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
+    assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == ["user"]
 
 
 def test_a_user_record_whose_text_is_empty_is_still_the_turn_it_was(tmp_path):

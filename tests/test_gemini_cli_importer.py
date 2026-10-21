@@ -377,6 +377,28 @@ def test_an_unreadable_content_is_noted_by_its_shape(tmp_path):
     assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
 
 
+def test_an_unreadable_content_yields_no_message_and_is_noted_twice(tmp_path):
+    """Gemini CLI drops the turn, as Claude Code does — not as OpenCode does.
+
+    The README calls the unreadable content the one case where the importers
+    deliberately differ; this pins which side Gemini CLI is on. The record is
+    noted both for the content it carried and for carrying no message.
+    """
+    path = write_jsonl(
+        tmp_path,
+        [metadata_record(), user_record("u1", {"text": "lost"}), user_record("u2", "text")],
+    )
+
+    imported = import_gemini_cli(path)
+
+    assert [message.id for message in imported.session.messages] == ["u2"]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
+    assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == [
+        "<metadata>",
+        "user",
+    ]
+
+
 def test_a_part_that_is_not_an_object_is_noted_by_its_shape(tmp_path):
     path = write_jsonl(tmp_path, [metadata_record(), user_record("u1", ["bare string"])])
 
@@ -1187,6 +1209,63 @@ def test_an_undeclared_tool_is_logged_once_per_name(tmp_path, caplog):
     assert [(note.detail, note.count) for note in imported.notes_of(NOTE_UNKNOWN_TOOL)] == [
         ("teleport_file", 2)
     ]
+
+
+@pytest.mark.parametrize(
+    ("named", "expected"),
+    [
+        ({"sessionId": SESSION_ID}, r"names no `projectHash`"),
+        ({"projectHash": PROJECT_HASH}, r"names no `sessionId`"),
+        ({}, r"names no `sessionId` and no `projectHash`"),
+    ],
+)
+def test_a_document_that_holds_messages_but_is_no_metadata_record_names_the_cause(
+    tmp_path, named, expected
+):
+    """The diagnostic names the key that kept the document from being read.
+
+    A single-document session whose metadata names no `projectHash` is not
+    recognised as the metadata record, so its `messages` are never read and the
+    import fails. The error names the missing key instead of reporting that the
+    transcript holds no message record — which is what it said before, and which
+    is true of the records read while being silent about the ones that were not.
+    """
+    path = tmp_path / "session-legacy.json"
+    path.write_text(
+        json.dumps(
+            {
+                **named,
+                "startTime": "2026-09-20T12:00:00.000Z",
+                "messages": [user_record("u1", "fix the exporter")],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TranscriptImportError, match=expected) as error:
+        import_gemini_cli(path)
+
+    assert "line 1" in str(error.value)
+
+
+def test_a_document_that_names_both_metadata_keys_is_read_as_before(tmp_path):
+    """The predicate is unchanged: the complete shape still imports."""
+    path = tmp_path / "session-whole.json"
+    path.write_text(
+        json.dumps(
+            {
+                "sessionId": SESSION_ID,
+                "projectHash": PROJECT_HASH,
+                "startTime": "2026-09-20T12:00:00.000Z",
+                "messages": [user_record("u1", "fix the exporter")],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    imported = import_gemini_cli(path)
+
+    assert [message.id for message in imported.session.messages] == ["u1"]
 
 
 def test_a_declared_tool_is_not_logged(caplog):

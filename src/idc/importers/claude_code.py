@@ -27,7 +27,7 @@ resolving tool categories, logging unknown tools and validating the result are
 - `system` with a non-empty `content` -> one injected `system` message.
 - anything else -> skipped, and noted by its record type; a record that names
   no type is noted as `<no type>`, one whose type is `null` as `<null type>`.
-  A dropped *block* is named the same way, by `_type_name`, so a block kind
+  A dropped *block* is named the same way, by `type_name`, so a block kind
   spelled `None` and a damaged block are not the same note.
 
 A `user` record whose `content` is neither text nor a block list — a number, an
@@ -120,7 +120,10 @@ from idc.importers.base import (
     SessionBuilder,
     block_message_id,
     joined_text,
+    note_unreadable_content,
     parse_timestamp,
+    shape,
+    type_name,
 )
 from idc.importers.jsonl import JsonLine, read_json_lines
 from idc.importers.tool_registry import ToolRegistry
@@ -141,18 +144,6 @@ SUMMARY_FLAG = "isCompactSummary"
 
 INJECTED_FLAG = "isMeta"
 """Field Claude Code sets on a user record the harness wrote, not the user."""
-
-NO_TYPE = "<no type>"
-"""How a record or block that names no `type` at all is reported in the notes."""
-
-NULL_TYPE = "<null type>"
-"""How a record or block whose `type` is `null` is reported in the notes.
-
-Distinct from `NO_TYPE`: a missing field is a shape this importer does not know,
-a `null` one is damaged, and `str(None)` reads the same for both — and the same
-as a kind genuinely spelled `"None"`.
-"""
-
 
 SECOND_SESSION = "<sessionId: a second value>"
 """How a record naming a session other than the first one is reported.
@@ -224,34 +215,11 @@ def import_claude_code(
             session_id = named
         elif named is not None and named != session_id:
             builder.note(NOTE_DROPPED_BLOCK, SECOND_SESSION)
-        kind = _type_name(record)
+        kind = type_name(record)
         reader = READERS.get(kind)
         if reader is None or not reader(builder, line):
             builder.note(NOTE_SKIPPED_RECORD, kind)
     return builder.build(session_id=session_id)
-
-
-def _type_name(holder: Mapping[str, Any]) -> str:
-    """Return the `type` of a record or a content block as the notes name it.
-
-    Args:
-        holder: One transcript record, or one of its content blocks.
-
-    Returns:
-        The `type` field as a string, or `NO_TYPE` when it names none and
-        `NULL_TYPE` when it names `null`. Those two are different problems — a
-        shape this importer does not know versus a damaged one — and `str(None)`
-        would report them as the same one, which is also how a kind that is
-        genuinely spelled `"None"` would become indistinguishable from both. A
-        type that is present and not a string keeps its own spelling (`7`).
-
-        One function for both levels on purpose: the collision was first fixed
-        for records and then found again for blocks.
-    """
-    if "type" not in holder:
-        return NO_TYPE
-    kind = holder["type"]
-    return NULL_TYPE if kind is None else str(kind)
 
 
 def _record_id(builder: SessionBuilder, line: JsonLine) -> str:
@@ -277,7 +245,7 @@ def _record_id(builder: SessionBuilder, line: JsonLine) -> str:
     if isinstance(uuid, str) and uuid:
         return uuid
     if uuid is not None:
-        detail = "<uuid: empty string>" if uuid == "" else f"<uuid: {_shape(uuid)}>"
+        detail = "<uuid: empty string>" if uuid == "" else f"<uuid: {shape(uuid)}>"
         builder.note(NOTE_DROPPED_BLOCK, detail)
     return f"line-{line.number}"
 
@@ -308,51 +276,8 @@ def _blocks(builder: SessionBuilder, content: Any, *, prefix: str = "") -> list[
         if isinstance(entry, Mapping):
             blocks.append(entry)
         else:
-            builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<entry: {_shape(entry)}>")
+            builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<entry: {shape(entry)}>")
     return blocks
-
-
-def _shape(value: Any) -> str:
-    """Return the JSON shape of a value, to name something that has no kind.
-
-    Args:
-        value: The value a note is about.
-
-    Returns:
-        Its JSON type name — `object`, `array`, `string`, `number`, `boolean`,
-        `null`. A note about a block names the block's kind; a value that is not
-        a block has none, so its shape is the only honest thing to report.
-    """
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "boolean"
-    if isinstance(value, int | float):
-        return "number"
-    if isinstance(value, str):
-        return "string"
-    if isinstance(value, Mapping):
-        return "object"
-    if isinstance(value, list):
-        return "array"
-    return type(value).__name__
-
-
-def _note_unreadable_content(builder: SessionBuilder, content: Any, *, prefix: str = "") -> None:
-    """Note a content value that is neither text nor a block list.
-
-    Args:
-        builder: The session being assembled, for the notes.
-        content: The content value the record carried.
-        prefix: What to put in front of the note's detail, as in `_noted_text`.
-
-    An absent content (`None`) is not noted: the record carried nothing, so
-    nothing was lost. Anything else — a number, an object — did carry something
-    this importer cannot read, and the note is what keeps that from being a
-    silent loss in a tool whose output is a measurement.
-    """
-    if content is not None and not isinstance(content, str | list):
-        builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<content: {_shape(content)}>")
 
 
 def _block_text(builder: SessionBuilder, block: Mapping[str, Any], *, prefix: str = "") -> str:
@@ -375,7 +300,7 @@ def _block_text(builder: SessionBuilder, block: Mapping[str, Any], *, prefix: st
     if isinstance(value, str):
         return value
     if value is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{BLOCK_TEXT}/<text: {_shape(value)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{BLOCK_TEXT}/<text: {shape(value)}>")
     return ""
 
 
@@ -397,13 +322,13 @@ def _noted_text(builder: SessionBuilder, content: Any, *, prefix: str = "") -> s
     """
     if isinstance(content, str):
         return content
-    _note_unreadable_content(builder, content, prefix=prefix)
+    note_unreadable_content(builder, content, prefix=prefix)
     texts: list[str] = []
     for block in _blocks(builder, content, prefix=prefix):
         if block.get("type") == BLOCK_TEXT:
             texts.append(_block_text(builder, block, prefix=prefix))
         else:
-            builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{_type_name(block)}")
+            builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{type_name(block)}")
     return joined_text(texts)
 
 
@@ -426,7 +351,7 @@ def _message_body(builder: SessionBuilder, record: Mapping[str, Any]) -> Mapping
     if isinstance(message, Mapping):
         return message
     if message is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"<message: {_shape(message)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"<message: {shape(message)}>")
     return None
 
 
@@ -469,7 +394,7 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
     injected = record.get(INJECTED_FLAG) is True
     if not isinstance(content, list):
         if not isinstance(content, str):
-            _note_unreadable_content(builder, content)
+            note_unreadable_content(builder, content)
             return False
         text = content
         builder.add_message(
@@ -534,7 +459,7 @@ def _user_parts(
         elif kind == BLOCK_TOOL_RESULT:
             found.append((index, Role.TOOL, "", _tool_result(builder, line, block)))
         else:
-            builder.note(NOTE_DROPPED_BLOCK, _type_name(block))
+            builder.note(NOTE_DROPPED_BLOCK, type_name(block))
     text = joined_text(texts)
     if text or not found:
         found.append((text_index if text_index is not None else 0, Role.USER, text, None))
@@ -597,7 +522,7 @@ def _is_error(builder: SessionBuilder, flag: Any) -> bool:
     if isinstance(flag, bool):
         return flag
     if flag is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"{BLOCK_TOOL_RESULT}/<is_error: {_shape(flag)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{BLOCK_TOOL_RESULT}/<is_error: {shape(flag)}>")
         return True
     return False
 
@@ -620,7 +545,7 @@ def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
     message = _message_body(builder, line.data) or {}
     builder.set_model(message.get("model"))
     content = message.get("content")
-    _note_unreadable_content(builder, content)
+    note_unreadable_content(builder, content)
     texts: list[str] = []
     calls: list[ToolCall] = []
     for block in _blocks(builder, content):
@@ -630,7 +555,7 @@ def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
         elif kind == BLOCK_TOOL_USE:
             calls.append(_tool_call(builder, line, block))
         else:
-            builder.note(NOTE_DROPPED_BLOCK, _type_name(block))
+            builder.note(NOTE_DROPPED_BLOCK, type_name(block))
     builder.add_message(
         message_id=_record_id(builder, line),
         role=Role.ASSISTANT,
@@ -698,9 +623,7 @@ def _tool_call(builder: SessionBuilder, line: JsonLine, block: Mapping[str, Any]
     else:
         args = {}
         if arguments is not None:
-            builder.note(
-                NOTE_DROPPED_BLOCK, f"{BLOCK_TOOL_USE}/{name}/<input: {_shape(arguments)}>"
-            )
+            builder.note(NOTE_DROPPED_BLOCK, f"{BLOCK_TOOL_USE}/{name}/<input: {shape(arguments)}>")
     return builder.tool_call(name, call_id=call_id, args=args)
 
 
@@ -713,7 +636,7 @@ READERS: dict[str, Callable[[SessionBuilder, JsonLine], bool]] = {
 
 A reader returns whether the record yielded a canonical message; everything
 else — a record type that is not in this table, and one that is but held no
-message — is noted as skipped by its type, as `_type_name` spells it. That is
+message — is noted as skipped by its type, as `type_name` spells it. That is
 what keeps a new Claude Code record type a line in the import's notes instead of
 a crash or a silent loss.
 """
