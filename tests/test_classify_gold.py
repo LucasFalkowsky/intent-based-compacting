@@ -22,6 +22,7 @@ and nothing calls a model.
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,7 @@ from idc.classify import (
     load_gold,
     load_gold_directory,
 )
+from idc.schema import Role
 
 FIXTURE_NAMES = CORPUS.names()
 """Every fixture of the shared corpus, discovered at collection time."""
@@ -93,6 +95,50 @@ def write_text_document(directory: Path, name: str, text: str) -> Path:
     path = directory / f"{name}.json"
     path.write_text(text, encoding="utf-8")
     return path
+
+
+QUOTED_SPAN = re.compile(r'"([^"]+)"')
+"""A quotation inside a gold note; the notes quote the user and nothing else."""
+
+NOTES_THAT_REST_ON_THE_USERS_WORDS = (
+    "already_compacted_block",
+    "interleaved_intents",
+    "two_sequential_intents",
+)
+"""The labellings that turn on where one intent ends and the next begins.
+
+Their notes have to justify that with what the **user** said. File overlap is a
+feature a classifier under test keys on directly, so a note arguing from it
+would read as endorsing a file-overlap heuristic — and a heuristic that scores
+itself against a reference justified by the same heuristic measures nothing.
+"""
+
+
+def user_turns(name: str) -> list[str]:
+    """Return the content of every user-role message of one fixture."""
+    return [
+        message.content or ""
+        for message in CORPUS.session(name).messages
+        if message.role is Role.USER
+    ]
+
+
+@pytest.mark.parametrize("name", FIXTURE_NAMES)
+def test_every_quotation_in_a_gold_note_is_verbatim_from_its_transcript(name):
+    turns = user_turns(name)
+
+    invented = [
+        span
+        for span in QUOTED_SPAN.findall(CORPUS.gold(name).note)
+        if not any(span in turn for turn in turns)
+    ]
+
+    assert invented == [], f"{name} quotes what nobody said: {invented}"
+
+
+@pytest.mark.parametrize("name", NOTES_THAT_REST_ON_THE_USERS_WORDS)
+def test_a_note_about_an_intent_boundary_quotes_the_user(name):
+    assert QUOTED_SPAN.findall(CORPUS.gold(name).note)
 
 
 def test_the_expectation_table_covers_the_corpus():
