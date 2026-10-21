@@ -15,13 +15,27 @@ for note in imported.notes:
     print(note)                      # what the import could not represent
 ```
 
-Three things are shared, so that an agent module is only its own format:
+One function reads a session back rather than a file, and it is what makes the
+three agents comparable at all — `idc.importers.provenance`:
+
+```python
+from idc.importers import visible_context
+
+context = visible_context(imported)
+context.message_ids          # the messages the agent is still being sent
+context.hidden               # what its own compaction replaced, or the harness wrote
+```
+
+Four things are shared, so that an agent module is only its own format:
 
 - `idc.importers.jsonl` reads a line-delimited transcript and reports a damaged
   line by its line number.
 - `idc.importers.base` assembles and validates the canonical `Session`, resolves
-  tool categories, logs the unknown tools and reads timestamps. Everything the
-  importers raise themselves is a `TranscriptImportError` naming the file.
+  tool categories, logs the unknown tools, reads timestamps and records which
+  message the agent's own compaction summary is. Everything the importers raise
+  themselves is a `TranscriptImportError` naming the file.
+- `idc.importers.provenance` says which of the imported messages are the context
+  the agent would see, by the same rule for all three agents.
 - `idc.importers.tool_registry` holds the agents' tool knowledge as a data file,
   not as code:
 
@@ -57,6 +71,14 @@ from idc.importers.claude_code import import_claude_code
 from idc.importers.gemini_cli import import_gemini_cli
 from idc.importers.jsonl import JsonLine, read_json_lines
 from idc.importers.opencode import import_opencode
+from idc.importers.provenance import (
+    HIDDEN_HARNESS_NOTICE,
+    HIDDEN_REPLACED_BY_COMPACTION,
+    NOTICE_MARKERS,
+    HiddenMessage,
+    VisibleContext,
+    visible_context,
+)
 from idc.importers.tool_registry import (
     REGISTRY_PATH,
     REGISTRY_VERSION,
@@ -71,13 +93,17 @@ from idc.importers.tool_registry import (
 from idc.schema import Agent
 
 __all__ = [
+    "HIDDEN_HARNESS_NOTICE",
+    "HIDDEN_REPLACED_BY_COMPACTION",
     "IMPORTERS",
     "NOTE_DROPPED_BLOCK",
     "NOTE_SKIPPED_RECORD",
     "NOTE_UNKNOWN_TOOL",
+    "NOTICE_MARKERS",
     "PENDING_IMPORTERS",
     "REGISTRY_PATH",
     "REGISTRY_VERSION",
+    "HiddenMessage",
     "ImportNote",
     "ImportedSession",
     "JsonLine",
@@ -88,6 +114,7 @@ __all__ = [
     "TranscriptImportError",
     "VerificationMatch",
     "VerificationPattern",
+    "VisibleContext",
     "block_message_id",
     "import_claude_code",
     "import_gemini_cli",
@@ -98,6 +125,7 @@ __all__ = [
     "parse_timestamp",
     "read_json_lines",
     "tool_registry",
+    "visible_context",
 ]
 
 Importer = Callable[..., ImportedSession]

@@ -107,7 +107,11 @@ Known limitations, all of them deliberate:
 - Slash commands are not recorded: Gemini CLI handles them in the CLI, so
   nothing reaches the chat recording and `is_command` is never set. The loop
   recovery notice the agent injects as a user turn imports as an ordinary user
-  message — a pointer for #10 (provenance normalisation), not a decision here.
+  message, here and in `idc.importers.provenance`: #10 decided to flag only
+  notices whose spelling a transcript or a fixture in this repository shows, and
+  this one's is corroborated nowhere — a guessed marker would mark a real user
+  turn as harness-written and the chunker would reduce the user's intent away
+  (see `NOTICE_MARKERS`).
 - A value this importer cannot read is dropped **and noted by its shape**: a
   content that is neither text nor a part list (`<content: object>`), a list
   entry that is not an object (`<entry: string>`), a part whose kind it does not
@@ -182,7 +186,7 @@ from idc.importers.base import (
 )
 from idc.importers.jsonl import JsonLine, read_json_lines
 from idc.importers.tool_registry import ToolRegistry
-from idc.schema import Agent, Role, SessionSource, ToolCall, ToolResult
+from idc.schema import Agent, Role, ToolCall, ToolResult
 
 __all__ = ["ENVIRONMENT_MARKER", "SNAPSHOT_MARKER", "import_gemini_cli"]
 
@@ -710,14 +714,7 @@ def _add_user_record(
         _note_unreadable_content(builder, content)
         text, text_index, found = _user_parts(builder, line, content)
     if SNAPSHOT_MARKER in text:
-        builder.set_provenance(SessionSource.NATIVE_COMPACTION)
-        builder.add_message(
-            message_id=message_id,
-            role=Role.SYSTEM,
-            content=text,
-            timestamp=timestamp,
-            is_system_injected=True,
-        )
+        builder.add_native_summary(message_id=message_id, content=text, timestamp=timestamp)
         return True
     if not isinstance(content, str | list):
         return False

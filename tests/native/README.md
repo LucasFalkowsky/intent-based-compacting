@@ -59,6 +59,9 @@ expected = NATIVE.expected_text("claude-code", "golden_session")  # the canonica
 - `native_compaction.jsonl` — the native compaction flow: the `/compact` slash command,
   the summary record Claude Code writes with `isCompactSummary`, and the turn that follows
   it.
+- `compacted_twice.jsonl` — the same flow twice in one session: two `isCompactSummary`
+  records with a turn between them. The agent's context starts at the **second** one, which
+  is what provenance normalisation (#10) has to take.
 
 ## `opencode/`
 

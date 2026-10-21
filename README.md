@@ -78,8 +78,10 @@ for note in imported.notes:
 All three agents are implemented: **Claude Code** (ticket T2.2), **OpenCode** (T2.3) and
 **Gemini CLI** (T2.4). What is shared sits in `idc.importers.base` (assembling and
 validating the session, resolving tool categories, logging the unknown ones, reading
-timestamps) and `idc.importers.jsonl` (reading a line-delimited transcript); an agent
-module is only that agent's format.
+timestamps, recording which message the agent's own compaction summary is),
+`idc.importers.jsonl` (reading a line-delimited transcript) and
+`idc.importers.provenance` (which of the imported messages are context — see below); an
+agent module is only that agent's format.
 
 The three formats differ in more than their field names. A Claude Code record carries one
 tool result per `tool_result` block of a *user* record, while an OpenCode tool call carries
@@ -127,6 +129,39 @@ Four properties hold for every importer:
   file, and a problem that belongs to one record names its line number. A tool call that
   does not satisfy the canonical schema is reported by the schema's own
   `SchemaValidationError` — e.g. a `tool_use` identifier that occurs twice.
+
+### The visible context
+
+Importing faithfully is not enough to compare the three agents: a Claude Code or OpenCode
+transcript still holds the history its own compaction replaced, Gemini CLI's does not
+(its `$set.messages` already dropped it), and each agent records a different amount of
+harness chatter. `visible_context` is the one place that decides what counts as context,
+so measurement counts the same thing whichever agent recorded the session:
+
+```python
+from idc.importers import import_transcript, visible_context
+
+context = visible_context(import_transcript("claude-code", "session.jsonl"))
+context.message_ids  # the messages the agent is still being sent
+[str(hidden) for hidden in context.hidden]  # ['replaced-by-compaction: u40']
+context.session  # those messages as a canonical Session
+```
+
+Two reasons hide a message and nothing else does: it sits **before the summary the agent's
+own compaction wrote** (`replaced-by-compaction`), or it is an injected `system` **notice**
+that is not that summary — Claude Code's `system` records, Gemini CLI's `info` and `error`
+lines (`harness-notice`). Injected text in the *user* role stays visible, because the model
+is sent it: a `<system-reminder>`, Gemini CLI's `<session_context>`, OpenCode's `synthetic`
+text. Normalisation changes exactly one thing on the way out — a harness-written notice in
+the user role, Claude Code's `[Request interrupted by user for tool use]`, is returned
+marked `is_system_injected`, so that the flag means *the harness wrote this* for all three
+agents and the chunker does not read it as a user turn. Such a notice is recognised by its
+**whole text**, and only in a spelling this repository has actually observed: a user who
+pastes the notice and keeps typing has opened a real intent, and a prefix test or a guessed
+spelling would reduce that intent away. Which message the agent's summary is comes from the
+importer (`ImportedSession.native_summary_id`), and the two have to agree — a
+`native-compaction` session that names no summary, or a summary named by a session that was
+never natively compacted, is refused rather than counted wrongly.
 
 `python -c` is not the interface: the `import` command is wired up in T10.1.
 

@@ -17,8 +17,10 @@ resolving tool categories, logging unknown tools and validating the result are
   empty content and a note for the block that was dropped: the turn happened,
   and it is an intent boundary T3.1 splits on.
 - `user` with `isCompactSummary` -> an injected `system` message carrying the
-  summary's text, and the session's `source` becomes `native-compaction`; any
-  other block of that record is dropped and noted like anywhere else.
+  summary's text, the session's `source` becomes `native-compaction` and the
+  message is the result's `native_summary_id`; any other block of that record is
+  dropped and noted like anywhere else. A session compacted twice names the
+  second summary, which is where the agent's context then starts.
 - `user` with `isMeta` -> a `user` message marked `is_system_injected`.
 - `assistant` -> one `assistant` message with its text and every `tool_use`
   block it issued.
@@ -72,7 +74,15 @@ Known limitations, all of them deliberate:
 - `toolUseResult` is not read at all: a result comes from the `tool_result`
   block. Its `interrupted` field is the one thing in a record that the canonical
   session holds nowhere, so a tool run the user cancelled imports as an ordinary
-  result — a pointer for #10 (provenance normalisation), not a decision here.
+  result. #10 looked at it and left it here: the agent *is* sent that result, so
+  it is visible context either way and provenance normalisation has nothing to
+  decide — representing "this run was cancelled" needs a canonical field, which
+  is a schema ticket, and what may count as the accepted solution's evidence is
+  T5/T6's rule.
+- The interruption notice Claude Code records as a plain `user` message
+  (`[Request interrupted by user …]`) imports as the user message it is. It is
+  harness-written, and `idc.importers.provenance` is where it is marked as such
+  — not here, so that the import stays what the transcript says.
 - A value this importer cannot read is dropped **and noted by its shape**: a
   content entry that is not an object (`<entry: string>`), a content that is
   neither text nor a block list (`<content: object>`), a `message` that is not
@@ -114,7 +124,7 @@ from idc.importers.base import (
 )
 from idc.importers.jsonl import JsonLine, read_json_lines
 from idc.importers.tool_registry import ToolRegistry
-from idc.schema import Agent, Role, SessionSource, ToolCall, ToolResult
+from idc.schema import Agent, Role, ToolCall, ToolResult
 
 __all__ = ["COMMAND_MARKERS", "import_claude_code"]
 
@@ -450,13 +460,10 @@ def _add_user_record(builder: SessionBuilder, line: JsonLine) -> bool:
     content = None if message is None else message.get("content")
     timestamp = _timestamp(builder, line)
     if record.get(SUMMARY_FLAG) is True:
-        builder.set_provenance(SessionSource.NATIVE_COMPACTION)
-        builder.add_message(
+        builder.add_native_summary(
             message_id=_record_id(builder, line),
-            role=Role.SYSTEM,
             content=_noted_text(builder, content),
             timestamp=timestamp,
-            is_system_injected=True,
         )
         return True
     injected = record.get(INJECTED_FLAG) is True
