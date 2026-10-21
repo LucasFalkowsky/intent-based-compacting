@@ -18,6 +18,10 @@ fake adapter. Nothing here constructs a real backend: the LLM and S1M adapters
 take their model as an injected dependency, so a recorded run is how a real
 backend's decisions reach this command, and no invocation of it calls a model.
 
+The report says which of the two it was — on its `source:` line and on the
+corpus line — because a real run that is perfect prints the same numbers as the
+baseline, and a pasted number has to carry what produced it.
+
 The argument parsing is a module of its own, and the harness a module the
 package imports, so that running this command does not import the harness twice
 — which is what `runpy` warns about when a package imports the module it was
@@ -32,6 +36,7 @@ from idc.classify.errors import ClassifyError
 from idc.classify.evaluate import (
     EXIT_INPUT_ERROR,
     EXIT_OK,
+    RunSource,
     evaluate_cases,
     format_report,
     load_cases,
@@ -86,9 +91,14 @@ def main(argv: list[str] | None = None) -> int:
         on stdout.
     """
     arguments = build_parser().parse_args(argv)
+    source = (
+        RunSource.baseline()
+        if arguments.decisions is None
+        else RunSource.recorded(arguments.decisions)
+    )
     try:
         result = evaluate_cases(
-            load_cases(arguments.gold, arguments.transcripts, arguments.decisions)
+            load_cases(arguments.gold, arguments.transcripts, arguments.decisions), source
         )
     except (ClassifyError, SchemaValidationError, OSError) as error:
         print(f"idc: {error}", file=sys.stderr)

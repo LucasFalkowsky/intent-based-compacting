@@ -37,6 +37,7 @@ from idc.classify import (
     GoldChains,
     GoldCoverageError,
     GoldLabellingError,
+    RunSource,
     UnknownChainError,
     agreement,
     chunks_for,
@@ -219,7 +220,8 @@ def test_the_gold_script_scores_a_perfect_run(name):
 
 def test_the_gold_script_scores_a_perfect_run_over_the_whole_corpus():
     result = evaluate_cases(
-        [evaluation_case(name, gold_script(gold_of(name))) for name in FIXTURE_NAMES]
+        [evaluation_case(name, gold_script(gold_of(name))) for name in FIXTURE_NAMES],
+        RunSource.baseline(),
     )
 
     assert result.transcript_count == len(FIXTURE_NAMES)
@@ -327,7 +329,8 @@ def test_evaluate_cases_aggregates_over_the_chunks_and_the_pairs_of_the_corpus()
         [
             evaluation_case("interleaved_intents", [NEW, NEW, NEW]),
             evaluation_case("single_intent", [NEW]),
-        ]
+        ],
+        RunSource.adapter("FakeAdapter"),
     )
 
     assert isinstance(result, CorpusAgreement)
@@ -342,7 +345,7 @@ def test_evaluate_cases_aggregates_over_the_chunks_and_the_pairs_of_the_corpus()
 
 def test_evaluate_cases_refuses_an_empty_corpus():
     with pytest.raises(ValueError, match="at least one"):
-        evaluate_cases([])
+        evaluate_cases([], RunSource.baseline())
 
 
 def test_the_report_names_every_transcript_its_numbers_and_its_disagreements():
@@ -350,25 +353,50 @@ def test_the_report_names_every_transcript_its_numbers_and_its_disagreements():
         [
             evaluation_case("interleaved_intents", [NEW, NEW, NEW]),
             evaluation_case("single_intent", [NEW]),
-        ]
+        ],
+        RunSource.adapter("FakeAdapter"),
     )
 
     report = format_report(result).splitlines()
 
-    assert report[0].split() == ["transcript", "chunks", "chains", "accuracy", "rand"]
-    assert report[1].split() == ["interleaved_intents", "3", "3/2", "0.667", "0.667"]
-    assert report[2].split() == ["single_intent", "1", "1/1", "1.000", "1.000"]
-    assert report[3] == (
-        "corpus: 2 transcripts, 4 chunks, 3 chunk pairs; accuracy 0.750, rand index 0.667"
+    assert report[0] == "source: adapter FakeAdapter — run over the labelled transcripts"
+    assert report[1].split() == ["transcript", "chunks", "chains", "accuracy", "rand"]
+    assert report[2].split() == ["interleaved_intents", "3", "3/2", "0.667", "0.667"]
+    assert report[3].split() == ["single_intent", "1", "1/1", "1.000", "1.000"]
+    assert report[4] == (
+        "corpus [adapter FakeAdapter]: 2 transcripts, 4 chunks, 3 chunk pairs; "
+        "accuracy 0.750, rand index 0.667"
     )
-    assert report[4] == "disagreements (predicted / gold):"
-    assert report[5] == "  interleaved_intents K3: C3 / C1"
+    assert report[-2] == "disagreements (predicted / gold):"
+    assert report[-1] == "  interleaved_intents K3: C3 / C1"
 
 
 def test_the_report_of_a_perfect_run_lists_no_disagreement():
-    report = format_report(evaluate_cases([evaluation_case("single_intent", [NEW])]))
+    report = format_report(
+        evaluate_cases([evaluation_case("single_intent", [NEW])], RunSource.baseline())
+    )
 
     assert "disagreements" not in report
+
+
+@pytest.mark.parametrize(
+    ("source", "label", "detail"),
+    [
+        (RunSource.baseline(), "gold baseline, 1.000 by construction", "gold_script"),
+        (RunSource.recorded("runs/s1m-0.5"), "recorded run runs/s1m-0.5", "fake adapter"),
+        (RunSource.adapter("S1MAdapter"), "adapter S1MAdapter", "labelled transcripts"),
+    ],
+    ids=["baseline", "recorded", "adapter"],
+)
+def test_a_run_source_names_itself_in_its_label_and_in_its_description(source, label, detail):
+    assert source.label == label
+    assert source.description.startswith(label)
+    assert detail in source.description
+
+
+def test_a_run_source_refuses_to_name_nothing():
+    with pytest.raises(ValueError, match="where the decisions came from"):
+        RunSource(label="   ")
 
 
 def test_the_command_scores_the_gold_baseline_over_the_corpus(capsys):

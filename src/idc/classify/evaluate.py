@@ -44,6 +44,12 @@ The argument parsing lives in `idc.classify.__main__`, so that running the
 command does not import this module twice (`runpy` warns about exactly that when
 a package imports the module it is asked to run).
 
+Every report **names the source of its numbers** — a `source:` line and the
+label on the corpus line itself, because that is the line a reader pastes. The
+baseline and a real run that scored 1.000 print otherwise identical numbers, so
+the provenance is the only thing that tells them apart; `RunSource` is therefore
+a required part of a `CorpusAgreement` rather than a formatting option.
+
 It pairs a gold labelling with the transcript of the same name and runs one
 adapter per transcript. Without `--decisions` that adapter plays the **gold
 baseline** (`gold_script`), which is right by construction and therefore prints
@@ -65,6 +71,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
+from typing import Self
 
 from idc.chunk import chunk_session
 from idc.classify.adapters import NEW, DecisionLike, IntentAdapter
@@ -113,6 +120,22 @@ DECISION_KEYS = ("transcript", "decisions")
 
 DECISION_OPTIONAL_KEYS = ("note",)
 """The keys it may carry."""
+
+BASELINE_LABEL = "gold baseline, 1.000 by construction"
+"""How the report names the one run that is right before it is performed.
+
+The baseline plays `gold_script` back against the very labels it was derived
+from, so it reproduces them exactly — its 1.000 is a self-check of the harness
+and no statement about any classifier. The label says so on the line a reader
+would paste, because a real run that happened to score 1.000 prints a line of
+the same shape.
+"""
+
+BASELINE_DETAIL = (
+    "the gold labels played back through gold_script, so it scores itself and "
+    "measures no classifier"
+)
+"""The sentence the baseline's `source:` line carries beyond its label."""
 
 EXIT_OK = 0
 """The command's exit status when it printed a report."""
@@ -274,6 +297,79 @@ class Agreement:
 
 
 @dataclass(frozen=True, slots=True)
+class RunSource:
+    """Where the decisions a report scores came from.
+
+    A `CorpusAgreement` carries one, so that a number cannot travel without the
+    thing that produced it: the baseline is right by construction, a recorded
+    run is a real backend's decisions read from a directory, and a live adapter
+    is neither. Two numbers of the same value mean entirely different things
+    depending on which of the three it was, and the report prints the label on
+    the corpus line itself.
+
+    Attributes:
+        label: The short name of the source, for the corpus line.
+        detail: One clause saying what that source is, for the `source:` line.
+            Empty when the label says everything.
+    """
+
+    label: str
+    detail: str = ""
+
+    def __post_init__(self) -> None:
+        """Reject a source that names nothing.
+
+        Raises:
+            ValueError: If the label holds no word. A report without a source is
+                the mistake this type exists against, and an unnamed source is
+                the caller's own construction error rather than something a
+                document could say.
+        """
+        if not self.label.strip():
+            raise ValueError("a run source names where the decisions came from")
+
+    @property
+    def description(self) -> str:
+        """Return the label with its detail, as the `source:` line reads it."""
+        return f"{self.label} — {self.detail}" if self.detail else self.label
+
+    @classmethod
+    def baseline(cls) -> Self:
+        """Return the source of a run of the gold baseline (`gold_script`)."""
+        return cls(label=BASELINE_LABEL, detail=BASELINE_DETAIL)
+
+    @classmethod
+    def recorded(cls, directory: str | Path) -> Self:
+        """Return the source of a recorded run replayed from `directory`.
+
+        Args:
+            directory: Directory the recorded runs were read from.
+
+        Returns:
+            The source, naming the directory — the one thing that says which
+            backend's decisions these were.
+        """
+        return cls(
+            label=f"recorded run {Path(directory)}",
+            detail="decisions recorded from a real backend, replayed through the fake adapter",
+        )
+
+    @classmethod
+    def adapter(cls, name: str) -> Self:
+        """Return the source of a run performed live by an adapter.
+
+        Args:
+            name: How the adapter is named in the report — a class name, or a
+                backend and its settings.
+
+        Returns:
+            The source; what a study script that runs an adapter itself passes
+            to `evaluate_cases`.
+        """
+        return cls(label=f"adapter {name}", detail="run over the labelled transcripts")
+
+
+@dataclass(frozen=True, slots=True)
 class CorpusAgreement:
     """The agreement over several labelled transcripts.
 
@@ -285,9 +381,13 @@ class CorpusAgreement:
 
     Attributes:
         cases: One agreement per transcript, in the order they were evaluated.
+        source: Where the decisions came from. Required, because the numbers
+            below mean different things depending on it — the baseline's 1.000
+            is arithmetic, a real run's 1.000 is a result.
     """
 
     cases: tuple[Agreement, ...]
+    source: RunSource
 
     def __post_init__(self) -> None:
         """Reject an empty corpus.
@@ -452,21 +552,27 @@ class EvaluationCase:
     adapter: IntentAdapter
 
 
-def evaluate_cases(cases: Sequence[EvaluationCase]) -> CorpusAgreement:
+def evaluate_cases(cases: Sequence[EvaluationCase], source: RunSource) -> CorpusAgreement:
     """Evaluate every case and return the corpus-wide agreement.
 
     Args:
         cases: The transcripts to evaluate, in report order.
+        source: Where the decisions the cases' adapters make come from; see
+            `RunSource`. It is an argument rather than something derived from
+            the adapters, because an adapter cannot say whether it is replaying
+            a recording or deciding for itself.
 
     Returns:
-        The agreement per case and the micro averages over all of them.
+        The agreement per case and the micro averages over all of them, under
+        the source that produced them.
 
     Raises:
         ValueError: If `cases` is empty.
         ClassifyError: If a case cannot be evaluated; see `evaluate_adapter`.
     """
     return CorpusAgreement(
-        cases=tuple(evaluate_adapter(case.gold, case.session, case.adapter) for case in cases)
+        cases=tuple(evaluate_adapter(case.gold, case.session, case.adapter) for case in cases),
+        source=source,
     )
 
 
@@ -478,11 +584,12 @@ def _plural(count: int, noun: str) -> str:
 def format_report(result: CorpusAgreement) -> str:
     """Return the agreement as the report the command prints.
 
-    One row per transcript, the corpus line, and — only when there are any — the
-    chunks that went into another chain than the gold labels name.
+    A `source:` line, one row per transcript, the corpus line — which repeats
+    the source, because that is the line a reader pastes — and, only when there
+    are any, the chunks that went into another chain than the gold labels name.
 
     Args:
-        result: What `evaluate_cases` returned.
+        result: What `evaluate_cases` returned, source included.
 
     Returns:
         The report, without a trailing newline.
@@ -499,12 +606,13 @@ def format_report(result: CorpusAgreement) -> str:
         for case in result.cases
     ]
     widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
-    lines = [
+    lines = [f"source: {result.source.description}"]
+    lines.append(
         "  ".join(
             [rows[0][0].ljust(widths[0])]
             + [cell.rjust(width) for cell, width in zip(rows[0][1:], widths[1:], strict=True)]
         )
-    ]
+    )
     lines += [
         "  ".join(
             [row[0].ljust(widths[0])]
@@ -513,7 +621,7 @@ def format_report(result: CorpusAgreement) -> str:
         for row in rows[1:]
     ]
     lines.append(
-        f"corpus: {_plural(result.transcript_count, 'transcript')}, "
+        f"corpus [{result.source.label}]: {_plural(result.transcript_count, 'transcript')}, "
         f"{_plural(result.chunk_count, 'chunk')}, "
         f"{_plural(result.pair_count, 'chunk pair')}; "
         f"accuracy {result.accuracy:.3f}, rand index {result.rand_index:.3f}"

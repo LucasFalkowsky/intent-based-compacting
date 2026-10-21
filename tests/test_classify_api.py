@@ -57,6 +57,7 @@ from idc.classify import (
     LlmCall,
     ModelClient,
     NewChain,
+    RunSource,
     S1MAdapter,
     S1MCall,
     ScorerContractError,
@@ -263,6 +264,7 @@ HARNESS_EXPORTS = {
     "GoldChains",
     "GoldCoverageError",
     "GoldLabellingError",
+    "RunSource",
     "agreement",
     "chunks_for",
     "evaluate_adapter",
@@ -278,8 +280,8 @@ HARNESS_EXPORTS = {
     "rand_index",
 }
 """What T4.4 adds: the gold labelling and its loaders, the two metrics, the
-per-transcript and corpus-wide agreement, the report, and the three failures a
-hand-written evaluation input can cause."""
+per-transcript and corpus-wide agreement, the source a result is reported under,
+the report, and the three failures a hand-written evaluation input can cause."""
 
 EXPECTED_EXPORTS |= HARNESS_EXPORTS
 CALLABLE_EXPORTS += (
@@ -306,6 +308,7 @@ TYPE_EXPORTS += (
     GoldChains,
     GoldCoverageError,
     GoldLabellingError,
+    RunSource,
 )
 ERROR_EXPORTS += (DecisionRecordError, GoldCoverageError, GoldLabellingError)
 VALUE_EXPORTS["CHUNKINGS"] = CHUNKINGS

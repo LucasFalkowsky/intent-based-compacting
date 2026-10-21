@@ -120,6 +120,15 @@ over the corpus. Without `--decisions` it runs the gold baseline, which scores 1
 construction; with it, the recorded decisions of a real run are replayed and scored. No
 invocation calls a model: the real backends take their model as an injected dependency.
 
+Every report **names the source of its numbers** — a `source:` line, and the same label on
+the corpus line, which is the line a reader would paste. The baseline and a real run that
+scored 1.000 are otherwise indistinguishable, so a number without its source says nothing:
+
+```
+source: gold baseline, 1.000 by construction — the gold labels played back through gold_script, …
+corpus [gold baseline, 1.000 by construction]: 9 transcripts, 12 chunks, 4 chunk pairs; accuracy 1.000, …
+```
+
 ## Layout
 
 ```

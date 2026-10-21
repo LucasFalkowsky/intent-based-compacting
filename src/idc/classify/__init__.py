@@ -47,6 +47,8 @@ The stage is split along what a model may decide and what it may not:
   per-chunk accuracy and chain-level Rand index of a run against it. The labels
   are read from an artifact nothing here writes, and both metrics are arithmetic
   over two labellings — so the harness neither scores itself nor calls a model.
+  Every result carries the `RunSource` it was produced by, because the gold
+  baseline scores 1.000 by construction and must not read like a measurement.
 - `idc.classify.s1m` is the other real backend (T4.3, #18): a binary scorer
   asked once per candidate, thresholded and ranked into one decision. Its
   scorer is **injected** too, so that module holds no client, no transport and
@@ -114,6 +116,7 @@ from idc.classify.evaluate import (
     CorpusAgreement,
     Disagreement,
     EvaluationCase,
+    RunSource,
     agreement,
     chunks_for,
     evaluate_adapter,
@@ -194,6 +197,7 @@ __all__ = [
     "LlmCall",
     "ModelClient",
     "NewChain",
+    "RunSource",
     "ScriptExhaustedError",
     "UnknownChainError",
     "UnreadableAnswerError",
