@@ -1,0 +1,8 @@
+{
+  "transcript": "slash_command",
+  "chunking": "user-boundaries",
+  "note": "Three user-role messages, one user turn: a slash command is not a turn, so the transcript holds one chunk and the one intent that turn states.",
+  "chains": {
+    "K1": "C1"
+  }
+}

@@ -258,6 +258,42 @@ make run ARGS="compact --agent opencode --in session.jsonl --out compacted.jsonl
 `make run` forwards `ARGS` to `python -m idc`. The command surface itself is implemented in
 ticket T10.1; until then the entry point exits with code 2 and says so.
 
+The classifier evaluation harness is a development utility outside that surface,
+next to `make schema`:
+
+```
+python -m idc.classify tests/fixtures/gold tests/fixtures
+python -m idc.classify GOLD_DIR TRANSCRIPT_DIR --decisions RUN_DIR
+```
+
+It reports how far a classifier run agrees with the gold chain labels of
+`tests/fixtures/gold/` — per-chunk accuracy and chain-level Rand index, per transcript and
+over the corpus. Without `--decisions` it runs the gold baseline, which scores 1.000 by
+construction; with it, the recorded decisions of a real run are replayed and scored. No
+invocation calls a model: the real backends take their model as an injected dependency.
+
+Every report **names the source of its numbers** — a `source:` line, and the same label on
+the corpus line, which is the line a reader would paste. The baseline and a real run that
+scored 1.000 are otherwise indistinguishable, so a number without its source says nothing:
+
+```
+source: gold baseline, 1.000 by construction — the gold labels played back through gold_script, …
+corpus [gold baseline, 1.000 by construction]: 9 transcripts, 12 chunks, 4 chunk pairs; accuracy 1.000, …
+floor: accuracy 0.750 — 9 of 12 chunks are a transcript's first chunk, where NEW is the only …
+floor: the rand index rests on 4 chunk pairs; 7 of 9 transcripts hold a single chunk and form no …
+```
+
+The two `floor:` lines are the second thing to read before any corpus number: both metrics
+have a floor that belongs to the **corpus**, not to the classifier. A transcript's first
+chunk is offered no candidate chain, so `NEW` is the only decision the classifier accepts
+and that chunk is scored right in every run that completes — and a transcript of a single
+chunk therefore admits no wrong decision at all. The Rand index, in turn, rests only on
+the pairs the multi-chunk transcripts form. Only the distance between `accuracy` and the
+accuracy floor measures a backend. The figures above are the ones the command printed for
+the corpus as it stands; they are **derived from the cases on every run**, so read them
+from the output rather than from this paragraph — a fixture added to `tests/fixtures/`
+moves all of them.
+
 ## Layout
 
 ```

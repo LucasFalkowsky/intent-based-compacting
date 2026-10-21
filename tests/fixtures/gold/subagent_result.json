@@ -1,0 +1,8 @@
+{
+  "transcript": "subagent_result",
+  "chunking": "user-boundaries",
+  "note": "The subagent sweep serves the turn that delegated it. Under user-boundary chunking that work is part of K1, so there is one chain; a gold labelling for the subagent chunking (T3.3) is a second artifact and not this one.",
+  "chains": {
+    "K1": "C1"
+  }
+}

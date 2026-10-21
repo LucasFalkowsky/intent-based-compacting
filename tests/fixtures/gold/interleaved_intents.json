@@ -1,0 +1,10 @@
+{
+  "transcript": "interleaved_intents",
+  "chunking": "user-boundaries",
+  "note": "The discriminating case: the turns pursue A, B, A, and the user says where each one starts. The second opens \"Unrelated:\" and asks for a config-key rename, so K2 opens C2. The third opens \"Back to the sampler:\" and restates the complaint of the first — \"The seeding fixed the test, not the bug.\" — so K3 extends C1 instead of opening a third chain.",
+  "chains": {
+    "K1": "C1",
+    "K2": "C2",
+    "K3": "C1"
+  }
+}
