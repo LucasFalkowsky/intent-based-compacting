@@ -23,6 +23,16 @@ survives `T6 → T8 → T6` byte for byte:
 - **The split is the inverse of the join.** `split_blocks` cuts a sequence at
   its headings and `join_blocks` puts it back one blank line apart, which is how
   `idc.compact`'s own golden sequences are written.
+
+Four kinds of line carry structure — a chain heading, a section header, and the
+opening and the closing run of a code fence — and **one rule decides for all
+four** whether a given line is one of them: `_dedented`, which allows
+`MAX_STRUCTURE_INDENT` leading spaces and calls anything indented further
+content. Applying it to three of the four and not the fourth is what let a
+four-space closing run end a fence a hand had opened flush, so that the headers
+beneath it were read as sections and the block's own `### Verification` was
+shadowed without a refusal. The allowance is CommonMark's; nothing else here
+claims to be CommonMark, and `_FENCE_LINE` says where the two part company.
 """
 
 import re
@@ -31,6 +41,7 @@ from dataclasses import dataclass
 
 from idc.compact import SECTION_HEADERS
 from idc.parse.errors import (
+    MAX_STRUCTURE_INDENT,
     DuplicateChainError,
     MalformedHeadingError,
     MissingSectionError,
@@ -78,6 +89,10 @@ The label group is `.+` and not `.*`, so a heading that states no label is a
 message that names the line is the more useful of the two. A label of blank
 space does match; `idc.classify` refuses that one when it seeds the chain,
 because only there is it known that the label is about to be shown to a model.
+
+It is anchored at the heading itself and carries no indent allowance of its own:
+`_headings` matches it against the line `_dedented` handed back, so the writer's
+exact shape has one spelling and the indentation rule has one place.
 """
 
 PLACEHOLDER_CHUNK_PREFIX = "compacted:"
@@ -91,18 +106,32 @@ keeps it clear of `idc.chunk`'s own ids, which are `K<n>`.
 """
 
 _SECTION_START = "###"
-"""What a section header line starts with; checked before `_HEADING_START`."""
+"""What a section header line starts with; checked before `_HEADING_START`.
+
+Both starts are checked against a `_dedented` line, never against the raw one,
+so a header a hand pushed over by a space or three is still a header.
+"""
 
 _HEADING_START = "##"
 """What a chain heading line starts with, once `###` has been ruled out."""
 
-_FENCE_LINE = re.compile(r"^ {0,3}(`{3,})(.*)$")
+_FENCE_LINE = re.compile(rf"^ {{0,{MAX_STRUCTURE_INDENT}}}(`{{3,}})(.*)$")
 """A line that may open a code fence: a run of backticks and an info string.
 
-Up to three leading spaces, as CommonMark allows — the writer indents no fence,
-but a narrative section written as a list may. A run followed by a backtick is
-not an opening fence (an info string holds none), which keeps an inline span
-from opening one.
+`MAX_STRUCTURE_INDENT` leading spaces, the same allowance `_dedented` gives the
+closing run and the two header kinds — the writer indents no fence, but a
+narrative section written as a list may. A run followed by a backtick is not an
+opening fence (an info string holds none), which keeps an inline span from
+opening one.
+
+Where this parser and CommonMark part company: a leading **tab** is not expanded
+to the next tab stop. The two still agree on every line whose indent holds one,
+and they agree by arithmetic rather than by accident — a tab reaches column four
+wherever it stands within three spaces, so CommonMark reads such a line as
+indented code, and `_dedented` leaves the tab in place, which makes the line
+start with neither `#` nor a backtick. Both call it content. What is *not*
+claimed is CommonMark's reading of the headers themselves: `##` is matched by
+prefix here, so a deeper ATX run is read as a section header.
 """
 
 
@@ -133,9 +162,12 @@ class ParsedSection:
     """One section of a block: its header line and the lines beneath it.
 
     Attributes:
-        header: The header line, without its line terminator — one of
+        header: The header line, without its line terminator and without the
+            leading spaces `_dedented` allows it — one of
             `idc.compact.SECTION_HEADERS` for a section the writer rendered, and
-            anything else for one a hand added.
+            anything else for one a hand added. A hand-indented header therefore
+            still compares equal to the writer's own string; the indentation is
+            not lost, because `ParsedBlock.text` holds the block verbatim.
         body: Everything between this header and the next one (or the end of the
             block), verbatim and with its line terminators kept, so that a
             fenced block inside it is reproduced exactly.
@@ -256,11 +288,33 @@ def _bare(line: str) -> str:
 
     Returns:
         The line without its line terminator, LF or CRLF. Nothing else is
-        stripped: leading
-        space is what tells an indented fence from a flush one, and trailing
-        space is part of the text a block has to survive with.
+        stripped: leading space is what tells structure from content — see
+        `_dedented`, which is the only place that weighs it — and trailing space
+        is part of the text a block has to survive with.
     """
     return line.rstrip("\r\n")
+
+
+def _dedented(bare: str) -> str | None:
+    """Return one line without its structural indent, or `None` when it has too much.
+
+    The single place the indentation rule is decided, for all four kinds of line
+    that carry structure.
+
+    Args:
+        bare: One line without its terminator, as `_bare` returned it.
+
+    Returns:
+        The line with its leading spaces removed, when there are at most
+        `MAX_STRUCTURE_INDENT` of them — the form `HEADING_PATTERN`, the two
+        `startswith` checks and the closing-fence comparison all read, so none
+        of them has to know about indentation. `None` when the line is indented
+        further: it is content then, and no kind of structure.
+    """
+    stripped = bare.lstrip(" ")
+    if len(bare) - len(stripped) > MAX_STRUCTURE_INDENT:
+        return None
+    return stripped
 
 
 def _spans(starts: Sequence[int], total: int) -> list[tuple[int, int]]:
@@ -294,6 +348,14 @@ def _scan(text: str) -> tuple[list[str], list[int]]:
         a heading or a section header may be read off, which is what makes a
         `###` inside a four-backtick fence content.
 
+        A fence is closed by a run of at least as many backticks as opened it,
+        indented by at most `MAX_STRUCTURE_INDENT` spaces and followed by
+        nothing but whitespace. "At least as many" and the indent bound are both
+        load-bearing: a shorter run inside a longer fence is content, and a run
+        indented out of structure closes nothing — it is the line a hand leaves
+        inside a list item, and taking it for a close would hand the section
+        headers beneath it to the splitter.
+
     Raises:
         UnterminatedFenceError: If a fence is opened and never closed. Reading
             on instead would take every heading after it for fenced content.
@@ -311,7 +373,10 @@ def _scan(text: str) -> tuple[list[str], list[int]]:
             else:
                 structural.append(index)
             continue
-        closing = bare.strip()
+        dedented = _dedented(bare)
+        if dedented is None:
+            continue
+        closing = dedented.rstrip()
         if closing and set(closing) == {"`"} and len(closing) >= len(fence):
             fence = None
     if fence is not None:
@@ -333,18 +398,47 @@ def _headings(lines: Sequence[str], structural: Iterable[int]) -> list[tuple[int
     Raises:
         MalformedHeadingError: If a structural line starts a block but is not a
             chain heading. `###` is ruled out first, so a section header is
-            never mistaken for a mistyped heading.
+            never mistaken for a mistyped heading. A line indented past
+            `MAX_STRUCTURE_INDENT` is not read as an attempt at a heading at
+            all — it is content of the section it stands in, which the block
+            keeps verbatim. Within the allowance the refusal is unconditional:
+            a malformed heading is named, never passed over into a body.
     """
     headings: list[tuple[int, re.Match[str]]] = []
     for index in structural:
         bare = _bare(lines[index])
-        if bare.startswith(_SECTION_START) or not bare.startswith(_HEADING_START):
+        dedented = _dedented(bare)
+        if dedented is None or dedented.startswith(_SECTION_START):
             continue
-        match = HEADING_PATTERN.match(bare)
+        if not dedented.startswith(_HEADING_START):
+            continue
+        match = HEADING_PATTERN.match(dedented)
         if match is None:
             raise MalformedHeadingError(index + 1, bare)
         headings.append((index, match))
     return headings
+
+
+def _sections(lines: Sequence[str], structural: Iterable[int]) -> list[tuple[int, str]]:
+    """Return the index and the header of every line that opens a section.
+
+    Args:
+        lines: Every line of one block, terminators kept.
+        structural: The indices no fence encloses, in order.
+
+    Returns:
+        One `(index, header)` pair per section header, in document order. The
+        header is the `_dedented` line, so a header a hand indented by up to
+        `MAX_STRUCTURE_INDENT` spaces still equals the writer's own string and
+        `ParsedBlock.body` finds it; the body beneath it is sliced from `lines`
+        and keeps whatever indentation it had.
+    """
+    opens: list[tuple[int, str]] = []
+    for index in structural:
+        dedented = _dedented(_bare(lines[index]))
+        if dedented is not None and dedented.startswith(_SECTION_START):
+            opens.append((index, dedented))
+    return opens
 
 
 def _first_stray(lines: Sequence[str], start: int, stop: int) -> int | None:
@@ -478,13 +572,14 @@ def _parse_block(line: int, heading: re.Match[str], text: str) -> ParsedBlock:
     """
     lines, structural = _scan(text)
     chain_id, label = heading.group(1), heading.group(2)
-    starts = [index for index in structural if _bare(lines[index]).startswith(_SECTION_START)]
+    opens = _sections(lines, structural)
+    starts = [index for index, _ in opens]
     stray = _first_stray(lines, 1, starts[0] if starts else len(lines))
     if stray is not None:
         raise StrayContentError(line + stray, _bare(lines[stray]), chain_id)
     sections = tuple(
-        ParsedSection(header=_bare(lines[start]), body="".join(lines[start + 1 : bound]))
-        for start, bound in _spans(starts, len(lines))
+        ParsedSection(header=header, body="".join(lines[start + 1 : bound]))
+        for (start, bound), (_, header) in zip(_spans(starts, len(lines)), opens, strict=True)
     )
     headers = {section.header for section in sections}
     missing = [header for header in SECTION_HEADERS if header not in headers]

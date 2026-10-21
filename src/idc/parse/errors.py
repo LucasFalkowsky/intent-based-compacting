@@ -34,6 +34,7 @@ from collections.abc import Sequence
 
 __all__ = [
     "HEADING_SHAPE",
+    "MAX_STRUCTURE_INDENT",
     "DuplicateChainError",
     "MalformedHeadingError",
     "MissingSectionError",
@@ -50,6 +51,23 @@ Prose, not a pattern: the pattern the parser matches with is built from
 `idc.compact.chain_heading`'s own format and the schema's `CHAIN_ID_PATTERN` in
 `idc.parse.blocks`, and this is the human-readable rendering of it that a
 message can put in front of somebody who has to repair a block by hand.
+"""
+
+
+MAX_STRUCTURE_INDENT = 3
+"""How many leading spaces a line may carry and still be structure.
+
+CommonMark's own allowance, and the parser applies it to all four kinds of line
+that carry structure: a chain heading, a section header, and the opening and the
+closing run of a code fence. A line indented further is content — four spaces
+open an indented code block — so a `### Solution` a hand pushed out that far is
+text of the section it stands in and not a header of its own.
+
+It lives here, beside `HEADING_SHAPE`, because the refusals have to be able to
+say so: somebody repairing a block by hand needs to be told why their closing
+fence did not count. `idc.parse.blocks` imports it from here rather than the
+other way round — `blocks` already depends on `errors` — so the rule the parser
+applies and the rule the messages state are one number.
 """
 
 
@@ -85,11 +103,13 @@ class NoHeadingError(ParseError):
 class MalformedHeadingError(ParseError):
     """A line opens a block but is not a chain heading.
 
-    Any line that starts with `##` and is not a section header is read as an
-    attempt at a heading, so that a mistyped id (`[c1]`, `[chain-1]`, `[C0]`) is
-    named as the mistake it is instead of being taken for stray prose. The id is
-    what a chain is recognized by on the next run, so a wrong one would split a
-    chain's history in two.
+    Any line that starts with `##` — after at most `MAX_STRUCTURE_INDENT`
+    leading spaces — and is not a section header is read as an attempt at a
+    heading, so that a mistyped id (`[c1]`, `[chain-1]`, `[C0]`) is named as the
+    mistake it is instead of being taken for stray prose. The id is what a chain
+    is recognized by on the next run, so a wrong one would split a chain's
+    history in two. A heading indented further is content of the section it
+    stands in, and the block keeps it verbatim; it is never dropped.
 
     Attributes:
         line: 1-based line number of the offending line.
@@ -222,6 +242,12 @@ class UnterminatedFenceError(ParseError):
     because everything after it, headings included, is inside the fence and
     would be read as content.
 
+    A run of backticks that is long enough but indented by more than
+    `MAX_STRUCTURE_INDENT` spaces closes nothing, so it raises this too. The
+    message states both halves, because that is the case a hand produces: an
+    over-indented closing fence in a Solution body used to end the fence and let
+    the headers beneath it be read as sections of their own.
+
     Attributes:
         line: 1-based line the fence was opened on.
         fence: The run of backticks that opened it, so the message says how
@@ -239,5 +265,6 @@ class UnterminatedFenceError(ParseError):
         self.fence = fence
         super().__init__(
             f"the code fence opened at line {line} with {fence!r} is never closed; a line of at "
-            f"least {len(fence)} backtick(s) has to close it"
+            f"least {len(fence)} backtick(s), indented by at most {MAX_STRUCTURE_INDENT} "
+            f"space(s), has to close it"
         )

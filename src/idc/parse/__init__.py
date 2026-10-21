@@ -23,6 +23,15 @@ what makes the round trip a property of the two packages together — a block
 bytes — and it is why there is no second definition of
 `### Decisions & constraints` anywhere in here to drift from the first.
 
+A block a hand has touched is read the way a Markdown reader would read it on
+one point that matters: **indentation**. A chain heading, a section header and
+either end of a code fence may carry up to `MAX_STRUCTURE_INDENT` leading spaces
+and are still that; indented further, they are content of the section they stand
+in. One rule for all four, because applying it to some of them is how content
+escapes its section — a closing fence that counted at any indentation once let a
+`### Verification` written inside a Solution body become a section of its own and
+shadow the block's real one, with nothing refused.
+
 Two things this stage does **not** do:
 
 - **It re-renders nothing.** A chain keeps its block verbatim in
@@ -55,6 +64,7 @@ from idc.parse.blocks import (
 )
 from idc.parse.errors import (
     HEADING_SHAPE,
+    MAX_STRUCTURE_INDENT,
     DuplicateChainError,
     MalformedHeadingError,
     MissingSectionError,
@@ -73,6 +83,7 @@ __all__ = [
     "BLOCK_SEPARATOR",
     "HEADING_PATTERN",
     "HEADING_SHAPE",
+    "MAX_STRUCTURE_INDENT",
     "PLACEHOLDER_CHUNK_PREFIX",
     "DuplicateChainError",
     "MalformedHeadingError",
