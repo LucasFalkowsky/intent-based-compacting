@@ -172,7 +172,7 @@ class Narrative:
                 )
 
 
-def _markers(line: str) -> str | None:
+def _marker_of(line: str) -> str | None:
     """Return which of the three response markers `line` is, or `None`.
 
     Args:
@@ -194,6 +194,66 @@ def _markers(line: str) -> str | None:
 
 _EXPECTED_MARKERS = (INTENT_MARKER, DECISIONS_HEADER, REJECTED_HEADER)
 """The three markers a response holds, each once, in this order."""
+
+
+def _trimmed(value: str) -> list[str]:
+    """Return a response as its lines, right-stripped and without blank ends.
+
+    Args:
+        value: The response, as the client returned it.
+
+    Returns:
+        One entry per line, each without its trailing whitespace, with the blank
+        lines at either end dropped. A model's answer that arrives wrapped in
+        newlines is the same answer, and trailing whitespace on a header would
+        otherwise make it a line that merely looks like one.
+    """
+    lines = [line.rstrip() for line in value.splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines
+
+
+def _found_markers(lines: Sequence[str]) -> list[tuple[int, str]]:
+    """Return where each response marker is, refusing every other structural line.
+
+    Args:
+        lines: The response's lines, as `_trimmed` returns them.
+
+    Returns:
+        One `(position, marker)` pair per marker found, in the order the lines
+        hold them — which is what the caller compares against
+        `_EXPECTED_MARKERS`.
+
+    Raises:
+        NarrativeContractError: If a line is a Markdown heading that is none of
+            the three markers, or opens a code fence. Both are refused here
+            rather than where the bodies are sliced, because both are a line
+            that would be read as *structure* in the rendered block: a
+            `### Solution` of the model's own, a second `## [C…]` heading, a
+            misspelled narrative header, or a fence enclosing the sections the
+            renderer appends below.
+    """
+    found: list[tuple[int, str]] = []
+    for position, line in enumerate(lines):
+        marker = _marker_of(line)
+        if marker is not None:
+            found.append((position, marker))
+            continue
+        if _HEADING_LINE.match(line):
+            raise NarrativeContractError(
+                f"a narrative client wrote the header {line!r}, which is not one of its two: "
+                f"{DECISIONS_HEADER!r} and {REJECTED_HEADER!r}. The other sections of a block "
+                f"are written from the transcript, not by a model"
+            )
+        if _FENCE_LINE.match(line):
+            raise NarrativeContractError(
+                f"a narrative client opened a code fence ({line!r}); a narrative is bullet "
+                f"lines, and a fence would enclose the sections rendered below it"
+            )
+    return found
 
 
 def as_narrative(value: object) -> Narrative:
@@ -234,33 +294,13 @@ def as_narrative(value: object) -> Narrative:
             f"a narrative client must answer with text; got {value!r} "
             f"of type {type(value).__name__}"
         )
-    lines = [line.rstrip() for line in value.splitlines()]
-    while lines and not lines[0].strip():
-        lines.pop(0)
-    while lines and not lines[-1].strip():
-        lines.pop()
+    lines = _trimmed(value)
     if not lines:
         raise NarrativeContractError(
             f"a narrative client answered with nothing; it has to answer with "
             f"{INTENT_MARKER!r} and the two narrative headers"
         )
-    found: list[tuple[int, str]] = []
-    for position, line in enumerate(lines):
-        marker = _markers(line)
-        if marker is not None:
-            found.append((position, marker))
-            continue
-        if _HEADING_LINE.match(line):
-            raise NarrativeContractError(
-                f"a narrative client wrote the header {line!r}, which is not one of its two: "
-                f"{DECISIONS_HEADER!r} and {REJECTED_HEADER!r}. The other sections of a block "
-                f"are written from the transcript, not by a model"
-            )
-        if _FENCE_LINE.match(line):
-            raise NarrativeContractError(
-                f"a narrative client opened a code fence ({line!r}); a narrative is bullet "
-                f"lines, and a fence would enclose the sections rendered below it"
-            )
+    found = _found_markers(lines)
     if tuple(marker for _, marker in found) != _EXPECTED_MARKERS:
         written = ", ".join(repr(marker) for _, marker in found) or "none"
         raise NarrativeContractError(
