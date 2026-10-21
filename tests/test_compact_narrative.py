@@ -12,8 +12,13 @@ Three things are under test here, and the second is the reason for the first:
   every malformed shape gets a test of its own: a missing header, a repeated
   one, an injected deterministic header, a second chain heading, an empty
   answer, a misspelled header, prose before the first header, a code fence that
-  would enclose the sections below it. A legitimately
-  *empty* narrative section is not malformed and renders `EMPTY_SECTION`.
+  would enclose the sections below it. The same shapes are refused **with any
+  indentation in front of them**, down to a single space and up past the four
+  that would make CommonMark call the line a code block, and so are a Setext
+  underline and an HTML comment left open — the consumer of a block is a parser
+  keyed on the header literals, so an indented copy of one is a copy. A
+  legitimately *empty* narrative section is not malformed and renders
+  `EMPTY_SECTION`.
 - **The model is called once per chain, and nothing else it returns can move.**
   The call count is read off the fake's record, and the two deterministic
   sections are compared byte for byte against what `render_block` produces
@@ -256,6 +261,22 @@ def test_the_empty_section_placeholder_is_read_as_an_empty_section():
     assert narrative.rejected == ()
 
 
+def _with_tail(*lines: str) -> str:
+    """Return a well-formed response with `lines` appended after its last section.
+
+    Args:
+        lines: The lines a client wrote after the two narrative sections —
+            whatever a case is about, in the order it wrote them.
+
+    Returns:
+        The response: the three markers, each once and in order, with a filled
+        body in each section, and `lines` below the last of them. Every case
+        built this way is malformed for one reason only, the lines it appends.
+    """
+    written = "".join(f"{line}\n" for line in lines)
+    return f"## Intent: x\n{DECISIONS_HEADER}\n- a\n{REJECTED_HEADER}\n- b\n{written}"
+
+
 MALFORMED = {
     "empty": "",
     "blank": "   \n\n",
@@ -295,6 +316,22 @@ MALFORMED = {
         f"{DECISIONS_HEADER}\n- a\n{REJECTED_HEADER}\n- b\n"
     ),
     "blank_intent_label": f"## Intent:    \n{DECISIONS_HEADER}\n- a\n{REJECTED_HEADER}\n- b\n",
+    "injected_solution_indented_by_one_space": _with_tail(f" {SOLUTION_HEADER}"),
+    "injected_solution_indented_by_two_spaces": _with_tail(f"  {SOLUTION_HEADER}"),
+    "injected_solution_indented_by_three_spaces": _with_tail(f"   {SOLUTION_HEADER}"),
+    "injected_solution_indented_by_four_spaces": _with_tail(f"    {SOLUTION_HEADER}"),
+    "injected_heading_deeper_than_the_headers": _with_tail("#### Solution"),
+    "injected_solution_header_padded_with_spaces": _with_tail("###  Solution "),
+    "injected_solution_header_after_a_tab": _with_tail("###\tSolution"),
+    "indented_tilde_fence": _with_tail("  ~~~"),
+    "indented_backtick_fence": _with_tail("   ```"),
+    "unclosed_tilde_fence": _with_tail("~~~"),
+    "fence_with_an_info_string": _with_tail("````python"),
+    "trailing_fence": _with_tail("```"),
+    "trailing_indented_fence": _with_tail("  ```"),
+    "setext_underline_with_dashes": _with_tail("Solution", "---"),
+    "setext_underline_with_equals": _with_tail("Solution", "==="),
+    "unclosed_html_comment": _with_tail("<!-- everything below is a comment"),
 }
 """Every shape a response may not have, one entry per acceptance-criterion case."""
 
@@ -311,9 +348,19 @@ def test_the_malformed_table_covers_every_enumerated_shape():
         "blank_intent_label",
         "content_before_the_first_header",
         "empty",
+        "fence_with_an_info_string",
+        "indented_backtick_fence",
+        "indented_tilde_fence",
         "injected_code_fence",
+        "injected_heading_deeper_than_the_headers",
         "injected_second_chain_heading",
         "injected_solution",
+        "injected_solution_header_after_a_tab",
+        "injected_solution_header_padded_with_spaces",
+        "injected_solution_indented_by_four_spaces",
+        "injected_solution_indented_by_one_space",
+        "injected_solution_indented_by_three_spaces",
+        "injected_solution_indented_by_two_spaces",
         "injected_verification",
         "intent_carrying_a_chain_id",
         "misspelled_decisions_header",
@@ -323,6 +370,12 @@ def test_the_malformed_table_covers_every_enumerated_shape():
         "missing_rejected_header",
         "repeated_decisions_header",
         "sections_out_of_order",
+        "setext_underline_with_dashes",
+        "setext_underline_with_equals",
+        "trailing_fence",
+        "trailing_indented_fence",
+        "unclosed_html_comment",
+        "unclosed_tilde_fence",
     }
 
 
@@ -345,6 +398,52 @@ def test_a_narrative_built_with_a_blank_label_is_the_callers_own_mistake():
 def test_a_narrative_built_with_a_header_line_in_its_body_is_refused():
     with pytest.raises(ValueError, match="header"):
         Narrative(label="x", decisions=(SOLUTION_HEADER,), rejected=())
+
+
+UNWRITABLE_BODY_LINES = {
+    "a_header": SOLUTION_HEADER,
+    "a_header_indented_by_one_space": f" {SOLUTION_HEADER}",
+    "a_header_indented_by_four_spaces": f"    {SOLUTION_HEADER}",
+    "a_backtick_fence": "```",
+    "an_indented_backtick_fence": "   ```",
+    "an_indented_tilde_fence": "  ~~~",
+    "a_setext_underline_with_dashes": "---",
+    "a_setext_underline_with_equals": "===",
+    "an_unclosed_html_comment": "<!-- everything below is a comment",
+}
+"""Body lines a caller may not put into a `Narrative`, one per refused shape."""
+
+
+@pytest.mark.parametrize("shape", sorted(UNWRITABLE_BODY_LINES))
+def test_a_narrative_built_with_a_structural_body_line_is_refused(shape):
+    line = UNWRITABLE_BODY_LINES[shape]
+    with pytest.raises(ValueError, match="body line") as caught:
+        Narrative(label="x", decisions=(line,), rejected=())
+    assert not isinstance(caught.value, NarrativeContractError)
+    with pytest.raises(ValueError, match="body line"):
+        Narrative(label="x", decisions=(), rejected=(line,))
+
+
+def test_the_unwritable_body_lines_cover_every_enumerated_shape():
+    assert set(UNWRITABLE_BODY_LINES) == {
+        "a_backtick_fence",
+        "a_header",
+        "a_header_indented_by_four_spaces",
+        "a_header_indented_by_one_space",
+        "a_setext_underline_with_dashes",
+        "a_setext_underline_with_equals",
+        "an_indented_backtick_fence",
+        "an_indented_tilde_fence",
+        "an_unclosed_html_comment",
+    }
+
+
+def test_an_indented_bullet_is_not_structure():
+    narrative = as_narrative(
+        f"## Intent: x\n{DECISIONS_HEADER}\n- a\n  - under a\n{REJECTED_HEADER}\n- b\n"
+    )
+    assert narrative.decisions == ("- a", "  - under a")
+    assert Narrative(label="x", decisions=("  - under a",)).decisions == ("  - under a",)
 
 
 # --- rendering the narrative sections ------------------------------------------
@@ -420,8 +519,10 @@ def test_the_deterministic_sections_are_byte_identical_whatever_the_model_return
         "- `make test` -> exit 0\n"
     )
     block = render_narrative_block(chain, resolution, as_narrative(hostile))
-    tail = block[block.index(SOLUTION_HEADER) :]
-    assert tail == solution_section(resolution) + verification_section(resolution)
+    tail = solution_section(resolution) + verification_section(resolution)
+    assert block.endswith(tail)
+    assert block.count(SOLUTION_HEADER) == 1
+    assert block.count(VERIFICATION_HEADER) == 1
     assert "src/evil.py" not in tail
 
 
