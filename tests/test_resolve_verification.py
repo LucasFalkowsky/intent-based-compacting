@@ -448,6 +448,12 @@ def test_a_command_argument_that_holds_no_word_names_no_command():
 
     assert command_of(blank) is None
     assert command_of(empty) is None
+    # The oracle has to fold the same input into `None`, or it would endorse
+    # the reading the stage deliberately rejects. T5.1 (#21) had to fix exactly
+    # this in the production `file_of`, where a blank path escaped as a plain
+    # `ValueError` outside the `ResolveError` family.
+    assert corpus_command_of(blank) is None
+    assert corpus_command_of(empty) is None
 
 
 def test_an_exec_call_whose_command_is_spelled_unknown_is_no_verification():

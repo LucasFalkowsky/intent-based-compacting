@@ -365,6 +365,11 @@ def test_a_write_whose_file_argument_holds_no_word_is_attributed_to_no_file():
 
     assert file_of(blank) is None, "a path that holds no word names no file"
     assert file_of(empty) is None
+    # Same for the oracle: it must not keep endorsing the blank path that this
+    # function was fixed to reject, or the corpus-wide partition test would
+    # agree with a reading the stage does not hold.
+    assert corpus_file_of(blank) is None
+    assert corpus_file_of(empty) is None
 
 
 def test_a_write_whose_file_argument_holds_no_word_does_not_refuse_the_resolution():
