@@ -32,7 +32,9 @@ Four decisions make this module what it is:
 - **An answer is read, or it is refused with a reason.** The answer is one JSON
   object, `{"decision": "<C-id>|NEW", "label": "<new label if NEW>"}`. Anything
   that cannot be read as that — prose, a JSON array, a missing field, a
-  `"decision"` that is neither `NEW` nor a `C<n>` — is unreadable, and *that*
+  `"decision"` that is neither `NEW` nor a `C<n>`, and the degenerate shapes a
+  repetition loop produces: a number longer than an `int` can be built from, a
+  nesting deeper than the parser's stack — is unreadable, and *that*
   is what the retry is for: the next prompt names the reason, and when the bound
   is used up the adapter raises `UnreadableAnswerError`, which is an
   `AdapterContractError` and so a `ClassifyError` (T10's CLI catches the stage
@@ -430,8 +432,15 @@ def _load_json(answer: str) -> object:
         The parsed JSON value, whatever its type.
 
     Raises:
-        _RetryableAnswerError: If the answer is not JSON. Surrounding whitespace and
-            a code fence around the whole answer are stripped first.
+        _RetryableAnswerError: If the answer cannot be read as JSON at all.
+            Surrounding whitespace and a code fence around the whole answer are
+            stripped first. Three kinds of failure are caught, not one:
+            `JSONDecodeError` for an answer that is no JSON, a plain
+            `ValueError` for a literal `json` can read but not build a value
+            from, and `RecursionError` for one nested deeper than it can be
+            parsed. All three are the same thing to a caller — the model did not
+            answer in the shape it was asked for — and none of them may leave
+            this stage as anything but a failure of the stage.
     """
     text = answer.strip()
     fenced = _CODE_FENCE.match(text)
@@ -441,6 +450,25 @@ def _load_json(answer: str) -> object:
         return json.loads(text)
     except json.JSONDecodeError as error:
         raise _RetryableAnswerError(f"the answer is not JSON ({error.msg})") from error
+    except ValueError as error:
+        # Not every refusal of `json.loads` is a `JSONDecodeError`. An integer
+        # literal longer than `sys.int_max_str_digits` (4300 digits on CPython
+        # 3.11 and later) is well-formed JSON that cannot be turned into a
+        # value, and it arrives as a *plain* `ValueError` — the one shape a
+        # degenerate repetition loop actually produces. Catching only the
+        # subclass would break this module's promise that a model's answer never
+        # leaves the stage as a bare `ValueError`, which is what T10's CLI is
+        # written against. `ValueError` subsumes the arm above; the two are kept
+        # apart only because `JSONDecodeError` carries the better message.
+        raise _RetryableAnswerError(f"the answer is not readable as JSON ({error})") from error
+    except RecursionError as error:
+        # `json` puts no limit on nesting, so an answer of 200000 open brackets
+        # exhausts the parser's stack instead of failing to parse. A
+        # `RecursionError` is no `ValueError`, so it needs its own arm — and it
+        # is the same event to the caller: the answer could not be read.
+        raise _RetryableAnswerError(
+            "the answer is not readable as JSON (it nests deeper than it can be parsed)"
+        ) from error
 
 
 def _read_decision(written: str) -> str | None:
