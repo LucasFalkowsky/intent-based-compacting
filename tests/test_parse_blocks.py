@@ -676,8 +676,8 @@ NOT_LINE_TERMINATORS = (
     ("group separator", "\x1d"),
     ("record separator", "\x1e"),
     ("next line", "\x85"),
-    ("line separator", " "),
-    ("paragraph separator", " "),
+    ("line separator", "\u2028"),
+    ("paragraph separator", "\u2029"),
 )
 """The seven characters `str.splitlines()` breaks on and CommonMark does not.
 
@@ -690,14 +690,17 @@ body ended a fence opened flush and handed the headers beneath it to the
 splitter — the very escape the indentation rule exists to refuse.
 """
 
+ZERO_WIDTH_SPACE = "\u200b"
+"""The character the writer's own acceptance of a prefixed `### Solution` rests on."""
+
 CONTENT_WHITESPACE = (
     ("tab", "\t"),
     ("space and tab", " \t"),
     ("two spaces and tab", "  \t"),
-    ("no-break space", " "),
-    ("em space", " "),
-    ("ideographic space", "　"),
-    ("zero-width space", "​"),
+    ("no-break space", "\u00a0"),
+    ("em space", "\u2003"),
+    ("ideographic space", "\u3000"),
+    ("zero-width space", ZERO_WIDTH_SPACE),
 )
 """Whitespace that is not a space, and therefore not a structural indent.
 
@@ -852,7 +855,7 @@ def test_a_zero_width_space_before_a_section_header_is_the_prose_the_writer_coun
     # that this parser dedents literal spaces only and then matches
     # `SECTION_HEADERS` by equality. Were the match an `in` or a looser prefix
     # test, that assumption would break here and nowhere else.
-    prose = f"{EMPTY_SECTION}\n​{SECTION_HEADERS[2]}"
+    prose = f"{EMPTY_SECTION}\n{ZERO_WIDTH_SPACE}{SECTION_HEADERS[2]}"
     text = built(bodies={SECTION_HEADERS[1]: prose})
 
     block = parse_blocks(text)[0]

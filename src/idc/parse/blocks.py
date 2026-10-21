@@ -32,7 +32,13 @@ content. Applying it to three of the four and not the fourth is what let a
 four-space closing run end a fence a hand had opened flush, so that the headers
 beneath it were read as sections and the block's own `### Verification` was
 shadowed without a refusal. The allowance is CommonMark's; nothing else here
-claims to be CommonMark, and `_FENCE_LINE` says where the two part company.
+claims to be CommonMark, and `_dedented` says where the two part company.
+
+One rule decides what a *line* is, too, and it is CommonMark's three endings and
+no more: `_LINE_ENDING`. `str.splitlines` would break on seven further
+characters that end no line in Markdown, and each of them reopened the escape
+above through a second door — a closing run behind a form feed reached
+`_dedented` looking flush.
 """
 
 import re
@@ -115,24 +121,56 @@ so a header a hand pushed over by a space or three is still a header.
 _HEADING_START = "##"
 """What a chain heading line starts with, once `###` has been ruled out."""
 
-_FENCE_LINE = re.compile(rf"^ {{0,{MAX_STRUCTURE_INDENT}}}(`{{3,}})(.*)$")
+_FENCE_LINE = re.compile(r"^(`{3,})(.*)$")
 """A line that may open a code fence: a run of backticks and an info string.
 
-`MAX_STRUCTURE_INDENT` leading spaces, the same allowance `_dedented` gives the
-closing run and the two header kinds — the writer indents no fence, but a
-narrative section written as a list may. A run followed by a backtick is not an
-opening fence (an info string holds none), which keeps an inline span from
-opening one.
-
-Where this parser and CommonMark part company: a leading **tab** is not expanded
-to the next tab stop. The two still agree on every line whose indent holds one,
-and they agree by arithmetic rather than by accident — a tab reaches column four
-wherever it stands within three spaces, so CommonMark reads such a line as
-indented code, and `_dedented` leaves the tab in place, which makes the line
-start with neither `#` nor a backtick. Both call it content. What is *not*
-claimed is CommonMark's reading of the headers themselves: `##` is matched by
-prefix here, so a deeper ATX run is read as a section header.
+Anchored at the run and carrying **no indent allowance of its own**: `_scan`
+matches it against the line `_dedented` handed back, the way `_headings` matches
+`HEADING_PATTERN` against it, so that the indentation rule really does have one
+place and not two spellings that have to be kept in step. A run followed by a
+backtick is not an opening fence (an info string holds none), which keeps an
+inline span from opening one.
 """
+
+
+_LINE_ENDING = re.compile(r"(?<=\n)|(?<=\r)(?!\n)")
+"""Where one line ends and the next begins: after an LF, a CRLF or a bare CR.
+
+CommonMark's three line endings and nothing else, written as a zero-width split
+so that `_lines` keeps every byte of the input. The lookahead is what keeps a
+CRLF one ending rather than two: the CR of a CRLF does not break a line of its
+own, so no empty line appears between a line and the next.
+
+Deliberately **not** `str.splitlines`, which also breaks on the vertical tab, the
+form feed, the three ASCII separators, NEL, LINE SEPARATOR and PARAGRAPH
+SEPARATOR. None of those ends a line in Markdown, and reading them as endings
+reopened the escape the indentation rule closes: a closing run written as
+`<form feed>```` inside a Solution body reached `_dedented` as a line of its own,
+looking flush, closed a fence a hand had opened flush, and the `### Verification`
+beneath it became a second Verification section whose body `ParsedBlock.body`
+then returned — the real one shadowed, with nothing refused. Behind the same
+character a `## [C2]` heading cut its block short instead.
+"""
+
+
+def _lines(text: str) -> list[str]:
+    """Return the lines of `text`, their terminators kept.
+
+    Args:
+        text: The text to cut into lines.
+
+    Returns:
+        One entry per line, each ending in its own terminator except a last line
+        the text does not terminate, so that `"".join` of them is `text` again —
+        which is what lets `ParsedBlock.text` be the bytes the block occupied. A
+        text that ends in a terminator ends with that line and gains no trailing
+        empty one, and an empty text holds no line at all. The line numbers the
+        refusals in `idc.parse.errors` name are counted off this list.
+    """
+    lines = _LINE_ENDING.split(text)
+    if lines and not lines[-1]:
+        lines.pop()
+    return lines
 
 
 def placeholder_chunk_id(chain_id: str) -> str:
@@ -284,13 +322,15 @@ def _bare(line: str) -> str:
     """Return one line without its terminator, so a pattern can anchor at its end.
 
     Args:
-        line: A line as `str.splitlines(keepends=True)` handed it over.
+        line: A line as `_lines` returned it.
 
     Returns:
-        The line without its line terminator, LF or CRLF. Nothing else is
-        stripped: leading space is what tells structure from content — see
-        `_dedented`, which is the only place that weighs it — and trailing space
-        is part of the text a block has to survive with.
+        The line without its line terminator — LF, CRLF or a bare CR, the three
+        `_LINE_ENDING` cuts at, of which a line carries at most one, and that one
+        at its end. Nothing else is stripped: leading space is what tells
+        structure from content — see `_dedented`, which is the only place that
+        weighs it — and trailing space is part of the text a block has to
+        survive with.
     """
     return line.rstrip("\r\n")
 
@@ -299,7 +339,9 @@ def _dedented(bare: str) -> str | None:
     """Return one line without its structural indent, or `None` when it has too much.
 
     The single place the indentation rule is decided, for all four kinds of line
-    that carry structure.
+    that carry structure: `_headings` matches `HEADING_PATTERN` against what this
+    returns and tests `_HEADING_START` on it, `_sections` tests `_SECTION_START`
+    on it, and `_scan` matches both `_FENCE_LINE` and the closing run on it.
 
     Args:
         bare: One line without its terminator, as `_bare` returned it.
@@ -307,9 +349,21 @@ def _dedented(bare: str) -> str | None:
     Returns:
         The line with its leading spaces removed, when there are at most
         `MAX_STRUCTURE_INDENT` of them — the form `HEADING_PATTERN`, the two
-        `startswith` checks and the closing-fence comparison all read, so none
-        of them has to know about indentation. `None` when the line is indented
-        further: it is content then, and no kind of structure.
+        `startswith` checks, `_FENCE_LINE` and the closing-fence comparison all
+        read, so none of them has to know about indentation. `None` when the
+        line is indented further: it is content then, and no kind of structure.
+
+        Only the literal space is counted, and that is where this parser and
+        CommonMark part company. A leading **tab** is not expanded to the next
+        tab stop, and an exotic space — NBSP, EM space, ideographic space, the
+        zero-width space — is not folded to one. The two still agree on every
+        such line, and by arithmetic rather than by accident: a tab reaches
+        column four wherever it stands within three spaces, so CommonMark reads
+        the line as indented code, and leaving it in place makes the line start
+        with neither `#` nor a backtick; an exotic space is no indent to
+        CommonMark either. Both call all of them content. What is *not* claimed
+        is CommonMark's reading of the headers themselves: `##` is matched by
+        prefix here, so a deeper ATX run is read as a section header.
     """
     stripped = bare.lstrip(" ")
     if len(bare) - len(stripped) > MAX_STRUCTURE_INDENT:
@@ -342,8 +396,8 @@ def _scan(text: str) -> tuple[list[str], list[int]]:
         text: The text to scan.
 
     Returns:
-        The lines with their terminators kept — `"".join` of them is `text`
-        again — and the indices of the lines that are structure: not inside a
+        The lines as `_lines` cut them, terminators kept — `"".join` of them is
+        `text` again — and the indices of the lines that are structure: not inside a
         fenced block, and not a fence line themselves. Those are the only lines
         a heading or a section header may be read off, which is what makes a
         `###` inside a four-backtick fence content.
@@ -360,20 +414,19 @@ def _scan(text: str) -> tuple[list[str], list[int]]:
         UnterminatedFenceError: If a fence is opened and never closed. Reading
             on instead would take every heading after it for fenced content.
     """
-    lines = text.splitlines(keepends=True)
+    lines = _lines(text)
     structural: list[int] = []
     fence: str | None = None
     opened = 0
     for index, line in enumerate(lines):
-        bare = _bare(line)
+        dedented = _dedented(_bare(line))
         if fence is None:
-            match = _FENCE_LINE.match(bare)
+            match = None if dedented is None else _FENCE_LINE.match(dedented)
             if match is not None and "`" not in match.group(2):
                 fence, opened = match.group(1), index
             else:
                 structural.append(index)
             continue
-        dedented = _dedented(bare)
         if dedented is None:
             continue
         closing = dedented.rstrip()

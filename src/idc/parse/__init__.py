@@ -24,13 +24,18 @@ bytes — and it is why there is no second definition of
 `### Decisions & constraints` anywhere in here to drift from the first.
 
 A block a hand has touched is read the way a Markdown reader would read it on
-one point that matters: **indentation**. A chain heading, a section header and
+two points that matter. The first is **what a line is**: LF, CRLF and a bare CR
+end one, and nothing else does — a form feed or a LINE SEPARATOR inside a line
+is a character of that line, not a break, however `str.splitlines` reads it. The
+second is **indentation**. A chain heading, a section header and
 either end of a code fence may carry up to `MAX_STRUCTURE_INDENT` leading spaces
 and are still that; indented further, they are content of the section they stand
 in. One rule for all four, because applying it to some of them is how content
 escapes its section — a closing fence that counted at any indentation once let a
 `### Verification` written inside a Solution body become a section of its own and
-shadow the block's real one, with nothing refused.
+shadow the block's real one, with nothing refused. The same escape came back
+through the first point: behind a form feed, the very same closing run looked
+flush.
 
 Two things this stage does **not** do:
 
