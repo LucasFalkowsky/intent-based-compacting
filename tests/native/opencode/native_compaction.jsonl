@@ -1,0 +1,3 @@
+{"id":"msg_21u","sessionID":"ses_5n7m9q1w3e5r","role":"user","time":{"created":1789126200000},"parts":[{"id":"prt_21","messageID":"msg_21u","sessionID":"ses_5n7m9q1w3e5r","type":"text","text":"Summarise where we are and keep going."}]}
+{"id":"msg_22c","sessionID":"ses_5n7m9q1w3e5r","type":"compaction","time":{"created":1789126205000},"summary":"The exporter stamps aware UTC in `src/billing/export.py`; `uv run pytest -q tests/test_export.py` passes with 4 tests. Open: the CSV writer still formats dates locally.","recent":["msg_23u"]}
+{"id":"msg_23u","sessionID":"ses_5n7m9q1w3e5r","role":"user","time":{"created":1789126240000},"parts":[{"id":"prt_23","messageID":"msg_23u","sessionID":"ses_5n7m9q1w3e5r","type":"text","text":"Now do the same for the CSV writer."}]}

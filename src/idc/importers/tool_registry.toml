@@ -125,15 +125,38 @@ run_shell_command = { category = "exec" }
 
 # --- OpenCode ----------------------------------------------------------------
 #
-# All three entries are recorded in the fixture corpus. OpenCode's remaining
-# tools are absent for the same reason as Gemini CLI's; T2.3 adds them. Note
+# `read`, `edit` and `bash` are recorded in the fixture corpus, with the
+# argument spellings `filePath`, `oldString`/`newString` and `command`. Note
 # that OpenCode spells its tools in lower case, so `read` here and `Read` under
 # Claude Code are different tools — lookup is case-sensitive per agent.
+#
+# The six entries below the corpus ones were added by T2.3 as the remaining
+# tools of OpenCode's own tool set — the write, content-search, globbing,
+# directory-listing, delegating and web counterparts of the Claude Code tools
+# above. Their source is OpenCode's **documented tool set**, not a transcript:
+# the corpus corroborates only `read`, `edit` and `bash`, so these six are
+# **not corpus-corroborated** and belong to the same unverified class as the
+# record-level field names `opencode.py` documents. A wrong spelling there is
+# inert — the tool resolves to `other` and is logged — but one real session has
+# to confirm them before the study records its OpenCode condition.
+# OpenCode's remaining tool names (its patch and todo tools, and the
+# naming of MCP tools) are still absent: no transcript in this repository shows
+# how they are spelled, and an invented entry would resolve wrongly, where a
+# missing one resolves to `other` and is logged.
 
 [agents.opencode.tools]
 read = { category = "read" }
 edit = { category = "write" }
 bash = { category = "exec" }
+grep = { category = "read" }
+glob = { category = "read" }
+list = { category = "read" }
+webfetch = { category = "read" }
+write = { category = "write" }
+# `subagent` marks a tool that delegates to a subagent (consumed by T3.3); the
+# category stays `other`, as for Claude Code's `Task`, because a delegating call
+# itself neither reads nor writes.
+task = { category = "other", subagent = true }
 
 # --- Verification patterns ---------------------------------------------------
 #

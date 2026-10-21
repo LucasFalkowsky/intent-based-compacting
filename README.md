@@ -75,11 +75,15 @@ for note in imported.notes:
     print(note)  # 'skipped-record: attachment (x19)', 'dropped-block: thinking (x7)', …
 ```
 
-Only **Claude Code** is implemented (ticket T2.2); OpenCode (T2.3) and Gemini CLI (T2.4)
-follow, and `import_transcript` names the ticket instead of failing obscurely. What is
+**Claude Code** (ticket T2.2) and **OpenCode** (T2.3) are implemented; Gemini CLI (T2.4)
+follows, and `import_transcript` names the ticket instead of failing obscurely. What is
 shared sits in `idc.importers.base` (assembling and validating the session, resolving tool
 categories, logging the unknown ones, reading timestamps) and `idc.importers.jsonl`
-(reading a line-delimited transcript); an agent module is only that agent's format.
+(reading a line-delimited transcript); an agent module is only that agent's format. Those
+two formats differ in more than their field names: a Claude Code record carries one tool
+result per `tool_result` block of a *user* record, while an OpenCode tool call carries its
+own result in the same part of the *assistant* record, and OpenCode records an instant as
+epoch milliseconds rather than as an ISO-8601 string.
 
 Four properties hold for every importer:
 
@@ -98,10 +102,18 @@ Four properties hold for every importer:
   `dropped-block: text/<text: object>` or `skipped-record: <null type>`. Nothing is coerced
   either: a block whose text is not a string is dropped and noted rather than turned into a
   repr of itself, because inventing content is worse than losing it. A record whose content
-  cannot be read at all — a number, an object — yields no message rather than an empty turn,
-  since an invented user turn would be an invented intent boundary; a record whose content
   *is* a block list the schema has no field for — a pasted screenshot — does import as the
   turn it was, with empty content and the note, because that turn happened.
+
+  A record whose content cannot be read **at all** — a number, an object — is the one case
+  where the importers deliberately differ, and each of them notes what it did. Claude Code
+  yields **no message** and notes the record as skipped: one of its `user` records is a
+  typed prompt and the next is a tool result, so an unreadable content means the record's
+  kind is unknown too, and an invented user turn would be an invented intent boundary.
+  OpenCode **keeps the user turn**, with empty content and a note for the unreadable
+  `parts`: a `role = user` record there is always the user's turn and never a result
+  carrier, so the turn is still attested — dropping it would fabricate the chain structure
+  T3.1 splits on.
 
   It is a property of the *message content*, and only of that. The record-level fields an
   importer deliberately never reads carry no note — for Claude Code `isSidechain`,

@@ -58,3 +58,44 @@ expected = NATIVE.expected_text("claude-code", "golden_session")  # the canonica
 - `native_compaction.jsonl` — the native compaction flow: the `/compact` slash command,
   the summary record Claude Code writes with `isCompactSummary`, and the turn that follows
   it.
+
+## `opencode/`
+
+OpenCode stores a session as one record per **message** (`session/message/<id>.json`) with
+that message's **parts** beside it (`session/part/<message id>/<part id>.json`); a fixture
+here is that stream, one message record per line, with its parts nested under `parts` —
+which is also the shape `idc.importers.jsonl` reads for Claude Code. A record names a
+`role` (`user`, `assistant`) or, for the summary OpenCode's own compaction writes, a
+`type` (`compaction`). Instants are **epoch milliseconds** under `time.created`, not
+ISO-8601 strings, and a tool call carries its own result in the same part
+(`state.output` / `state.error`).
+
+Unlike the Claude Code fixtures, these record-level keys were **not** modelled on a
+recorded session: OpenCode is not installed in this environment, so they come from its
+documented storage model (see the known limitations in `src/idc/importers/opencode.py`),
+and the same holds for the six tool names T2.3 added to the `opencode` table of
+`tool_registry.toml`. Corroborated from inside the repository are only the lower-case
+tool spellings `read` / `edit` / `bash` with their argument keys, the JSONL input shape
+and the `compaction` record. **Before the study records its OpenCode condition, one real
+session has to be checked against `golden_session.jsonl` below** — if a key is spelled
+differently, the fix touches only that importer and this directory.
+
+- `golden_session.jsonl` — the full-coverage session: a user prompt with an attached
+  `file` part, an assistant turn with `step-start`, `reasoning`, `text` and `tool` parts,
+  a `completed` tool state, an `error` one, two tool parts in **one** record, a
+  `synthetic` user record (the harness wrote it, not the user), and an assistant record
+  that carries a tool call and no text. `golden_session.expected.json` is its canonical
+  form.
+- `truncated_front.jsonl` — a transcript cut off at the front: it begins mid-turn with an
+  assistant record whose tool part already carries its result, and no user turn is
+  invented in front of it. Its instants carry milliseconds. (OpenCode cannot show a
+  *result without its call* the way Claude Code can: the call and its result are the same
+  part, so front truncation drops both together.)
+- `interrupted_turn.jsonl` — a tool part still in `running` state, whose result therefore
+  never arrives, followed by the user's next turn.
+- `unknown_tool.jsonl` — one declared delegating call (`task`) next to a tool the registry
+  does not declare (`imaginary_tool`, an invented name: an undeclared tool has to resolve
+  to `other` and be logged).
+- `native_compaction.jsonl` — the native compaction flow: a user turn, the `compaction`
+  record carrying the `summary` and the `recent` messages it kept, and the turn that
+  follows it.

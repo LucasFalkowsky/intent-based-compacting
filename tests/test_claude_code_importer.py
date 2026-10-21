@@ -11,6 +11,7 @@ from idc.importers import (
     NOTE_DROPPED_BLOCK,
     NOTE_SKIPPED_RECORD,
     NOTE_UNKNOWN_TOOL,
+    PENDING_IMPORTERS,
     TranscriptImportError,
     import_claude_code,
     import_transcript,
@@ -1443,7 +1444,11 @@ def test_the_dispatcher_accepts_the_agents_wire_string():
     assert import_transcript("claude-code", path).session.agent is Agent.CLAUDE_CODE
 
 
-@pytest.mark.parametrize("agent", [Agent.GEMINI_CLI, Agent.OPENCODE])
+# Parametrized over the dispatcher's own table rather than over a literal list:
+# the two importers after T2.2 each remove their agent from it as they land, and
+# a literal list would have to be edited in lockstep by a branch that is about
+# to make its entry wrong.
+@pytest.mark.parametrize("agent", sorted(PENDING_IMPORTERS, key=lambda agent: agent.value))
 def test_an_agent_without_an_importer_is_reported_with_its_ticket(agent, tmp_path):
     path = write_jsonl(tmp_path, [user_record("u1", "hello")])
 

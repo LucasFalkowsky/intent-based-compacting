@@ -33,9 +33,9 @@ tool_registry().is_verification("uv run pytest -q") # True
 ```
 
 See `idc.importers.tool_registry` for the lookup rules and for how a command
-line is matched against the verification patterns. Of the three agents, only
-Claude Code is implemented (T2.2); OpenCode (T2.3) and Gemini CLI (T2.4) follow,
-and `import_transcript` says so rather than failing obscurely.
+line is matched against the verification patterns. Of the three agents, Claude
+Code (T2.2) and OpenCode (T2.3) are implemented; Gemini CLI (T2.4) follows, and
+`import_transcript` says so rather than failing obscurely.
 """
 
 from collections.abc import Callable
@@ -55,6 +55,7 @@ from idc.importers.base import (
 )
 from idc.importers.claude_code import import_claude_code
 from idc.importers.jsonl import JsonLine, read_json_lines
+from idc.importers.opencode import import_opencode
 from idc.importers.tool_registry import (
     REGISTRY_PATH,
     REGISTRY_VERSION,
@@ -88,6 +89,7 @@ __all__ = [
     "VerificationPattern",
     "block_message_id",
     "import_claude_code",
+    "import_opencode",
     "import_transcript",
     "joined_text",
     "load_tool_registry",
@@ -101,6 +103,7 @@ Importer = Callable[..., ImportedSession]
 
 IMPORTERS: dict[Agent, Importer] = {
     Agent.CLAUDE_CODE: import_claude_code,
+    Agent.OPENCODE: import_opencode,
 }
 """The implemented importers, by agent — what `import_transcript` dispatches on.
 
@@ -109,7 +112,6 @@ mapping plus its own module.
 """
 
 PENDING_IMPORTERS: dict[Agent, str] = {
-    Agent.OPENCODE: "T2.3",
     Agent.GEMINI_CLI: "T2.4",
 }
 """The agents whose importer is still a ticket, so the error can name it."""
