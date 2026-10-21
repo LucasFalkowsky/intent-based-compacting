@@ -470,15 +470,19 @@ class ChainStore:
                 raise ChunkAlreadyAssignedError(chunk_id, owner, carried_over=True)
             self._owner[chunk_id] = chain.id
         # The chunk ids of a carried-over chain are positions in the earlier
-        # run's transcript, so neither its last user message nor the position of
-        # its last chunk can be resolved here; `-1` leaves the order check open
-        # for the first chunk this run appends.
+        # run's transcript, so neither a user turn nor the position of its last
+        # chunk can be *read* here; `-1` leaves the order check open for the
+        # first chunk this run appends, and the chain's label stands in for the
+        # turn it does not have (#35). The label is not a guess: the compactor
+        # wrote it into the block T8 parses, and `_claim` replaces it as soon as
+        # a chunk of this run arrives.
         self._chains[chain.id] = _OpenChain(
             id=chain.id,
             label=chain.label,
             chunk_ids=list(chain.chunk_ids),
             compacted=chain.compacted,
             compacted_text=chain.compacted_text,
+            last_user_message=chain.label,
             seeded=True,
         )
         self._order.append(chain.id)
