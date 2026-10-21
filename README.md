@@ -322,4 +322,5 @@ tests/                # pytest suite
 ## Contributing
 
 Work is organized entirely through this repository's GitHub Issues and its board; see
-`CLAUDE.md` for the ticket structure, the branching model and the mandatory TDD loop.
+`CLAUDE.md` for the mandatory TDD loop and the conventions, and `docs/orchestration.md` for the
+ticket structure, the board and the branching model.
