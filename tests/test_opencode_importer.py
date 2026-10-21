@@ -353,6 +353,25 @@ def test_a_parts_field_that_is_not_a_list_is_noted_and_the_turn_is_kept(tmp_path
     assert notes(imported, NOTE_DROPPED_BLOCK) == ["<parts: object>"]
 
 
+def test_an_unreadable_parts_field_keeps_the_user_turn_and_notes_nothing_skipped(tmp_path):
+    """OpenCode is the outlier of the README's one deliberate difference.
+
+    A `role = user` record is always the user's turn and never a result carrier,
+    so the turn is still attested: it imports with empty content and a note for
+    the `parts` that could not be read, and the record is not reported as
+    skipped. Claude Code and Gemini CLI drop the turn instead.
+    """
+    path = write_jsonl(tmp_path, [user_record("msg_1", {"text": "lost"})])
+
+    imported = import_opencode(path)
+
+    assert [(m.id, m.role, m.content) for m in imported.session.messages] == [
+        ("msg_1", Role.USER, "")
+    ]
+    assert notes(imported, NOTE_DROPPED_BLOCK) == ["<parts: object>"]
+    assert notes(imported, NOTE_SKIPPED_RECORD) == []
+
+
 def test_a_part_entry_that_is_not_an_object_is_noted_by_its_shape(tmp_path):
     path = write_jsonl(tmp_path, [user_record("msg_1", ["hello"])])
 

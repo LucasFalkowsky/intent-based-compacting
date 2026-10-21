@@ -5,7 +5,7 @@ description = "Intent-driven context compaction for coding-agent transcripts."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    # Reserved for the canonical schema (T1.2); no models are defined yet.
+    # The canonical schema (T1.2) is pydantic v2 models.
     "pydantic>=2.9",
 ]
 

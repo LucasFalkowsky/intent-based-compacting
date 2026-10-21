@@ -18,6 +18,11 @@ lives here:
   distinct name.
 - **Reading a timestamp.** The canonical schema requires timezone-aware
   instants; `parse_timestamp` attaches UTC when the agent records no offset.
+- **Naming what could not be read.** `type_name` spells the `type` of a record or
+  of one of its content blocks the way the notes do, `shape` names a value that
+  has no kind at all by its JSON shape, and `note_unreadable_content` records a
+  content that is neither text nor a block list. All three agents need exactly
+  this and all three needed it identically.
 - **One error type.** Everything the importers raise themselves is a
   `TranscriptImportError` naming the file, so the CLI never shows a traceback.
   The canonical schema's own `SchemaValidationError` is deliberately *not*
@@ -40,7 +45,7 @@ imported.unknown_tools                    # ()
 
 import logging
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -62,13 +67,18 @@ __all__ = [
     "NOTE_DROPPED_BLOCK",
     "NOTE_SKIPPED_RECORD",
     "NOTE_UNKNOWN_TOOL",
+    "NO_TYPE",
+    "NULL_TYPE",
     "ImportNote",
     "ImportedSession",
     "SessionBuilder",
     "TranscriptImportError",
     "block_message_id",
     "joined_text",
+    "note_unreadable_content",
     "parse_timestamp",
+    "shape",
+    "type_name",
 ]
 
 LOGGER = logging.getLogger("idc.importers")
@@ -86,6 +96,17 @@ NOTE_SKIPPED_RECORD = "skipped-record"
 
 NOTE_DROPPED_BLOCK = "dropped-block"
 """A content block the canonical schema has no field for, named by its kind."""
+
+NO_TYPE = "<no type>"
+"""How a record, or one of its content blocks, that names no `type` is reported."""
+
+NULL_TYPE = "<null type>"
+"""How a record, or one of its content blocks, whose `type` is `null` is reported.
+
+Distinct from `NO_TYPE`: a missing field is a shape the importer does not know,
+a `null` one is damaged, and `str(None)` reads the same for both — and the same
+as a kind genuinely spelled `"None"`.
+"""
 
 
 class TranscriptImportError(ValueError):
@@ -129,52 +150,49 @@ class ImportedSession:
         notes: One note per distinct problem, sorted by kind and detail so that
             importing the same file twice reports the same thing in the same
             order.
-        native_summary_id: `Message.id` of the summary the agent's own
-            compaction wrote, or `None` for a transcript it never compacted.
-            Where that summary sits is what separates the context the agent
-            still has from the history it threw away, and the canonical schema
-            holds it nowhere — `Session.source` says only *that* a transcript
-            was compacted. `idc.importers.provenance` reads it; a transcript
-            compacted twice names the **last** summary, because that is the one
-            the agent's context now starts at.
 
-    Invariant, checked on construction: `session.source` is `native-compaction`
-    exactly when `native_summary_id` is set. The two say the same thing about the
-    same transcript — *the agent compacted this and continued from that message*
-    — and either half alone is a transcript nothing can measure: provenance
-    without an identifier makes `idc.importers.provenance` count the history the
-    agent dropped as if the agent still had it, and an identifier without the
-    provenance makes it hide messages from a session that claims it was never
-    compacted. The check lives here rather than in `visible_context` because the
-    broken state should not be constructible at all, and it needs no canonical
-    field: `native_summary_id` is this dataclass's, not the schema's.
+    Invariant, checked on construction: a session whose `source` is
+    `native-compaction` names its summary. Provenance without an identifier is a
+    transcript nothing can measure — `idc.importers.provenance` would count the
+    history the agent dropped as if the agent still had it — and an importer that
+    read a summary record always knows which message it was, so producing the
+    half-stated form is a bug here rather than incomplete input. The converse is
+    not checked here because it cannot arise: `Session` itself rejects an
+    identifier under any other provenance (see `idc.schema.models`).
     """
 
     session: Session
     notes: tuple[ImportNote, ...] = ()
-    native_summary_id: str | None = None
+
+    @property
+    def native_summary_id(self) -> str | None:
+        """`Message.id` of the summary the agent's own compaction wrote.
+
+        Read off the canonical session rather than held a second time, so the
+        two cannot drift apart: the identifier is a field of `Session` since
+        T2.6, which is what lets a dumped transcript still say where the agent's
+        context starts. `None` for a transcript the agent never compacted; a
+        transcript it compacted twice names the **last** summary, because that
+        is the one its context now starts at.
+        """
+        return self.session.native_summary_id
 
     def __post_init__(self) -> None:
-        """Reject a session whose provenance and summary identifier disagree.
+        """Reject a compacted session that does not name its summary.
 
         Raises:
             TranscriptImportError: If the session was compacted by the agent
-                itself but names no summary, or names one without saying it was
-                compacted.
+                itself but names no summary.
         """
-        compacted = self.session.source is SessionSource.NATIVE_COMPACTION
-        if compacted and self.native_summary_id is None:
+        if (
+            self.session.source is SessionSource.NATIVE_COMPACTION
+            and self.session.native_summary_id is None
+        ):
             raise TranscriptImportError(
                 f"session {self.session.id!r} was compacted by "
                 f"{self.session.agent.value} itself, but names no native summary; "
                 "the message the agent continued from has to be recorded, or the "
                 "history it dropped would be counted as context"
-            )
-        if not compacted and self.native_summary_id is not None:
-            raise TranscriptImportError(
-                f"session {self.session.id!r} names {self.native_summary_id!r} as its "
-                f"native summary, but its provenance is {self.session.source.value!r} "
-                "rather than 'native-compaction'"
             )
 
     def notes_of(self, kind: str) -> tuple[ImportNote, ...]:
@@ -245,6 +263,57 @@ def block_message_id(base: str, index: int, *, only: bool) -> str:
         `base` when the record yields one message, else `base#<index>`.
     """
     return base if only else f"{base}#{index}"
+
+
+def type_name(holder: Mapping[str, Any]) -> str:
+    """Return the `type` of a record or of a content block as the notes name it.
+
+    Args:
+        holder: One transcript record, or one of its content blocks or parts.
+
+    Returns:
+        The `type` field as a string, or `NO_TYPE` when it names none and
+        `NULL_TYPE` when it names `null`. Those two are different problems — a
+        shape the importer does not know versus a damaged one — and `str(None)`
+        would report them as the same one, which is also how a kind that is
+        genuinely spelled `"None"` would become indistinguishable from both. A
+        type that is present and not a string keeps its own spelling (`7`).
+
+        One function for both levels on purpose: the collision was first fixed
+        for records and then found again for blocks.
+    """
+    if "type" not in holder:
+        return NO_TYPE
+    kind = holder["type"]
+    return NULL_TYPE if kind is None else str(kind)
+
+
+def shape(value: Any) -> str:
+    """Return the JSON shape of a value, to name something that has no kind.
+
+    Args:
+        value: The value a note is about.
+
+    Returns:
+        Its JSON type name — `object`, `array`, `string`, `number`, `boolean`,
+        `null` — and otherwise the name of its Python type. A note about a block
+        names the block's kind; a value that is not a block has none, so its
+        shape is the only honest thing to report. `bool` is checked before the
+        numbers because it is a subclass of `int`.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int | float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, Mapping):
+        return "object"
+    if isinstance(value, list):
+        return "array"
+    return type(value).__name__
 
 
 class SessionBuilder:
@@ -426,9 +495,10 @@ class SessionBuilder:
         the agent dropped everything before it and continued from the summary.
         The two facts that follow from it are therefore set here rather than in
         each importer: the session's provenance becomes `native-compaction`, and
-        the message is remembered as the session's `native_summary_id`, which is
-        what `idc.importers.provenance` needs and what the canonical schema has
-        no field for.
+        the message is recorded as the session's `native_summary_id`. Both are
+        canonical fields, so a dumped transcript still says where the agent's
+        context starts — which is what `idc.importers.provenance` reads, in this
+        process or two CLI invocations later.
 
         Args:
             message_id: Identifier of the summary message, from the transcript.
@@ -490,11 +560,11 @@ class SessionBuilder:
                 agent=self._agent,
                 model=self._model,
                 source=self._provenance,
+                native_summary_id=self._native_summary_id,
                 created_at=min(self._timestamps),
                 messages=self._messages,
             ),
             notes=self.notes(),
-            native_summary_id=self._native_summary_id,
         )
 
 
@@ -511,3 +581,21 @@ def joined_text(parts: Iterable[str]) -> str:
         between them.
     """
     return "\n\n".join(part for part in parts if part)
+
+
+def note_unreadable_content(builder: SessionBuilder, content: Any, *, prefix: str = "") -> None:
+    """Note a content value that is neither text nor a block list.
+
+    Args:
+        builder: The session being assembled, for the notes.
+        content: The content value the record carried.
+        prefix: What to put in front of the note's detail, naming where in the
+            record the content sat.
+
+    An absent content (`None`) is not noted: the record carried nothing, so
+    nothing was lost. Anything else — a number, an object — did carry something
+    the importer cannot read, and the note is what keeps that from being a
+    silent loss in a tool whose output is a measurement.
+    """
+    if content is not None and not isinstance(content, str | list):
+        builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<content: {shape(content)}>")

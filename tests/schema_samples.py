@@ -5,6 +5,12 @@ enum member that a type can carry appears somewhere, and the strings contain
 non-ASCII characters and newlines. A round trip that preserves these samples
 preserves anything a real transcript can hold.
 
+One pair of `Session` fields cannot be maximal in the same object:
+`native_summary_id` is only allowed when `source` is `native-compaction`, so the
+maximal session is split in two. `session()` is the raw one and stays the sample
+every type-generic test uses; `native_compacted_session()` is the other half of
+the pair and is named explicitly by the tests that need it.
+
 This module is test data only — the shared transcript fixture corpus on disk is
 ticket T1.3.
 """
@@ -110,6 +116,33 @@ def session() -> Session:
                     ToolCall(id="call-2", name="Read", category=ToolCategory.READ, args={}),
                     ToolCall(id="call-3", name="osascript", category=ToolCategory.OTHER),
                 ],
+            ),
+        ],
+    )
+
+
+def native_compacted_session() -> Session:
+    """Return a session the agent compacted itself, naming its own summary."""
+    return Session(
+        id="s-native",
+        agent=Agent.OPENCODE,
+        model="claude-opus-5",
+        source=SessionSource.NATIVE_COMPACTION,
+        native_summary_id="c-0",
+        created_at=CREATED_AT,
+        messages=[
+            Message(
+                id="c-0",
+                role=Role.SYSTEM,
+                content="Zusammenfassung: der Exporter schreibt jetzt UTC.",
+                timestamp=CREATED_AT,
+                is_system_injected=True,
+            ),
+            Message(
+                id="m-1",
+                role=Role.USER,
+                content="Now add the CLI flag.",
+                timestamp=CREATED_AT,
             ),
         ],
     )

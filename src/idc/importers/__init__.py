@@ -32,8 +32,9 @@ Four things are shared, so that an agent module is only its own format:
   line by its line number.
 - `idc.importers.base` assembles and validates the canonical `Session`, resolves
   tool categories, logs the unknown tools, reads timestamps and records which
-  message the agent's own compaction summary is. Everything the importers raise
-  themselves is a `TranscriptImportError` naming the file.
+  message the agent's own compaction summary is — in the session itself, so the
+  fact survives a dump to a file. Everything the importers raise themselves is a
+  `TranscriptImportError` naming the file.
 - `idc.importers.provenance` says which of the imported messages are the context
   the agent would see, by the same rule for all three agents.
 - `idc.importers.tool_registry` holds the agents' tool knowledge as a data file,
@@ -56,16 +57,21 @@ from collections.abc import Callable
 from pathlib import Path
 
 from idc.importers.base import (
+    NO_TYPE,
     NOTE_DROPPED_BLOCK,
     NOTE_SKIPPED_RECORD,
     NOTE_UNKNOWN_TOOL,
+    NULL_TYPE,
     ImportedSession,
     ImportNote,
     SessionBuilder,
     TranscriptImportError,
     block_message_id,
     joined_text,
+    note_unreadable_content,
     parse_timestamp,
+    shape,
+    type_name,
 )
 from idc.importers.claude_code import import_claude_code
 from idc.importers.gemini_cli import import_gemini_cli
@@ -100,6 +106,8 @@ __all__ = [
     "NOTE_SKIPPED_RECORD",
     "NOTE_UNKNOWN_TOOL",
     "NOTICE_MARKERS",
+    "NO_TYPE",
+    "NULL_TYPE",
     "PENDING_IMPORTERS",
     "REGISTRY_PATH",
     "REGISTRY_VERSION",
@@ -122,9 +130,12 @@ __all__ = [
     "import_transcript",
     "joined_text",
     "load_tool_registry",
+    "note_unreadable_content",
     "parse_timestamp",
     "read_json_lines",
+    "shape",
     "tool_registry",
+    "type_name",
     "visible_context",
 ]
 

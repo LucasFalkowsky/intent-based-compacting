@@ -69,6 +69,17 @@ def test_schema_marks_required_fields_and_forbids_extras():
     assert set(session["required"]) == {"id", "agent", "created_at"}
 
 
+def test_schema_declares_the_native_summary_identifier_as_optional():
+    # The published contract has to carry the field, or a consumer outside this
+    # repository cannot tell a reloaded `native-compaction` document from a
+    # guessed one. It stays optional: `raw` and `intent-compaction` sessions
+    # carry no summary, and a truncated one may name a message it no longer has.
+    session = load_json_schema()["$defs"]["Session"]
+
+    assert "native_summary_id" in session["properties"]
+    assert "native_summary_id" not in session["required"]
+
+
 def test_schema_file_is_shipped_inside_the_package():
     assert SCHEMA_PATH.parent.name == "schema"
     assert SCHEMA_PATH.name == "canonical.schema.json"

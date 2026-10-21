@@ -16,7 +16,7 @@ from idc.schema import (
     load,
     loads,
 )
-from schema_samples import CREATED_AT, OFFSET_AT, SAMPLES
+from schema_samples import CREATED_AT, OFFSET_AT, SAMPLES, native_compacted_session
 
 MODELS_BY_NAME = {model.__name__: model for model in CANONICAL_MODELS}
 
@@ -104,6 +104,29 @@ def test_round_trip_preserves_microseconds_and_a_non_utc_offset():
     assert restored == original
 
 
+def test_round_trip_keeps_the_native_summary_identified():
+    """The ticket's point: a natively compacted transcript stays self-describing.
+
+    Without the identifier in the document, writing a `native-compaction`
+    session to a file and reading it back in the next CLI invocation loses which
+    message the agent continued from — and the baseline the study compares
+    against cannot cross two commands.
+    """
+    original = native_compacted_session()
+
+    restored = loads(Session, dumps(original))
+
+    assert restored.native_summary_id == original.native_summary_id
+    assert restored == original
+    assert json.loads(dumps(restored))["native_summary_id"] == "c-0"
+
+
+def test_a_raw_session_dumps_its_empty_summary_identifier():
+    document = json.loads(dumps(SAMPLES["Session"]()))
+
+    assert document["native_summary_id"] is None
+
+
 def test_round_trip_preserves_non_ascii_content_as_text():
     original = SAMPLES["Session"]()
 
@@ -133,5 +156,6 @@ def test_defaults_are_filled_in_when_absent_from_the_document():
 
     assert session.source is SessionSource.RAW
     assert session.model is None
+    assert session.native_summary_id is None
     assert session.messages == []
     assert loads(Session, dumps(session)) == session

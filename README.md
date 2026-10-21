@@ -30,7 +30,7 @@ transcript shapes exist only inside `idc.importers` and `idc.render`.
 
 | Type | Holds |
 |---|---|
-| `Session` | a whole transcript: agent, model, provenance (`raw`, `native-compaction`, `intent-compaction`), messages |
+| `Session` | a whole transcript: agent, model, provenance (`raw`, `native-compaction`, `intent-compaction`), which message the agent's own summary is, messages |
 | `Message` | role, content, timestamp, and whether it was system-injected or a slash command |
 | `ToolCall` / `ToolResult` | a call with its category (`read`, `write`, `exec`, `other`) and arguments, and its output verbatim |
 | `Chunk` | one user input plus the agent's response, under a stable ID `K<n>`, as a half-open range over `Session.messages` |
@@ -113,13 +113,15 @@ Four properties hold for every importer:
 
   A record whose content cannot be read **at all** — a number, an object — is the one case
   where the importers deliberately differ, and each of them notes what it did. Claude Code
-  yields **no message** and notes the record as skipped: one of its `user` records is a
+  **and Gemini CLI** yield **no message** and note the record both for the content
+  (`dropped-block: <content: object>`) and as skipped: one of their `user` records is a
   typed prompt and the next is a tool result, so an unreadable content means the record's
   kind is unknown too, and an invented user turn would be an invented intent boundary.
-  OpenCode **keeps the user turn**, with empty content and a note for the unreadable
-  `parts`: a `role = user` record there is always the user's turn and never a result
-  carrier, so the turn is still attested — dropping it would fabricate the chain structure
-  T3.1 splits on.
+  OpenCode is the outlier: it **keeps the user turn**, with empty content and a note for the
+  unreadable `parts`: a `role = user` record there is always the user's turn and never a
+  result carrier, so the turn is still attested — dropping it would fabricate the chain
+  structure T3.1 splits on. Each of the three has a test of its own on this, so which side
+  an agent is on is pinned rather than described.
 
   It is a property of the *message content*, and only of that. The record-level fields an
   importer deliberately never reads carry no note — for Claude Code `isSidechain`,
@@ -158,10 +160,21 @@ marked `is_system_injected`, so that the flag means *the harness wrote this* for
 agents and the chunker does not read it as a user turn. Such a notice is recognised by its
 **whole text**, and only in a spelling this repository has actually observed: a user who
 pastes the notice and keeps typing has opened a real intent, and a prefix test or a guessed
-spelling would reduce that intent away. Which message the agent's summary is comes from the
-importer (`ImportedSession.native_summary_id`), and the two have to agree — a
-`native-compaction` session that names no summary, or a summary named by a session that was
-never natively compacted, is refused rather than counted wrongly.
+spelling would reduce that intent away.
+
+Which message the agent's own summary is travels in the document itself, as
+`Session.native_summary_id`, so a `native-compaction` transcript written by one command is
+still readable by the next — the pipeline is one command per stage with files in between,
+and the baseline the study compares against has to survive that. The identifier and
+`source` have to agree: a summary named by a session that was never natively compacted is
+rejected by the schema. The converse is deliberately left to the stages, exactly as for a
+`ToolResult` whose call the transcript truncated away — a `native-compaction` document that
+names no summary, or one whose identifier names no message in it, still loads, and
+`visible_context` refuses it rather than guessing where the agent's context starts.
+Every stage that rebuilds the transcript carries the identifier on, and the message it
+names is exempt from the chunker's noise reduction — the agent's summary block is an
+injected message, so reducing it away would leave the document naming a message it no
+longer holds.
 
 `python -c` is not the interface: the `import` command is wired up in T10.1.
 
@@ -316,4 +329,5 @@ tests/                # pytest suite
 ## Contributing
 
 Work is organized entirely through this repository's GitHub Issues and its board; see
-`CLAUDE.md` for the ticket structure, the branching model and the mandatory TDD loop.
+`CLAUDE.md` for the mandatory TDD loop and the conventions, and `docs/orchestration.md` for the
+ticket structure, the board and the branching model.

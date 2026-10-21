@@ -11,6 +11,7 @@ from idc.schema import (
     Message,
     SchemaValidationError,
     Session,
+    SessionSource,
     ToolCall,
     ToolResult,
     dumps,
@@ -18,7 +19,7 @@ from idc.schema import (
     loads,
     validate_document,
 )
-from schema_samples import CREATED_AT, SAMPLES
+from schema_samples import CREATED_AT, SAMPLES, native_compacted_session
 
 
 def document(name: str) -> dict:
@@ -54,6 +55,18 @@ INVALID_DOCUMENTS = [
         "created_at",
     ),
     ("unexpected field", Session, changed("Session", nickname="s1"), "nickname"),
+    (
+        "summary named by a session that was never natively compacted",
+        Session,
+        changed("Session", native_summary_id="m-0"),
+        "native_summary_id",
+    ),
+    (
+        "empty native_summary_id",
+        Session,
+        changed("Session", source="native-compaction", native_summary_id=""),
+        "native_summary_id",
+    ),
     ("unknown origin", Chunk, changed("Chunk", origin="agent"), "origin"),
     ("negative start_index", Chunk, changed("Chunk", start_index=-1), "start_index"),
     ("empty message range", Chunk, changed("Chunk", start_index=5, end_index=5), "end_index"),
@@ -148,6 +161,85 @@ def test_tool_result_whose_call_id_has_no_tool_call_is_accepted_on_purpose():
     assert "call-cut-off" not in declared
     assert restored.messages[3].tool_result is not None
     assert restored.messages[3].tool_result.call_id == "call-cut-off"
+
+
+def test_a_named_native_summary_requires_the_native_compaction_provenance():
+    """The one half of the pair that is a contradiction inside a single document.
+
+    `source` and `native_summary_id` say the same thing about the same
+    transcript — *the agent compacted this and continued from that message* — so
+    an identifier under any other provenance is not incomplete data, it is two
+    fields disagreeing. The invariant used to sit on `ImportedSession`; with the
+    identifier canonical it belongs to the type that carries both halves.
+    """
+    for source in ("raw", "intent-compaction"):
+        invalid = changed("Session", source=source, native_summary_id="m-0")
+
+        with pytest.raises(SchemaValidationError) as excinfo:
+            loads(Session, json.dumps(invalid))
+
+        assert "native_summary_id" in str(excinfo.value)
+        assert "native-compaction" in str(excinfo.value)
+
+
+def test_assigning_a_native_summary_to_a_raw_session_is_rejected_too():
+    raw = SAMPLES["Session"]()
+
+    with pytest.raises(SchemaValidationError, match="native_summary_id"):
+        raw.native_summary_id = "m-0"
+
+
+def test_constructing_a_session_that_names_a_summary_without_the_provenance_is_rejected():
+    with pytest.raises(SchemaValidationError, match="native_summary_id"):
+        Session(
+            id="s-1",
+            agent="claude-code",
+            created_at=CREATED_AT,
+            native_summary_id="m-0",
+        )
+
+
+def test_a_native_summary_identifier_that_names_no_message_is_accepted_on_purpose():
+    """Referential completeness stays unenforced for this reference too (see #3).
+
+    A `native-compaction` transcript truncated at the front loses the summary
+    record before it loses anything else, and the document still records *that*
+    the agent compacted it and *which* message it continued from — which is more
+    than a document that dropped the identifier with it. `visible_context`
+    refuses such a session, because it cannot locate the cut; the schema keeps
+    it loadable, exactly as it does for a `ToolResult` whose call was cut off.
+    """
+    truncated = changed("Session", source="native-compaction", native_summary_id="c-cut-off")
+
+    restored = loads(Session, json.dumps(truncated))
+
+    assert restored.native_summary_id == "c-cut-off"
+    assert "c-cut-off" not in {message.id for message in restored.messages}
+
+
+def test_a_natively_compacted_session_without_an_identifier_is_a_valid_document():
+    """The other half of the pair is deliberately *not* a document-validity rule.
+
+    It is an obligation on whoever produced the document — the importers, where
+    `ImportedSession` enforces it — and a precondition of the one computation
+    that needs it, where `visible_context` refuses. Making it a schema rule
+    would let a stage that rebuilds a session without the field turn a valid
+    transcript into an unloadable one, and would be the single place the schema
+    departs from "incomplete data stays valid, the stage refuses".
+    """
+    incomplete = changed("Session", source="native-compaction")
+
+    restored = loads(Session, json.dumps(incomplete))
+
+    assert restored.source is SessionSource.NATIVE_COMPACTION
+    assert restored.native_summary_id is None
+
+
+def test_a_session_may_name_a_summary_once_it_says_it_was_natively_compacted():
+    compacted = native_compacted_session()
+
+    assert compacted.native_summary_id == "c-0"
+    assert loads(Session, dumps(compacted)) == compacted
 
 
 def test_duplicate_chain_ids_in_a_block_are_rejected():

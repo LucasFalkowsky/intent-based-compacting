@@ -232,7 +232,7 @@
     },
     "Session": {
       "additionalProperties": false,
-      "description": "A whole transcript in canonical form, with its provenance.\n\n`source` is what makes the conditions of the study comparable: the same type\nholds a raw transcript, one the agent compacted natively, and one this tool\ncompacted, so measurement can take a before and an after without knowing\nwhich agent produced either.",
+      "description": "A whole transcript in canonical form, with its provenance.\n\n`source` is what makes the conditions of the study comparable: the same type\nholds a raw transcript, one the agent compacted natively, and one this tool\ncompacted, so measurement can take a before and an after without knowing\nwhich agent produced either.\n\nFor the native-compaction condition the provenance alone is not enough:\nwhere the agent's own summary sits is what separates the context the agent\nstill has from the history it threw away, so `native_summary_id` records it\nand the document stays readable after a `dump`/`load` — one CLI command per\nstage, with files in between, is what the pipeline is.\n\nTwo things about that identifier are deliberately **not** enforced:\n\n- That it names a message of this session. It is a reference like\n  `ToolResult.call_id`, and referential completeness is not enforced for\n  those either: a transcript truncated at the front loses the summary record\n  before it loses anything else, and a document that still says *which*\n  message the agent continued from is more useful than one that dropped the\n  fact with it. `idc.importers.provenance` refuses such a session, because\n  it cannot locate the cut — the stage that needs the reference resolves it.\n- That a `native-compaction` session names one at all. That is an obligation\n  on whoever produced the document, not a property of the document: the\n  importers are held to it by `ImportedSession` (see `idc.importers.base`),\n  and the one computation that cannot proceed without it refuses. Making it\n  a schema rule would mean a stage that rebuilds a session without carrying\n  the field turns a valid transcript into an unloadable one, and it would be\n  the single place this schema stops accepting incomplete data.",
       "properties": {
         "agent": {
           "$ref": "#/$defs/Agent",
@@ -270,6 +270,20 @@
           "default": null,
           "description": "Model identifier the agent ran on; `null` when the transcript omits it.",
           "title": "Model"
+        },
+        "native_summary_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`Message.id` of the summary the agent's own compaction wrote, and the message its context now starts at; `null` unless `source` is `native-compaction`. A transcript the agent compacted twice names the last summary.",
+          "title": "Native Summary Id"
         },
         "source": {
           "$ref": "#/$defs/SessionSource",
