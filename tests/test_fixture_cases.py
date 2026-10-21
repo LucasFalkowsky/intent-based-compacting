@@ -17,6 +17,7 @@ from fixture_corpus import (
     CORPUS,
     exec_runs,
     file_of,
+    results_by_call_id,
     tool_calls,
     touched_files,
     written_files,
@@ -209,6 +210,29 @@ def test_write_then_two_edits_keeps_the_superseded_writes_before_the_last_one():
         "both superseded writes precede the accepted one"
     )
     assert {result.exit_code for _, result in exec_runs(session)} == {0, 1}
+
+
+# --- a file rewritten after a refused edit ---------------------------------
+
+
+def test_rewritten_after_failed_edit_writes_the_same_file_twice_around_a_refused_edit():
+    session = CORPUS.session("rewritten_after_failed_edit")
+    target = "docs/install.md"
+    writes = [call for call in tool_calls(session.messages) if call.category is ToolCategory.WRITE]
+    results = results_by_call_id(session)
+    whole_file = [call for call in writes if "content" in call.args]
+
+    assert len(user_turn_indices(session)) == 1
+    assert written_files(session.messages) == [target] * 3, "all three writes go to one file"
+    assert [call.name for call in writes] == ["Write", "Edit", "Write"]
+    assert len(whole_file) == 2, "the file is written whole twice — the per-file overwrite case"
+    assert whole_file[0].args["content"] != whole_file[1].args["content"], (
+        "the second write must differ from the one it supersedes, or nothing is distinguishable"
+    )
+    assert [results[call.id].is_error for call in writes] == [False, True, False], (
+        "the edit between the two writes is the one the agent saw fail"
+    )
+    assert exec_runs(session) == [], "nothing is run here: the chain has no verification at all"
 
 
 # --- a session that already contains a compacted block ---------------------

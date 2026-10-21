@@ -1,0 +1,8 @@
+{
+  "transcript": "rewritten_after_failed_edit",
+  "chunking": "user-boundaries",
+  "note": "One intent. A file written, patched with a line the agent had not written, and then written again is one pursuit of the same goal; which of the two writes is the solution and what the refused patch was is T5's question, not a chain boundary.",
+  "chains": {
+    "K1": "C1"
+  }
+}

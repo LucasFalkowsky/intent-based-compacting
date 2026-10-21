@@ -55,6 +55,7 @@ EXPECTED_RANGES: dict[str, list[tuple[int, int]]] = {
     "subagent_result": [(0, 17)],
     "failed_then_passing_command": [(0, 14)],
     "write_then_two_edits": [(0, 18)],
+    "rewritten_after_failed_edit": [(0, 10)],
     # The rendered summary block at index 0 precedes the single turn at index 1.
     "already_compacted_block": [(0, 12)],
 }

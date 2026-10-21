@@ -56,6 +56,7 @@ EXPECTED_NOTES: dict[str, list[tuple[str, str, str, tuple[str, ...]]]] = {
     "subagent_result": [],
     "failed_then_passing_command": [],
     "write_then_two_edits": [],
+    "rewritten_after_failed_edit": [],
     # `/model claude-opus-5` (m01) is answered by the injected m02, so it is
     # replaced by that text; `/test tests/api` (m08) is answered by the agent
     # working, not by the harness, so it has no result and is dropped.
