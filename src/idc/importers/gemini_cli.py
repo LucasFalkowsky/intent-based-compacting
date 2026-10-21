@@ -858,10 +858,15 @@ def _exit_code(name: Any, output: str) -> int | None:
     Returns:
         The status, read from the `Exit Code: <n>` line the shell tool appends
         — and only from the trailing block of its own format, which starts after
-        the output and holds nothing but the fields in `SHELL_TRAILING_FIELDS`.
-        A command that *prints* such a line proves nothing about its own exit
-        status, and a false reading here would make a failed verification look
-        like a passing one in T6.
+        the output and holds nothing but the fields in `SHELL_TRAILING_FIELDS`
+        and blank lines. A command that *prints* such a line proves nothing
+        about its own exit status, and a false reading here would make a failed
+        verification look like a passing one in T6.
+
+        A blank line is stepped over rather than ending the block: it carries no
+        status, so skipping it cannot misread one — while stopping at it would
+        report `None` for every result that merely ends in a newline, which is
+        the failure this reading exists to prevent.
 
         `None` when there is none, which for Gemini CLI is every command that
         succeeded: the tool documents the field as "only included if non-zero",
@@ -873,6 +878,8 @@ def _exit_code(name: Any, output: str) -> int | None:
     if name != SHELL_TOOL or not output.startswith(SHELL_OUTPUT_PREFIX):
         return None
     for raw in reversed(output.split("\n")):
+        if not raw:
+            continue
         if raw.startswith(EXIT_CODE_PREFIX):
             try:
                 return int(raw.removeprefix(EXIT_CODE_PREFIX).strip())
