@@ -236,7 +236,7 @@ def test_the_rendered_file_re_imports_as_a_canonical_session(
     written in the agent's own compaction shape, and that shape is the only
     provenance signal an importer reads. `SessionSource.INTENT_COMPACTION` is
     produced nowhere in `src/` today; making this file re-import under it is a
-    ticket of its own (#42).
+    ticket of its own (#102).
     """
     session = reimported(name, agent, tmp_path)
 

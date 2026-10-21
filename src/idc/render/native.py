@@ -103,7 +103,28 @@ still: the exported file is the line-delimited shape `idc.importers.opencode`
 reads, not the per-message/per-part file tree OpenCode stores, so the fields a
 part file needs — a part's own `id`, for one — are absent rather than invented.
 
-**Not in scope, and a true statement for the ticket that is (#42):** a file
+**Two measured properties of this stage, verified rather than reasoned about.**
+
+*Rendering for a **different** agent than the transcript came from collapses every
+tool category to `other`, loudly.* `ToolCall.category` is re-derived by the
+importer from the tool **name**, and tool names are agent-specific: a
+`gemini-cli` transcript rendered as `claude-code` carries `read_file`,
+`write_file`, `run_shell_command` and `replace`, none of which the Claude Code
+registry declares. Measured on `write_then_two_edits`: rendered for its own
+agent the categories come back `['read','write','write','exec',…]` unchanged,
+with one import note; rendered cross-agent they come back all `other`, with one
+note **per** unknown name. It is therefore never silent — but the exploration
+rate is computed from those categories, so a cross-agent render is not a
+transcript to measure.
+
+*The Gemini summary's block has to have its tag stripped before
+`idc.parse.parse_chains` will read it.* The block's own bytes sit verbatim
+inside `SNAPSHOT_OPEN`/`SNAPSHOT_CLOSE` — both exported for exactly this — and
+handing the raw message content to `parse_chains` refuses with
+`StrayContentError` rather than mis-parsing. A loud refusal, so a consumer that
+forgets cannot read a corrupted chain; the two constants are what it strips.
+
+**Not in scope, and a true statement for the ticket that is (#102):** a file
 written here re-imports with `source` = `native-compaction`, because the summary
 is written in the agent's own compaction shape and that shape is the only
 provenance signal an importer reads. `SessionSource.INTENT_COMPACTION` is
