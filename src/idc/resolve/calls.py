@@ -10,9 +10,9 @@ Two things are read here, and both are read from the transcript alone:
   later stage of the resolver walks that list instead of the session.
 - **What a call did.** `file_of` answers which file a call's arguments name and
   `write_kind` whether a write replaced the file whole or patched a part of it.
-  Both are argument-shape questions, which is the one place this stage has to
-  know something about the agents' spellings — see `FILE_PATH_KEYS` and
-  `WriteKind` for why that knowledge sits here and not in the tool registry.
+  Which argument names the file is the tool registry's knowledge, declared
+  next to the category that says the tool writes (T5.5); which *shape* a write
+  call has is read here — see `CONTENT_KEYS` for why that one stays.
 
 The order is the transcript's. `chain_chunks` resolves a chain's ids against the
 chunk list and sorts them by position, so "the last write" means the last one in
@@ -28,6 +28,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
+from idc.importers import tool_registry
 from idc.resolve.errors import ForeignChunkError, UnknownChunkError
 from idc.schema import Chain, Chunk, Session, ToolCall, ToolCategory, ToolResult
 
@@ -46,41 +47,49 @@ __all__ = [
     "write_kind",
 ]
 
-FILE_PATH_KEYS = ("file_path", "filePath", "absolute_path")
+FILE_PATH_KEYS = tool_registry().file_path_keys
 """Argument keys the three agents use for the file a call works on.
 
 `ToolCall.args` keeps a call's arguments exactly as the agent sent them (#3), so
-the same operation arrives under three spellings: `file_path` (Claude Code, and
-Gemini CLI's `write_file`/`replace`), `filePath` (OpenCode) and `absolute_path`
-(Gemini CLI's `read_file`).
+the same operation arrives under four spellings: `file_path` (Claude Code, and
+Gemini CLI's `write_file`/`replace`), `notebook_path` (Claude Code's
+`NotebookEdit`), `absolute_path` (Gemini CLI's `read_file`) and `filePath`
+(OpenCode).
 
-Only **observed** spellings are listed, the evidence rule
-`tool_registry.toml` follows: a key no agent sends would pin behaviour that was
-never seen, while a missing one makes a call resolve to *no file* — which is
+This stage holds no list of its own: the keys are
+`tool_registry.toml`'s `path_keys` declarations, collected across the agents
+(T5.5, #75). The registry is where "this tool writes" and "this is its path
+argument" are one line, so a declared write tool whose spelling is missing is
+rejected on load instead of resolving to *no file* — which is what
+`notebook_path` did while the two lived apart, keeping every notebook out of
+every solution. A spelling is added to the data file and only when the agent was
+observed to send it, the evidence rule that file states.
+
+A key this build has never seen still makes a call resolve to no file, which is
 reported (`LocatedCall.path` is `None`) and keeps the write out of a file's
-solution, rather than attributing it to the wrong file.
-
-This knowledge belongs in the registry's data file next to the tool categories,
-which is where a new spelling should be addable without touching Python. It is
-written here because the registry is `idc.importers`' and extending it is not
-this ticket's scope — the decision to read the argument shapes in this stage
-(which file, whole write or patch) instead of extending the registry is the one
-recorded on #21.
+solution rather than attributing it to the wrong file. Reading the whole union
+rather than the declaring tool's own keys is deliberate: a `ToolCall` names its
+tool but not the session, so the agent is not available here.
 """
 
-COMMAND_KEYS = ("command",)
+COMMAND_KEYS = tool_registry().command_keys
 """Argument keys an `exec` call uses for the command line it runs.
 
-All three agents spell it `command` — Claude Code's `Bash`, Gemini CLI's
-`run_shell_command` and OpenCode's `bash` — so this is a one-element tuple, and
-it stays one until a transcript shows otherwise: the evidence rule the rest of
-this module follows. A spelling this build has never seen makes `command_of`
-return `None`, which keeps the call out of the verification detection and
-reports it as an ordinary `exec` call instead of guessing at a command line.
+The registry's `command_keys` declarations, collected across the agents, read
+the way `FILE_PATH_KEYS` is read and moved there with it (T5.5, #75): an `exec`
+tool declared without its key is rejected on load, rather than running commands
+that no verification detection ever sees. All three agents spell it `command` —
+Claude Code's `Bash`, Gemini CLI's `run_shell_command` and OpenCode's `bash` —
+so the union is one element, and it stays one until a transcript shows
+otherwise.
+
+A spelling this build has never seen makes `command_of` return `None`, which
+keeps the call out of the verification detection and reports it as an ordinary
+`exec` call instead of guessing at a command line.
 
 The same list exists once more, in `tests/fixture_corpus.py`, so that the stage
-is not its own oracle; `tests/test_resolve_verification.py` pins the two copies
-against each other.
+is not its own oracle; `tests/test_resolve_verification.py` pins that copy
+against this one.
 """
 
 CONTENT_KEYS = ("content",)
@@ -88,8 +97,22 @@ CONTENT_KEYS = ("content",)
 
 All three agents spell it `content` — Claude Code's `Write`, Gemini CLI's
 `write_file`, OpenCode's `write`. A one-element tuple for the same reason
-`COMMAND_KEYS` is one in the fixture corpus: it is the spelling that was
-observed, not a place for prospective ones.
+`COMMAND_KEYS` is one: it is the spelling that was observed, not a place for
+prospective ones.
+
+This one stayed here when the file and command keys moved into the registry
+(T5.5, #75), and `REPLACEMENT_KEYS` with it. The two that moved answer *where*
+a declared write or exec call names its subject, so a tool missing from them is
+a gap the registry can refuse: every `write` tool has a file, every `exec` tool
+a command. These two answer *which of two shapes* a write call has, and the
+shapes are not per tool but per call — `write_kind` reads both lists on every
+write call and falls back to `EDIT` for a shape it does not know, which is the
+lossless reading. There is no declaration a registry could require of a write
+tool here, and **four** of the seven write tools are not corpus-recorded with a
+content argument: `NotebookEdit` and `write` have no recorded call at all, and
+`replace` and `edit` are recorded only with replacement keys. Declaring a
+content key per tool would therefore be the invented data the evidence rule
+refuses — for four of seven it would rest on nothing.
 """
 
 REPLACEMENT_KEYS = ("old_string", "new_string", "oldString", "newString")
@@ -118,6 +141,29 @@ class WriteKind(StrEnum):
     EDIT = "edit"
 
 
+def _argument_of(call: ToolCall, keys: Sequence[str]) -> str | None:
+    """Return the first of `keys` the call answers with a word, or `None`.
+
+    Args:
+        call: Any tool call, of any category.
+        keys: The argument keys to try, in order.
+
+    Returns:
+        The value verbatim, for the first key that holds a string with a word
+        in it. `None` covers three cases, and folding them together is what
+        both callers document: no such key, a key spelled in a way this build
+        has never seen, and a key whose value holds no word. The last one is
+        why the value is tested with `strip()` and returned unstripped — a
+        blank argument names nothing, while a path that *does* name something
+        is the agent's own spelling and is never rewritten here.
+    """
+    for key in keys:
+        value = call.args.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 def file_of(call: ToolCall) -> str | None:
     """Return the file a call works on, or `None` if its arguments name none.
 
@@ -136,11 +182,7 @@ def file_of(call: ToolCall) -> str | None:
         nothing names — a `SolutionFile` refuses that, and a transcript must
         not be able to trigger a refusal outside `idc.resolve.errors`.
     """
-    for key in FILE_PATH_KEYS:
-        value = call.args.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return None
+    return _argument_of(call, FILE_PATH_KEYS)
 
 
 def command_of(call: ToolCall) -> str | None:
@@ -163,11 +205,7 @@ def command_of(call: ToolCall) -> str | None:
         same reason: a blank command line is no command, and matching it
         against the patterns could only ever produce a run nothing ran.
     """
-    for key in COMMAND_KEYS:
-        value = call.args.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return None
+    return _argument_of(call, COMMAND_KEYS)
 
 
 def _replaces_a_part(call: ToolCall) -> bool:
@@ -227,13 +265,12 @@ def write_kind(call: ToolCall) -> WriteKind | None:
         summary does not need. Of those two the lossless one is the direction to
         fall into.
 
-        The default only reaches calls that get as far as `solution_files`,
-        and one declared write tool never does: Claude Code's `NotebookEdit`
-        names its file under `notebook_path`, which is not in `FILE_PATH_KEYS`,
-        so `file_of` returns `None` and the notebook is in no file's solution.
-        Of the seven tools `tool_registry.toml` declares `category = "write"`
-        it is the only one whose file can never enter a solution — a gap of
-        this build, not an illustration of the default being safe.
+        A call reaches the default by naming no shape this build knows, and
+        it is read as an edit, so the write before it stays in the solution.
+        Every tool `tool_registry.toml` declares `category = "write"` can get
+        that far: the registry requires each of them to declare the argument
+        key under which it names its file, so none of them resolves to no file
+        the way `NotebookEdit` did before T5.5 (#75).
     """
     if call.category is not ToolCategory.WRITE:
         return None

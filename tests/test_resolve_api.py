@@ -163,11 +163,14 @@ def test_every_exported_key_table_is_a_non_empty_tuple(name):
     assert table
 
 
-def test_the_argument_keys_are_the_spellings_the_corpus_records():
-    # The evidence rule of `tool_registry.toml`, restated for the keys this
-    # stage reads: only an observed spelling is listed. A key added here
-    # without a transcript showing it would pin behaviour nobody saw.
-    assert FILE_PATH_KEYS == ("file_path", "filePath", "absolute_path")
+def test_the_argument_keys_are_the_spellings_the_agents_were_observed_to_use():
+    # The evidence rule of `tool_registry.toml`, which is where the file and
+    # command spellings now live: only an observed spelling is declared, and a
+    # key added without the agent showing it would pin behaviour nobody saw.
+    # `FILE_PATH_KEYS` and `COMMAND_KEYS` are that file's declarations,
+    # collected across the agents in schema order — `notebook_path` is Claude
+    # Code's `NotebookEdit`, read off the agent's own tool set.
+    assert FILE_PATH_KEYS == ("file_path", "notebook_path", "absolute_path", "filePath")
     assert CONTENT_KEYS == ("content",)
     assert REPLACEMENT_KEYS == ("old_string", "new_string", "oldString", "newString")
     assert COMMAND_KEYS == ("command",)
