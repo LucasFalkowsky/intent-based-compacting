@@ -30,12 +30,12 @@ below follows from them:
   turn happened, and it is an intent boundary T3.1 splits on — losing it would fabricate
   the chain structure. A user record cannot carry a tool result in OpenCode, so unlike
   Claude Code's there is no case in which it yields something else instead. The same
-  reason makes this a **deliberate divergence from the Claude Code importer**, which
-  skips a record whose content it cannot read at all while this one keeps the turn with
-  empty content and a note: there a `user` record may be a prompt or a tool result, so an
-  unreadable content leaves the record's kind unknown, whereas here `role = user` already
-  settles it — so keeping the turn invents nothing, and dropping it would fabricate the
-  chain structure for T3.1.
+  reason makes this a **deliberate divergence from the other two importers**, which both
+  skip a record whose content they cannot read at all while this one keeps the turn with
+  empty content and a note: in Claude Code and Gemini CLI a `user` record may be a prompt
+  or a tool result, so an unreadable content leaves the record's kind unknown, whereas
+  here `role = user` already settles it — so keeping the turn invents nothing, and
+  dropping it would fabricate the chain structure for T3.1.
 - `role = user` whose `text` parts are all marked `synthetic` -> the same message, marked
   `is_system_injected`: `synthetic` is how OpenCode records text the harness wrote rather
   than the user. A record mixing typed and synthetic text stays the user's turn, and a
