@@ -6,17 +6,22 @@ back and extended instead of being summarized again. Model calls are confined to
 the narrative sections of the template.
 
 ```python
-from idc.compact import compact_chain, render_block
+from idc.compact import compact_chain, compact_incrementally, render_block
 
 print(compact_chain(chain, resolve(session, chunks, chain), client))  # one call
 print(render_block(chain, resolve(session, chunks, chain)))           # no call
+print(compact_incrementally(chains, resolution_of=..., client=client))  # one run
 ```
 
 `idc.compact.template` holds the template itself and the two sections a
 transcript determines — `Solution` and `Verification`; `render_block` writes
 those and leaves the narrative sections as the empty-section placeholder, which
 is the whole block for a caller that has no model.
-`idc.compact.narrative` fills the narrative sections and the `Intent` label from
+`idc.compact.incremental` is the stage above the two: handed a whole run's
+chains, it writes a block for every chain this run opened or gave a new chunk
+to, and copies the block of every other chain byte for byte — so a chain that
+was summarized once is paid for once. `idc.compact.narrative` fills the
+narrative sections and the `Intent` label from
 a model: the client is injected, the response is validated against the section
 headers, and the instruction is read from the versioned data file
 `idc.compact.instruction` loads — whose digest identifies the prompt a run used.
