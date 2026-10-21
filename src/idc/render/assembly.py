@@ -98,6 +98,26 @@ def summary_text(block: CompactedBlock) -> str:
     return join_blocks(texts)
 
 
+def _named(chunk_id: str, chunks: Sequence[Chunk]) -> Chunk:
+    """Return the chunk carrying an id, or refuse because none does.
+
+    Args:
+        chunk_id: The id to look for.
+        chunks: The chunks to look in, searched in their own order. `idc.chunk`
+            assigns each id once, so the first match is the only one.
+
+    Returns:
+        The chunk whose `id` is `chunk_id`.
+
+    Raises:
+        UnknownLatestChunkError: If no chunk carries it.
+    """
+    for chunk in chunks:
+        if chunk.id == chunk_id:
+            return chunk
+    raise UnknownLatestChunkError(chunk_id, [chunk.id for chunk in chunks])
+
+
 def latest_messages(
     block: CompactedBlock, session: Session, chunks: Sequence[Chunk]
 ) -> tuple[Message, ...]:
@@ -124,11 +144,7 @@ def latest_messages(
             A chunk sequence belongs to the session it was computed from, so
             pairing one with another session is a caller's own mistake.
     """
-    for chunk in chunks:
-        if chunk.id == block.latest_chunk_id:
-            break
-    else:
-        raise UnknownLatestChunkError(block.latest_chunk_id, [chunk.id for chunk in chunks])
+    chunk = _named(block.latest_chunk_id, chunks)
     if chunk.end_index > len(session.messages):
         raise ValueError(
             f"chunk {chunk.id!r} spans messages [{chunk.start_index}, {chunk.end_index}) but "
