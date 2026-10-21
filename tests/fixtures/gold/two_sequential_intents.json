@@ -1,0 +1,9 @@
+{
+  "transcript": "two_sequential_intents",
+  "chunking": "user-boundaries",
+  "note": "Two intents the user separates in the request itself: the second turn is \"Now document the new option in README.md, nothing else.\", a closed follow-up request rather than a continuation of the implementation it refers to, so K2 opens C2.",
+  "chains": {
+    "K1": "C1",
+    "K2": "C2"
+  }
+}

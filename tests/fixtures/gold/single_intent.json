@@ -1,0 +1,8 @@
+{
+  "transcript": "single_intent",
+  "chunking": "user-boundaries",
+  "note": "One user turn carried to a green test run: the minimal chain of one chunk.",
+  "chains": {
+    "K1": "C1"
+  }
+}

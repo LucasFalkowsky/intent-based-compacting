@@ -17,8 +17,20 @@ the fixture name is the file name without its suffix. Anything that is not a
 
 Fixtures are loaded through `idc.schema.load`, so a malformed fixture fails as
 one `SchemaValidationError` naming the file, and no test ever sees an
-unvalidated transcript. The module has no dependency beyond the standard
-library and the canonical schema itself.
+unvalidated transcript. Beyond the standard library the module depends on
+exactly the two parts of the package whose artifacts it hands out: `idc.schema`
+for the sessions, and `idc.classify` (`load_gold`) for the gold labellings
+below.
+
+The corpus also holds the **gold chain labels** of `tests/fixtures/gold/` —
+one `<name>.json` per transcript, saying which intent chain each of its chunks
+belongs to. They are a hand-written artifact and a separate one on purpose: the
+classifier evaluation harness (#19) scores a run against them, so nothing may
+derive them from a transcript or from a classifier's own output.
+
+```python
+gold = CORPUS.gold("interleaved_intents")     # -> GoldChains, validated on load
+```
 
 The readers at the end of the module (`tool_calls`, `file_of`, `command_of`,
 `touched_files`, `written_files`, `results_by_call_id`, `exec_runs`) are
@@ -32,6 +44,7 @@ as their oracle.
 from collections.abc import Iterable
 from pathlib import Path
 
+from idc.classify import GoldChains, load_gold
 from idc.schema import Message, Session, ToolCall, ToolCategory, ToolResult, load
 
 TESTS_DIR = Path(__file__).parent.resolve()
@@ -42,6 +55,12 @@ FIXTURES_DIR = TESTS_DIR / "fixtures"
 
 SUFFIX = ".json"
 """Every fixture is one canonical `Session` document in a `*.json` file."""
+
+GOLD_DIR_NAME = "gold"
+"""Sub-directory of the corpus holding the gold chain labels, one per fixture."""
+
+GOLD_DIR = FIXTURES_DIR / GOLD_DIR_NAME
+"""Absolute path of the gold chain labels of the shared corpus."""
 
 
 class Corpus:
@@ -133,6 +152,57 @@ class Corpus:
     def sessions(self) -> dict[str, Session]:
         """Return the whole corpus as validated sessions, keyed by name."""
         return {path.stem: load(Session, path) for path in self.paths()}
+
+    @property
+    def gold_directory(self) -> Path:
+        """Return the directory holding the corpus' gold chain labels."""
+        return self.directory / GOLD_DIR_NAME
+
+    def gold_paths(self) -> list[Path]:
+        """Return the path of every gold labelling, sorted by name."""
+        return sorted(self.gold_directory.glob(f"*{SUFFIX}"))
+
+    def gold_names(self) -> list[str]:
+        """Return the name of every transcript the corpus holds gold labels for."""
+        return [path.stem for path in self.gold_paths()]
+
+    def gold_path(self, name: str) -> Path:
+        """Return the path of one gold labelling.
+
+        Args:
+            name: Transcript name, e.g. `interleaved_intents`.
+
+        Returns:
+            The absolute path of `gold/<name>.json`.
+
+        Raises:
+            KeyError: If the corpus holds no gold labelling of that name; the
+                message lists the ones it does hold.
+        """
+        path = self.gold_directory / f"{name}{SUFFIX}"
+        if not path.is_file():
+            known = ", ".join(self.gold_names()) or "none"
+            raise KeyError(f"no gold labelling {name!r} in {self.gold_directory}; known: {known}")
+        return path
+
+    def gold(self, name: str) -> GoldChains:
+        """Return one transcript's gold chain labels, validated on load.
+
+        Args:
+            name: Transcript name.
+
+        Returns:
+            The `GoldChains` the labelling holds.
+
+        Raises:
+            KeyError: If no gold labelling of that name exists.
+            GoldLabellingError: If the document is not a usable labelling.
+        """
+        return load_gold(self.gold_path(name))
+
+    def gold_labels(self) -> dict[str, GoldChains]:
+        """Return every gold labelling of the corpus, keyed by transcript name."""
+        return {path.stem: load_gold(path) for path in self.gold_paths()}
 
 
 CORPUS = Corpus(FIXTURES_DIR)

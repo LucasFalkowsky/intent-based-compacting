@@ -16,6 +16,12 @@ the stage is *handed* is in the family, the chains a run is seeded with
 included, because those are parsed out of a compacted block in a transcript
 file (#33) and a hand-edited block must not reach T10's CLI as a traceback.
 
+The evaluation harness (T4.4, #19) is in the family for the same reason: a gold
+labelling and a recorded run are documents read from disk, so
+`GoldLabellingError`, `GoldCoverageError` and `DecisionRecordError` are refusals
+of input and not of a decision — but they are refusals of this stage, and one
+`except ClassifyError` stays enough to catch it.
+
 The two families therefore meet in one place, and deliberately overlap rather
 than split there: a backend's *answer* that is not usable is both a bad value
 and a failure of the stage, so `AdapterContractError` is a `ValueError` **and** a
@@ -34,7 +40,10 @@ __all__ = [
     "ChunkAlreadyAssignedError",
     "ChunkOrderError",
     "ClassifyError",
+    "DecisionRecordError",
     "ForeignChunkError",
+    "GoldCoverageError",
+    "GoldLabellingError",
     "ScriptExhaustedError",
     "UnknownChainError",
 ]
@@ -307,3 +316,69 @@ class ScriptExhaustedError(ClassifyError):
             f"the scripted adapter ran out of decisions at chunk {chunk_id!r}: "
             f"its script holds {script_length} decision(s)"
         )
+
+
+class GoldLabellingError(ClassifyError):
+    """A gold chain labelling is not usable as a reference.
+
+    The labels the evaluation harness scores a run against are hand-written and
+    read from a file (`idc.classify.gold`), so every way of getting them wrong
+    is input and not a programming error: a document that is not JSON, a
+    transcript name that does not match the file, a repeated chunk id, a chunk
+    id that is no chunk id, a chain numbering the classifier could never
+    produce, or — raised by the harness — a chunking it cannot perform. The
+    message says which of those it is; there is no attribute to branch on,
+    because a caller cannot repair a hand-written document anyway.
+    """
+
+
+class GoldCoverageError(ClassifyError):
+    """A run and a gold labelling do not cover the same chunks.
+
+    Both metrics are shares of the chunks, so comparing two labellings over
+    different chunk sets would silently score a different question — the
+    intersection, or the smaller of the two. The usual cause is a labelling
+    written against another chunking, or a transcript that has grown since.
+
+    It is a **library-level guard**, for a caller that scores a labelling it
+    produced elsewhere (`agreement`, `per_chunk_accuracy`, `rand_index`). The
+    command does not reach it: a recorded run of the wrong length is refused
+    before anything is scored (`DecisionRecordError`), and a decision list that
+    is too short runs out inside the classifier (`ScriptExhaustedError`).
+
+    Attributes:
+        missing: Chunk ids the gold labels and the run does not, in gold order.
+        unexpected: Chunk ids the run labels and the gold does not, in run
+            order.
+    """
+
+    def __init__(self, missing: Sequence[str], unexpected: Sequence[str]) -> None:
+        """Build the error from the two sides of the difference.
+
+        Args:
+            missing: Chunk ids only the gold labelling holds.
+            unexpected: Chunk ids only the run holds.
+        """
+        self.missing = tuple(missing)
+        self.unexpected = tuple(unexpected)
+        parts = []
+        if self.missing:
+            parts.append(f"not labelled by the run: {', '.join(self.missing)}")
+        if self.unexpected:
+            parts.append(f"not labelled by the gold: {', '.join(self.unexpected)}")
+        super().__init__(
+            "a run is scored against the gold labelling of the same chunks; "
+            + "; ".join(parts or ["the two cover different chunks"])
+        )
+
+
+class DecisionRecordError(ClassifyError):
+    """A recorded run the harness was asked to replay is not usable.
+
+    A recorded run is the decision list an adapter produced, written to a file
+    so that it can be scored offline — the only way the harness's command can
+    run a real backend without calling a model. Like a gold labelling it is
+    input: a missing document, an unknown key, an entry that is no decision, or
+    a list whose length does not match the transcript's chunks is refused with
+    the file named.
+    """

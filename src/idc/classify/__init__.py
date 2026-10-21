@@ -42,6 +42,13 @@ The stage is split along what a model may decide and what it may not:
 - `idc.classify.llm` is the LLM backend (T4.2, #17): a fixed prompt, a validated
   JSON answer and a bounded retry, on top of a `ModelClient` **the caller
   injects**. It ships no client, opens no connection and reads no credential.
+- `idc.classify.gold` and `idc.classify.evaluate` are the stage's measuring
+  instrument (T4.4, #19): a hand-written gold labelling per transcript, and the
+  per-chunk accuracy and chain-level Rand index of a run against it. The labels
+  are read from an artifact nothing here writes, and both metrics are arithmetic
+  over two labellings — so the harness neither scores itself nor calls a model.
+  Every result carries the `RunSource` it was produced by, because the gold
+  baseline scores 1.000 by construction and must not read like a measurement.
 - `idc.classify.s1m` is the other real backend (T4.3, #18): a binary scorer
   asked once per candidate, thresholded and ranked into one decision. Its
   scorer is **injected** too, so that module holds no client, no transport and
@@ -95,11 +102,40 @@ from idc.classify.errors import (
     ChunkAlreadyAssignedError,
     ChunkOrderError,
     ClassifyError,
+    DecisionRecordError,
     ForeignChunkError,
+    GoldCoverageError,
+    GoldLabellingError,
     ScriptExhaustedError,
     UnknownChainError,
 )
+from idc.classify.evaluate import (
+    CHUNKINGS,
+    EXIT_INPUT_ERROR,
+    Agreement,
+    CorpusAgreement,
+    Disagreement,
+    EvaluationCase,
+    RunSource,
+    agreement,
+    chunks_for,
+    evaluate_adapter,
+    evaluate_cases,
+    format_report,
+    load_cases,
+    load_decisions,
+    per_chunk_accuracy,
+    predicted_labels,
+    rand_index,
+)
 from idc.classify.fake import FakeAdapter, FakeCall
+from idc.classify.gold import (
+    GOLD_CHUNKING,
+    GoldChains,
+    gold_script,
+    load_gold,
+    load_gold_directory,
+)
 from idc.classify.ids import CHAIN_ID_PREFIX, chain_id, is_chain_id
 from idc.classify.llm import (
     DEFAULT_MAX_ATTEMPTS,
@@ -125,10 +161,14 @@ from idc.classify.store import (
 
 __all__ = [
     "CHAIN_ID_PREFIX",
+    "CHUNKINGS",
     "DEFAULT_MAX_ATTEMPTS",
+    "EXIT_INPUT_ERROR",
+    "GOLD_CHUNKING",
     "NEW",
     "PROVISIONAL_LABEL_MAX_LENGTH",
     "AdapterContractError",
+    "Agreement",
     "Assignment",
     "BlankChainLabelError",
     "ChainAlreadySeededError",
@@ -140,27 +180,48 @@ __all__ = [
     "ChunkUnderDecision",
     "Classification",
     "ClassifyError",
+    "CorpusAgreement",
     "Decision",
     "DecisionLike",
+    "DecisionRecordError",
+    "Disagreement",
+    "EvaluationCase",
     "FakeAdapter",
     "FakeCall",
     "ForeignChunkError",
+    "GoldChains",
+    "GoldCoverageError",
+    "GoldLabellingError",
     "IntentAdapter",
     "LlmAdapter",
     "LlmCall",
     "ModelClient",
     "NewChain",
+    "RunSource",
     "ScriptExhaustedError",
     "UnknownChainError",
     "UnreadableAnswerError",
+    "agreement",
     "as_decision",
     "build_prompt",
     "chain_id",
     "chunk_user_message",
+    "chunks_for",
     "classify",
     "classify_chunks",
+    "evaluate_adapter",
+    "evaluate_cases",
+    "format_report",
+    "gold_script",
     "is_chain_id",
+    "load_cases",
+    "load_decisions",
+    "load_gold",
+    "load_gold_directory",
+    "per_chunk_accuracy",
+    "predicted_labels",
     "provisional_label",
+    "rand_index",
 ]
 
 # T4.3 (#18) — the S1M backend's own names, appended as a block of their own.

@@ -21,6 +21,7 @@ from idc.schema import Agent, Session, ToolCategory, dumps, load, loads
 TESTS_DIR = Path(__file__).parent.resolve()
 FIXTURES_DIR = TESTS_DIR / "fixtures"
 README_PATH = FIXTURES_DIR / "README.md"
+GOLD_DIR_NAME = "gold"
 
 REQUIRED_CASES = (
     "single_intent",
@@ -77,10 +78,13 @@ def test_every_required_case_has_a_fixture():
 
 
 def test_the_corpus_holds_nothing_but_fixtures_and_its_readme():
+    # The gold chain labels of T4.4 (#19) are a directory of their own inside the
+    # corpus, and `tests/test_classify_gold.py` guards its contents the same way
+    # this test guards the transcripts.
     unexpected = [
         path.name
         for path in sorted(FIXTURES_DIR.iterdir())
-        if path.name != README_PATH.name and path.suffix != ".json"
+        if path.name != README_PATH.name and path.suffix != ".json" and path.name != GOLD_DIR_NAME
     ]
 
     assert unexpected == []
