@@ -226,19 +226,33 @@ tool exists, applied to its own development.
 - **Review subagent**: one per ticket, started after the implementation reported green — see
   "Review step". Never the context that wrote the code.
 
-**Starting the implementation subagent** — the prompt names the ticket and nothing else; the
-subagent fetches the scope itself:
+**The process lives in the agent definitions, not in the prompt.** `.claude/agents/idc-implementer.md`
+and `.claude/agents/idc-reviewer.md` carry the TDD loop, the non-negotiable rules, the context
+discipline and the report format. Use `subagent_type: idc-implementer` / `idc-reviewer` and keep the
+prompt to what is specific to *this* ticket:
 
-> *"Implement ticket T<id> (issue #<n>) in this repository. Work in `<worktree path>` and nowhere
-> else. Read `CLAUDE.md` and `gh issue view <n>` first — the issue body is the scope and the
-> acceptance criteria. Work on branch `<branch>`, which is already cut from `<base>`. Follow the
-> mandatory TDD loop (failing tests first, commits `test(T<id>): …` / `feat(T<id>): …` /
-> `refactor(T<id>): …`), use the shared fixture corpus, no network and no real model calls in tests.
-> Do not use WebSearch or WebFetch. Never read the user's real agent transcripts and never write
-> anything about this machine's usage into the repository — see "Working with local agent data".
-> Do not touch any other ticket's scope, do not edit issues, labels or the board, and do not open the
-> PR. When `make test` is green, return the handover report described in `CLAUDE.md` → "One subagent
-> per ticket" and nothing else."*
+> *"Implement ticket T<id> (issue #<n>). Worktree: `<path>`. Branch: `<branch>`, already cut from
+> `<base>`. <Any fact from another ticket that this one needs, stated here rather than named as an
+> issue to go and read.> <Anything the issue body does not say but you need decided.>"*
+
+**Why so short — this is measured, and it was bad.** Telling every subagent to "read `CLAUDE.md`
+first" cost ~7.6k tokens of which **78% is orchestration the subagent is forbidden to perform**
+(board ids, label taxonomy, merge order, closing a ticket). Naming two to four issues to read pulled
+in *this session's own* review and decision comments: on #19 the body is 543 bytes and the comments
+are **26 KB**. The result was 50k tokens spent adding a single assertion and 75k on a two-line guard.
+
+**Context budget, which the orchestrating session is responsible for:**
+
+- The subagent reads **the issue body only** — `gh issue view <n> --json body --jq .body`, never
+  plain `gh issue view` and never `--comments`.
+- **Never name a second issue for a subagent to read.** If a decision from another ticket matters,
+  the orchestrating session — which has already read it — states the fact in the prompt. One
+  sentence beats ten kilobytes of thread.
+- Never ask for a repository survey or for sibling stages to be read "for orientation". If one
+  sibling's conventions genuinely matter, name that one file.
+- A **pinpoint change** (one assertion, one guard, one docstring clause) gets a pinpoint prompt:
+  the exact `file:line`, the exact change, and an explicit instruction not to explore. It does not
+  get a ticket-shaped prompt.
 
 **Handover report** (what the subagent returns — a compact summary, never raw file dumps):
 
@@ -273,6 +287,12 @@ subagent, and run "Closing a ticket". A `Scope/blocked` entry means: `blocked` l
 - A subagent is never reused for a second ticket, and never for the review of its own work. If a
   ticket comes back `changes-requested`, the fixes may run in a **new** implementation subagent
   with the review findings in the prompt.
+- **A trivial, pinpoint, test-only change may be made by the orchestrating session itself** — one
+  assertion, one docstring clause, a number updated — provided it writes the test, watches it fail,
+  and says so. Spawning a fresh full-context agent to add one `assert` costs more than the change,
+  and the "no production code without a subagent" rule exists to keep *design* out of the
+  orchestrating context, not to ritualise one-liners. Anything touching production behaviour still
+  goes to an implementation subagent.
 - If a subagent needs something outside its ticket (a missing fixture is fine, another ticket's
   scope is not), it stops and reports it under `Scope/blocked`.
 
@@ -401,13 +421,15 @@ cache state and an editable install hide failures.
 
 The review itself:
 
-- If the `tyler-review` skill is available, invoke it with the ticket ID (e.g.
-  `review T3.1`) and the branch name. It is read-only and returns a verdict.
-- Otherwise spawn a general-purpose subagent with this prompt:
-  *"Review branch `<branch>` against the acceptance criteria of issue #<n>
-  (`gh issue view <n>`). Re-run `make test`. Report: verdict (approved /
-  changes-requested), findings with severity (blocker / major / minor) and file:line, and
-  which criteria are met. Do not edit anything."*
+Spawn it with `subagent_type: idc-reviewer`, whose definition carries the method and the report
+format. The prompt stays specific to the ticket and obeys the same context budget as above:
+
+> *"Review branch `<branch>` against the acceptance criteria of issue #<n>. Worktree: `<path>`.
+> Base: `<base>`. <The claims the implementation made, listed so they can be tested rather than
+> read.> <Any fact from another ticket that the review needs, stated here.>"*
+
+**List the claims to be tested.** The reviews that have found real defects on this project are the
+ones handed a numbered list of assertions to disprove, not the ones asked to "review the branch".
 
 The review is deliberately **quick**: it checks that tests are green, that every
 acceptance criterion is covered by a test, and that nothing is obviously wrong or out of
