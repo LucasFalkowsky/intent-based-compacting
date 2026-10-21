@@ -269,13 +269,21 @@ class Session(CanonicalModel):
       a schema rule would mean a stage that rebuilds a session without carrying
       the field turns a valid transcript into an unloadable one, and it would be
       the single place this schema stops accepting incomplete data.
-    - That an `intent-compaction` session names one. Where this tool's summary
-      block is the first message of the document, the cut is the start of the
-      transcript and nothing precedes it to hide, so the identifier adds
-      nothing: `tests/fixtures/already_compacted_block.json` is that shape and
-      leaves the field `null`. A document whose block sits behind the history it
-      replaced has to name it, or `idc.importers.visible_context` counts that
-      history as context.
+    - That an `intent-compaction` session names one. It **should**, though, and
+      an earlier version of this paragraph was wrong about why. The identifier
+      does two things, not one: it moves the cut, and it **exempts the named
+      message from the harness-notice rule** —
+      `idc.importers.provenance._hidden_reason` tests `message.id == summary_id`
+      *before* the injected-`system` branch. This tool writes its summary as an
+      injected `system` message, so leaving the field `null` does not merely
+      fail to hide earlier history: it hides **the summary block itself**, as a
+      harness notice. Measured on
+      `tests/fixtures/already_compacted_block.json`: with the field `null`,
+      `visible_context` returns 11 messages holding 103 words of content; with
+      `m01` named, 12 messages holding 348 words. The 245 words in between are
+      the compacted block — the "after" side of the condition under test, which
+      would otherwise be counted as if the agent were never sent it. The fixture
+      names its summary for that reason.
 
     One combination is refused, and only one: `raw` plus an identifier (see
     `_check_native_summary_agrees_with_the_provenance`).

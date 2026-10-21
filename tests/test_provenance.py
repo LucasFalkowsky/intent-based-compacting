@@ -624,3 +624,54 @@ def test_the_hidden_reasons_are_the_two_the_module_declares():
     reasons = {hidden.reason for hidden in gemini.hidden + claude.hidden}
 
     assert reasons == {HIDDEN_HARNESS_NOTICE, HIDDEN_REPLACED_BY_COMPACTION}
+
+
+def test_the_corpus_compacted_fixture_counts_its_own_block_as_context(corpus) -> None:
+    """The fixture names its summary, and that is a measurement decision.
+
+    `already_compacted_block` is the `intent-compaction` fixture every later
+    stage reads. It left `native_summary_id` null, on the reasoning that the
+    block is the first message so there is nothing before it to hide — and that
+    reasoning missed what the identifier also does: `_hidden_reason` tests
+    `message.id == summary_id` **before** the injected-`system` branch, and this
+    tool writes its summary as an injected `system` message. So an unnamed
+    summary is hidden as a **harness notice**, and the compacted block itself
+    drops out of the measured context of the condition under test — an
+    undercount on the "after" side, in the arm the study is testing.
+
+    No test asserted `visible_context` on this fixture in either direction,
+    which is why nothing caught it. This is that test.
+    """
+    session = corpus.session("already_compacted_block")
+    assert session.source is SessionSource.INTENT_COMPACTION
+    assert session.native_summary_id == "m01", "the fixture has to name its own block"
+
+    context = visible_context(session)
+
+    assert context.hidden == (), "nothing of this transcript is outside its context"
+    assert context.message_ids[0] == "m01"
+    assert "[C1] Intent:" in context.messages[0].content, "the block itself is context"
+
+
+def test_an_intent_compacted_session_naming_an_absent_summary_is_refused(corpus) -> None:
+    """The refusal is source-agnostic, and the new source reaches it too.
+
+    `visible_context` refuses a compacted session whose named summary is not in
+    it, because it cannot locate the cut. That was only ever tested for
+    `native-compaction`; the relaxation makes it reachable from
+    `intent-compaction` as well, and the prose that scoped it to "compacted by
+    the agent itself" was corrected with this test.
+    """
+    session = corpus.session("already_compacted_block")
+    broken = Session(
+        id=session.id,
+        agent=session.agent,
+        model=session.model,
+        source=SessionSource.INTENT_COMPACTION,
+        native_summary_id="no-such-message",
+        created_at=session.created_at,
+        messages=list(session.messages),
+    )
+
+    with pytest.raises(TranscriptImportError, match="no-such-message"):
+        visible_context(broken)

@@ -30,7 +30,7 @@ transcript shapes exist only inside `idc.importers` and `idc.render`.
 
 | Type | Holds |
 |---|---|
-| `Session` | a whole transcript: agent, model, provenance (`raw`, `native-compaction`, `intent-compaction`), which message the agent's own summary is, messages |
+| `Session` | a whole transcript: agent, model, provenance (`raw`, `native-compaction`, `intent-compaction`), which message the context starts at, whoever wrote the summary, messages |
 | `Message` | role, content, timestamp, and whether it was system-injected or a slash command |
 | `ToolCall` / `ToolResult` | a call with its category (`read`, `write`, `exec`, `other`) and arguments, and its output verbatim |
 | `Chunk` | one user input plus the agent's response, under a stable ID `K<n>`, as a half-open range over `Session.messages` |

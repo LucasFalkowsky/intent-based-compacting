@@ -209,7 +209,8 @@ def visible_context(session: ImportedSession | Session) -> VisibleContext:
         and what was flagged.
 
     Raises:
-        TranscriptImportError: If the session was compacted by the agent itself
+        TranscriptImportError: If the session was compacted — by the agent or by
+            this tool — and
             but does not locate its summary — `native_summary_id` is `null`, or
             it names no message of the session. Both would mean counting history
             the agent dropped, which is the error this function exists to
@@ -261,7 +262,8 @@ def _unpack(session: ImportedSession | Session) -> tuple[Session, str | None]:
         compacted the transcript.
 
     Raises:
-        TranscriptImportError: If the session was compacted by the agent itself
+        TranscriptImportError: If the session was compacted — by the agent or by
+            this tool — and
             but names no summary. The canonical schema accepts that document on
             purpose (see `idc.schema.models`); it is this function that cannot
             proceed, because nothing in it says where the agent's context
@@ -318,7 +320,10 @@ def _hidden_reason(
         `HIDDEN_REPLACED_BY_COMPACTION` for a message the agent's compaction
         replaced, `HIDDEN_HARNESS_NOTICE` for an injected `system` notice, and
         `None` for everything else — including the summary itself, which is the
-        one injected `system` message the agent does see.
+        one injected `system` message the agent
+            does see — **when the session names it**. An unnamed summary is
+            hidden as a harness notice like any other injected message, which
+            is why a transcript this tool compacted names its own block.
     """
     if cut is not None and index < cut:
         return HIDDEN_REPLACED_BY_COMPACTION

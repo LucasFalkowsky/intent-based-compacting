@@ -170,7 +170,7 @@ class ImportedSession:
 
     @property
     def native_summary_id(self) -> str | None:
-        """`Message.id` of the summary the agent's own compaction wrote.
+        """`Message.id` of the message the session's context starts at.
 
         Read off the canonical session rather than held a second time, so the
         two cannot drift apart: the identifier is a field of `Session` since

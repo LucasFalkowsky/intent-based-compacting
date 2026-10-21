@@ -56,7 +56,7 @@ INVALID_DOCUMENTS = [
     ),
     ("unexpected field", Session, changed("Session", nickname="s1"), "nickname"),
     (
-        "summary named by a session that was never natively compacted",
+        "summary named by a session that nothing compacted",
         Session,
         changed("Session", native_summary_id="m-0"),
         "native_summary_id",
