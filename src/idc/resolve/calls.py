@@ -32,6 +32,7 @@ from idc.resolve.errors import ForeignChunkError, UnknownChunkError
 from idc.schema import Chain, Chunk, Session, ToolCall, ToolCategory, ToolResult
 
 __all__ = [
+    "COMMAND_KEYS",
     "CONTENT_KEYS",
     "FILE_PATH_KEYS",
     "REPLACEMENT_KEYS",
@@ -39,6 +40,7 @@ __all__ = [
     "WriteKind",
     "chain_calls",
     "chain_chunks",
+    "command_of",
     "content_of",
     "file_of",
     "write_kind",
@@ -64,6 +66,21 @@ written here because the registry is `idc.importers`' and extending it is not
 this ticket's scope — the decision to read the argument shapes in this stage
 (which file, whole write or patch) instead of extending the registry is the one
 recorded on #21.
+"""
+
+COMMAND_KEYS = ("command",)
+"""Argument keys an `exec` call uses for the command line it runs.
+
+All three agents spell it `command` — Claude Code's `Bash`, Gemini CLI's
+`run_shell_command` and OpenCode's `bash` — so this is a one-element tuple, and
+it stays one until a transcript shows otherwise: the evidence rule the rest of
+this module follows. A spelling this build has never seen makes `command_of`
+return `None`, which keeps the call out of the verification detection and
+reports it as an ordinary `exec` call instead of guessing at a command line.
+
+The same list exists once more, in `tests/fixture_corpus.py`, so that the stage
+is not its own oracle; `tests/test_resolve_verification.py` pins the two copies
+against each other.
 """
 
 CONTENT_KEYS = ("content",)
@@ -120,6 +137,33 @@ def file_of(call: ToolCall) -> str | None:
         not be able to trigger a refusal outside `idc.resolve.errors`.
     """
     for key in FILE_PATH_KEYS:
+        value = call.args.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def command_of(call: ToolCall) -> str | None:
+    """Return the command line a call runs, or `None` if its arguments name none.
+
+    Args:
+        call: Any tool call, of any category. The category is not consulted —
+            `verification_runs` selects the `exec` calls before it asks for
+            their command, which keeps this a pure argument-shape question like
+            `file_of`.
+
+    Returns:
+        The command line exactly as the agent sent it, prefixes and quoting
+        included: it is the string the tool registry's own prefix stripping and
+        token anchoring are defined over, and the string a summary quotes. The
+        first key of `COMMAND_KEYS` that holds a non-blank string wins; `None`
+        means no argument named a command, which covers a missing key, a key
+        spelled in a way this build has never seen, and a value that holds no
+        word — the same three cases `file_of` folds into `None`, and for the
+        same reason: a blank command line is no command, and matching it
+        against the patterns could only ever produce a run nothing ran.
+    """
+    for key in COMMAND_KEYS:
         value = call.args.get(key)
         if isinstance(value, str) and value.strip():
             return value

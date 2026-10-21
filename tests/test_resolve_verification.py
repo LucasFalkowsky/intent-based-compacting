@@ -331,9 +331,7 @@ def test_a_run_that_failed_after_a_passing_one_does_not_unseat_it():
     # corpus has this shape, which is why it is built here — and why the
     # reading is pinned rather than left to the next edit of the rule.
     document = json.loads(CORPUS.text(FAILED_THEN_PASSING))
-    rewrite_result(
-        document, "c03", exit_code=0, is_error=False, output="5 passed in 0.20s\n"
-    )
+    rewrite_result(document, "c03", exit_code=0, is_error=False, output="5 passed in 0.20s\n")
     rewrite_result(
         document, "c06", exit_code=1, is_error=True, output="1 failed, 4 passed in 0.22s\n"
     )
@@ -452,10 +450,7 @@ def test_a_write_call_is_never_a_verification_however_it_is_spelled():
     session, chunks, chains = session_chains(session, ONE_RUN)
     (chain,) = chains
     write = next(
-        call
-        for message in session.messages
-        for call in message.tool_calls
-        if call.id == "c03"
+        call for message in session.messages for call in message.tool_calls if call.id == "c03"
     )
     verification = solution_verification(session, chunks, chain)
 
@@ -470,7 +465,9 @@ def test_a_write_call_is_never_a_verification_however_it_is_spelled():
 
 def test_a_verification_run_reports_what_the_agent_saw():
     result = ToolResult(call_id="c01", output="5 passed", exit_code=0, is_error=False)
-    call = ToolCall(id="c01", name="Bash", category=ToolCategory.EXEC, args={"command": "make test"})
+    call = ToolCall(
+        id="c01", name="Bash", category=ToolCategory.EXEC, args={"command": "make test"}
+    )
     located = LocatedCall(
         call=call, chunk_id="K1", message_id="m01", message_index=0, result=result
     )
@@ -489,10 +486,10 @@ def test_a_verification_run_reports_what_the_agent_saw():
 
 
 def test_a_verification_run_without_a_result_did_not_pass():
-    call = ToolCall(id="c01", name="Bash", category=ToolCategory.EXEC, args={"command": "make test"})
-    located = LocatedCall(
-        call=call, chunk_id="K1", message_id="m01", message_index=0, result=None
+    call = ToolCall(
+        id="c01", name="Bash", category=ToolCategory.EXEC, args={"command": "make test"}
     )
+    located = LocatedCall(call=call, chunk_id="K1", message_id="m01", message_index=0, result=None)
     match = tool_registry().match_verification("make test")
     assert match is not None
 

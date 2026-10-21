@@ -1,14 +1,15 @@
 """The public surface of `idc.resolve`: what the sibling sub-tickets of T5 reuse.
 
-A contract test, not a behaviour test. `solution_files` is the stage's entry
-point; `chain_chunks`, `chain_calls` and `LocatedCall` are the chain walk T5.2
-(#22) asks for the `exec` calls with and T5.3 (#23) for the path, and
-`file_of`, `write_kind`, `content_of` and the three key tuples are the
-argument-shape knowledge that must not be restated per sub-ticket. *What* they
-compute is covered through `solution_files` in
-`tests/test_resolve_writes.py`; what is pinned here is only that they stay
-reachable from the package, so a refactor cannot drop one from `__all__` — or
-out of the package — with the suite still green.
+A contract test, not a behaviour test. `solution_files` and
+`solution_verification` are the stage's two entry points; `chain_chunks`,
+`chain_calls` and `LocatedCall` are the chain walk T5.2 (#22) asks for the
+`exec` calls with and T5.3 (#23) for the path, and `file_of`, `write_kind`,
+`content_of`, `command_of` and the four key tuples are the argument-shape
+knowledge that must not be restated per sub-ticket. *What* they compute is
+covered through `solution_files` in `tests/test_resolve_writes.py` and through
+`solution_verification` in `tests/test_resolve_verification.py`; what is pinned
+here is only that they stay reachable from the package, so a refactor cannot
+drop one from `__all__` — or out of the package — with the suite still green.
 
 The module docstring is pinned too: the parent ticket (#20) accepts that an
 edit made outside a tool call is not detected **on the condition that the
@@ -21,6 +22,7 @@ import importlib
 import pytest
 
 from idc.resolve import (
+    COMMAND_KEYS,
     CONTENT_KEYS,
     FILE_PATH_KEYS,
     REPLACEMENT_KEYS,
@@ -28,18 +30,26 @@ from idc.resolve import (
     LocatedCall,
     ResolveError,
     SolutionFile,
+    SolutionVerification,
     UnknownChunkError,
+    VerificationRun,
+    VerificationStatus,
     WriteKind,
     chain_calls,
     chain_chunks,
+    command_of,
     content_of,
+    exec_calls,
     file_of,
     solution_files,
+    solution_verification,
+    verification_runs,
     write_calls,
     write_kind,
 )
 
 EXPECTED_EXPORTS = {
+    "COMMAND_KEYS",
     "CONTENT_KEYS",
     "FILE_PATH_KEYS",
     "REPLACEMENT_KEYS",
@@ -47,24 +57,38 @@ EXPECTED_EXPORTS = {
     "LocatedCall",
     "ResolveError",
     "SolutionFile",
+    "SolutionVerification",
     "UnknownChunkError",
+    "VerificationRun",
+    "VerificationStatus",
     "WriteKind",
     "chain_calls",
     "chain_chunks",
+    "command_of",
     "content_of",
+    "exec_calls",
     "file_of",
     "solution_files",
+    "solution_verification",
+    "verification_runs",
     "write_calls",
     "write_kind",
 }
-"""The documented export surface of the stage after T5.1."""
+"""The documented export surface of the stage after T5.1 and T5.2.
+
+T5.2 (#22) added the eight verification names; everything T5.1 pinned stays
+pinned, so a sub-ticket can only ever extend this set."""
 
 CALLABLE_EXPORTS = (
     chain_calls,
     chain_chunks,
+    command_of,
     content_of,
+    exec_calls,
     file_of,
     solution_files,
+    solution_verification,
+    verification_runs,
     write_calls,
     write_kind,
 )
@@ -75,12 +99,15 @@ TYPE_EXPORTS = (
     LocatedCall,
     ResolveError,
     SolutionFile,
+    SolutionVerification,
     UnknownChunkError,
+    VerificationRun,
+    VerificationStatus,
     WriteKind,
 )
 """Every exported name that is a type: the result types and the error family."""
 
-KEY_TUPLE_EXPORTS = ("CONTENT_KEYS", "FILE_PATH_KEYS", "REPLACEMENT_KEYS")
+KEY_TUPLE_EXPORTS = ("COMMAND_KEYS", "CONTENT_KEYS", "FILE_PATH_KEYS", "REPLACEMENT_KEYS")
 """The exported names that are argument-key tables rather than code."""
 
 
@@ -128,10 +155,21 @@ def test_the_argument_keys_are_the_spellings_the_corpus_records():
     assert FILE_PATH_KEYS == ("file_path", "filePath", "absolute_path")
     assert CONTENT_KEYS == ("content",)
     assert REPLACEMENT_KEYS == ("old_string", "new_string", "oldString", "newString")
+    assert COMMAND_KEYS == ("command",)
 
 
 def test_the_write_kinds_are_the_two_the_last_write_rule_distinguishes():
     assert [kind.value for kind in WriteKind] == ["full", "edit"]
+
+
+def test_the_verification_statuses_are_the_two_outcomes_of_a_run():
+    # "No verification" is not a status: it is the absence of a
+    # `SolutionVerification` (#22), so a third member here would give a caller
+    # a way to read "nothing was run" as an outcome of a run.
+    assert [status.value for status in VerificationStatus] == [
+        "verification_passed",
+        "verification_failed",
+    ]
 
 
 def test_the_stage_documents_that_an_edit_outside_a_tool_call_is_not_detected():
