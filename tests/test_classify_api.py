@@ -20,6 +20,7 @@ import pytest
 from idc.classify import (
     CHAIN_ID_PREFIX,
     DEFAULT_CONTINUATION_THRESHOLD,
+    DEFAULT_MAX_ATTEMPTS,
     NEW,
     PROVISIONAL_LABEL_MAX_LENGTH,
     AdapterContractError,
@@ -41,13 +42,18 @@ from idc.classify import (
     FakeCall,
     ForeignChunkError,
     IntentAdapter,
+    LlmAdapter,
+    LlmCall,
+    ModelClient,
     NewChain,
     S1MAdapter,
     S1MCall,
     ScorerContractError,
     ScriptExhaustedError,
     UnknownChainError,
+    UnreadableAnswerError,
     as_decision,
+    build_prompt,
     chain_id,
     chunk_user_message,
     classify,
@@ -58,6 +64,7 @@ from idc.classify import (
 
 EXPECTED_EXPORTS = {
     "CHAIN_ID_PREFIX",
+    "DEFAULT_MAX_ATTEMPTS",
     "NEW",
     "PROVISIONAL_LABEL_MAX_LENGTH",
     "AdapterContractError",
@@ -78,10 +85,15 @@ EXPECTED_EXPORTS = {
     "FakeCall",
     "ForeignChunkError",
     "IntentAdapter",
+    "LlmAdapter",
+    "LlmCall",
+    "ModelClient",
     "NewChain",
     "ScriptExhaustedError",
     "UnknownChainError",
+    "UnreadableAnswerError",
     "as_decision",
+    "build_prompt",
     "chain_id",
     "chunk_user_message",
     "classify",
@@ -94,6 +106,7 @@ the sibling tickets implement, and the failures a caller has to be able to catch
 
 CALLABLE_EXPORTS = (
     as_decision,
+    build_prompt,
     chain_id,
     chunk_user_message,
     classify,
@@ -125,15 +138,20 @@ TYPE_EXPORTS = (
     FakeCall,
     ForeignChunkError,
     IntentAdapter,
+    LlmAdapter,
+    LlmCall,
+    ModelClient,
     NewChain,
     ScriptExhaustedError,
     UnknownChainError,
+    UnreadableAnswerError,
 )
 """Every exported name that is a type: the interface, the store, the fake, the
 result objects and the error family."""
 
 VALUE_EXPORTS = {
     "CHAIN_ID_PREFIX": CHAIN_ID_PREFIX,
+    "DEFAULT_MAX_ATTEMPTS": DEFAULT_MAX_ATTEMPTS,
     "NEW": NEW,
     "PROVISIONAL_LABEL_MAX_LENGTH": PROVISIONAL_LABEL_MAX_LENGTH,
     "DecisionLike": DecisionLike,
@@ -150,6 +168,7 @@ ERROR_EXPORTS = (
     ForeignChunkError,
     ScriptExhaustedError,
     UnknownChainError,
+    UnreadableAnswerError,
 )
 """Every failure of the stage; all of them have to be one catchable family.
 
