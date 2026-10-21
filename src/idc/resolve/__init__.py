@@ -8,18 +8,19 @@ a chain *achieved* is kept, what it *tried* becomes a candidate for removal.
 
 ```python
 from idc.chunk import chunk_session
-from idc.resolve import solution_files, solution_verification
+from idc.resolve import resolve
 
-chunks = chunk_session(session)
-for entry in solution_files(session, chunks, chain):
-    entry.path, entry.write, entry.edits   # the solution
-    entry.superseded, entry.failed         # the path
-
-proof = solution_verification(session, chunks, chain)
-if proof is not None:
-    proof.status, proof.command, proof.output   # the solution
-    proof.discarded                             # the path
+resolution = resolve(session, chunk_session(session), chain)
+for entry in resolution.solution_files:
+    entry.path, entry.write, entry.edits    # the file half of the solution
+    entry.superseded, entry.failed          # what it took to get there
+resolution.verification                     # the proof half, or None
+resolution.path_call_ids                    # everything else, by id
 ```
+
+`resolve` is the stage's entry point and asks the three questions below once
+each; `solution_files`, `solution_verification` and `path_call_ids` stay public
+for a caller that wants one of the three answers on its own.
 
 Everything here is computed by code, never inferred by a model: the stage reads
 `Session`, `Chunk` and `Chain` and nothing else — no git, no filesystem, no
@@ -30,7 +31,8 @@ Two properties hold throughout:
 
 - **A tool result is never summarized.** A resolved write points at the
   session's own `ToolCall` and `ToolResult` objects, so a kept result is kept
-  verbatim and a dropped one is dropped whole. There is no third state.
+  verbatim; a call on the path side is named by its id alone, so a dropped one
+  is dropped whole. There is no third state.
 - **Nothing is quietly incomplete.** Where the three inputs can disagree — a
   chain naming a chunk nobody offered, a chunk reaching past the transcript —
   the stage refuses with a `ResolveError` instead of resolving to fewer writes
@@ -40,8 +42,9 @@ Two properties hold throughout:
 The modules are one question each: `idc.resolve.calls` locates a chain's tool
 calls and reads what a single call did (which file, whole write or patch),
 `idc.resolve.writes` applies the last-write-per-file rule to them,
-`idc.resolve.verification` keeps the run that proves the chain, and
-`idc.resolve.errors` holds the refusals.
+`idc.resolve.verification` keeps the run that proves the chain,
+`idc.resolve.resolution` partitions the chain into that solution and the path
+that led to it, and `idc.resolve.errors` holds the refusals.
 
 **Known limitation — an edit made outside a tool call is not detected.** The
 stage sees tool calls, so a file changed by a shell command (`sed -i`, a patch
