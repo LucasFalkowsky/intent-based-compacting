@@ -10,6 +10,21 @@
 # `other` (honestly incomplete); an invented entry would resolve wrongly, which
 # is worse. The three importers (T2.2–T2.4) extend their agent's section from
 # the real transcripts they read.
+#
+# A tool entry also declares the argument keys under which it names what it
+# works on: `path_keys` for the file, `command_keys` for the command line of an
+# `exec` call. The resolver (T5.1, T5.2) reads a call's file and command through
+# these, and the loader requires them of every `write` and every `exec` tool —
+# so "this tool writes" and "this is its path argument" are one line and cannot
+# disagree. They were two tables before, and they did: `NotebookEdit` was
+# declared a write tool whose `notebook_path` no table held, which put the
+# notebooks it wrote in no solution at all (T5.5, #75).
+#
+# The same evidence rule governs the keys. A read tool that names one file
+# declares its key too, because a read is part of a chain's path; a tool whose
+# arguments name no single file (a glob, a search, a web fetch) declares none,
+# and `path` as a directory argument is deliberately absent: it would make a
+# search in a directory look like work on a file of that name.
 
 version = 1
 
@@ -80,15 +95,20 @@ non_running_flags = [
 # which for a tool that may well write files is the honest outcome.
 
 [agents.claude-code.tools]
-Read = { category = "read" }
+Read = { category = "read", path_keys = ["file_path"] }
 Glob = { category = "read" }
 Grep = { category = "read" }
 WebFetch = { category = "read" }
 WebSearch = { category = "read" }
-Write = { category = "write" }
-Edit = { category = "write" }
-NotebookEdit = { category = "write" }
-Bash = { category = "exec" }
+Write = { category = "write", path_keys = ["file_path"] }
+Edit = { category = "write", path_keys = ["file_path"] }
+# `notebook_path` is read off the agent's own tool set, not off a transcript:
+# no fixture and no recorded session in this repository shows a
+# `NotebookEdit` call. It is declared all the same, because the tool is
+# declared a write tool, and a write tool without its key is exactly the
+# silent gap this file now refuses.
+NotebookEdit = { category = "write", path_keys = ["notebook_path"] }
+Bash = { category = "exec", command_keys = ["command"] }
 # `subagent` marks a tool that delegates to a subagent (consumed by T3.3, which
 # lifts the subagent's work into a chunk of its own). The category stays what the
 # corpus records: a delegating call itself neither reads nor writes. `Task` is
@@ -135,10 +155,10 @@ Artifact = { category = "other" }
 # and `replace`.
 
 [agents.gemini-cli.tools]
-read_file = { category = "read" }
-replace = { category = "write" }
-write_file = { category = "write" }
-run_shell_command = { category = "exec" }
+read_file = { category = "read", path_keys = ["absolute_path"] }
+replace = { category = "write", path_keys = ["file_path"] }
+write_file = { category = "write", path_keys = ["file_path"] }
+run_shell_command = { category = "exec", command_keys = ["command"] }
 # Observed in real transcripts.
 list_directory = { category = "read" }
 glob = { category = "read" }
@@ -174,14 +194,14 @@ invoke_agent = { category = "other", subagent = true }
 # missing one resolves to `other` and is logged.
 
 [agents.opencode.tools]
-read = { category = "read" }
-edit = { category = "write" }
-bash = { category = "exec" }
+read = { category = "read", path_keys = ["filePath"] }
+edit = { category = "write", path_keys = ["filePath"] }
+bash = { category = "exec", command_keys = ["command"] }
 grep = { category = "read" }
 glob = { category = "read" }
 list = { category = "read" }
 webfetch = { category = "read" }
-write = { category = "write" }
+write = { category = "write", path_keys = ["filePath"] }
 # `subagent` marks a tool that delegates to a subagent (consumed by T3.3); the
 # category stays `other`, as for Claude Code's `Task`, because a delegating call
 # itself neither reads nor writes.

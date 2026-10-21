@@ -419,7 +419,8 @@ def test_every_declared_write_tool_can_be_attributed_to_a_file(agent, name):
     # enter a solution.
     spec = tool_registry().spec(agent, name)
 
-    assert spec is not None and spec.path_keys, f"{agent.value}/{name} names no path argument"
+    assert spec is not None, f"{agent.value}/{name} is declared"
+    assert spec.path_keys, f"{agent.value}/{name} names no path argument"
     for key in spec.path_keys:
         call = ToolCall(id="c01", name=name, category=ToolCategory.WRITE, args={key: "src/a.py"})
         assert file_of(call) == "src/a.py", f"{agent.value}/{name} via {key}"

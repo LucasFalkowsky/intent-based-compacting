@@ -1253,7 +1253,8 @@ def test_a_caller_may_pass_its_own_registry(tmp_path):
     source.write_text(
         "version = 1\nrunner_prefixes = []\n"
         '[agents.claude-code.tools]\nRead = { category = "read" }\n'
-        '[agents.gemini-cli.tools]\nread_file = { category = "exec" }\n'
+        "[agents.gemini-cli.tools]\n"
+        'read_file = { category = "exec", command_keys = ["command"] }\n'
         '[agents.opencode.tools]\nread = { category = "read" }\n'
         '[[verification_patterns]]\nid = "pytest"\ncommand = "pytest"\n',
         encoding="utf-8",

@@ -164,7 +164,8 @@ def test_the_subagent_marker_keeps_the_category_the_corpus_records():
 def test_a_tool_added_to_the_data_file_resolves_without_a_code_change(tmp_path):
     text = MINIMAL_REGISTRY.replace(
         'Read = { category = "read" }\n',
-        'Read = { category = "read" }\nTeleport = { category = "exec" }\n',
+        'Read = { category = "read" }\n'
+        'Teleport = { category = "exec", command_keys = ["command"] }\n',
         1,
     )
 
@@ -408,7 +409,8 @@ def test_the_packaged_file_declares_a_path_argument_key_for_every_write_tool():
             if registry.category(agent, name) is not ToolCategory.WRITE:
                 continue
             spec = registry.spec(agent, name)
-            assert spec is not None and spec.path_keys, f"{agent.value}/{name}"
+            assert spec is not None, f"{agent.value}/{name}"
+            assert spec.path_keys, f"{agent.value}/{name}"
 
 
 def test_the_packaged_file_declares_a_command_argument_key_for_every_exec_tool():
@@ -419,7 +421,8 @@ def test_the_packaged_file_declares_a_command_argument_key_for_every_exec_tool()
             if registry.category(agent, name) is not ToolCategory.EXEC:
                 continue
             spec = registry.spec(agent, name)
-            assert spec is not None and spec.command_keys, f"{agent.value}/{name}"
+            assert spec is not None, f"{agent.value}/{name}"
+            assert spec.command_keys, f"{agent.value}/{name}"
 
 
 def test_the_declared_path_keys_are_collected_across_the_agents():
@@ -458,7 +461,7 @@ def test_a_write_tool_without_a_path_argument_key_is_rejected(tmp_path):
     )
     path = write_registry(tmp_path, text)
 
-    with pytest.raises(ToolRegistryError, match="Scribble.*path_keys"):
+    with pytest.raises(ToolRegistryError, match=r"Scribble.*path_keys"):
         load_tool_registry(path)
 
 
@@ -468,7 +471,7 @@ def test_an_exec_tool_without_a_command_argument_key_is_rejected(tmp_path):
     )
     path = write_registry(tmp_path, text)
 
-    with pytest.raises(ToolRegistryError, match="Teleport.*command_keys"):
+    with pytest.raises(ToolRegistryError, match=r"Teleport.*command_keys"):
         load_tool_registry(path)
 
 
@@ -478,5 +481,7 @@ def test_an_argument_key_that_holds_no_word_is_rejected(tmp_path):
     )
     path = write_registry(tmp_path, text)
 
-    with pytest.raises(ToolRegistryError, match=re.escape("agents.claude-code.tools.Read")):
+    with pytest.raises(
+        ToolRegistryError, match=re.escape("agents.claude-code.tools.Read.path_keys")
+    ):
         load_tool_registry(path)
