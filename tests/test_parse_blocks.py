@@ -22,8 +22,12 @@ import random
 import time
 from pathlib import Path
 
-import idc.parse
 import pytest
+
+import idc.parse
+from fixture_corpus import CORPUS
+from idc.chunk import chunk_session
+from idc.compact import EMPTY_SECTION, SECTION_HEADERS, chain_heading
 from idc.parse import (
     BLOCK_SEPARATOR,
     HEADING_PATTERN,
@@ -43,10 +47,6 @@ from idc.parse import (
     placeholder_chunk_id,
     split_blocks,
 )
-
-from fixture_corpus import CORPUS
-from idc.chunk import chunk_session
-from idc.compact import EMPTY_SECTION, SECTION_HEADERS, chain_heading
 from idc.schema import Chain
 
 COMPACT_NAMES = CORPUS.compact_names()
