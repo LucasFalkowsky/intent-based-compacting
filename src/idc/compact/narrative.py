@@ -27,10 +27,14 @@ the two section bodies — and `as_narrative` reads exactly that shape or raises
 - The response holds the intent marker and the two narrative headers, each
   exactly once, in the template's order, with the intent marker first and
   nothing before it.
-- **No other line may be read as structure.** A heading, a line that opens or
-  closes a code fence, a Setext underline, an HTML comment left open — each of
-  them with *any* indentation in front of it, since a parser keyed on the header
-  literal reads an indented `### Solution` as one. That is what keeps a model
+- **No other line may be read as structure.** A heading, a line opening with
+  the chain-heading marker `##` whether or not whitespace follows the two hashes,
+  a line that opens or closes a code fence, a Setext underline, an HTML comment
+  left open — each of them with *any* indentation in front of it, since a parser
+  keyed on the header literal reads an indented `### Solution` as one. The `##`
+  rule is wider than Markdown's own: `##NOTE` is prose to a renderer and a
+  heading line to the parser of a block, and that disagreement rendered blocks
+  that could not be read back (T8.4). That is what keeps a model
   from writing the deterministic sections itself: a `### Solution` of its own, a
   second `## [C…]` heading naming a chain the classifier never opened, or a
   fence that would swallow the headers the renderer appends below.
@@ -98,7 +102,29 @@ renderer, though — it is a parser that reads a block back on the next run and
 finds its sections by the header literal (T6.3). To that parser `    ###
 Solution` holds `### Solution`, so an indented copy of a header is a copy, and
 four leading spaces are refused like one. `#hashtag` is still not a heading,
-which is the rule Markdown itself applies.
+which is the rule Markdown itself applies — and that is why this pattern is not
+the whole guard: `_CHAIN_HEADING_LINE` refuses the one run length where the
+parser does not apply that rule either.
+"""
+
+_CHAIN_HEADING_LINE = re.compile(r"##(?!#)")
+"""Exactly two `#`, whatever follows them — the marker a block's heading opens with.
+
+Refused on its own and not through `_HEADING_LINE`, because the parser that
+reads a block back does not ask for whitespace after this run: it tests the bare
+`##` prefix, and a `##` line that is not `## [C<n>] Intent: <label>` is a
+`MalformedHeadingError` to it. So `##NOTE` was prose here and structure there,
+and the block the renderer produced for it could never be read again (T8.4).
+
+What that costs is a body line whose first two characters are `##` and whose
+third is neither a `#` nor whitespace: `##NOTE`, `##TODO`, `##args`. The model
+is asked again for that response, which is the cheap half of the trade — an
+unparseable block is a summary nothing reads.
+
+A longer run is left to `_HEADING_LINE` deliberately. `###NOTE` is a *section*
+header to the parser, which keeps every section it did not render and refuses
+none of them, so the two sides already agree on it; refusing it here would take
+`######NOTE` and `#NOTE` out of a model's prose for no disagreement.
 """
 
 _FENCE_LINE = re.compile(r"(```|~~~)")
@@ -146,9 +172,10 @@ def _refusal(line: str) -> str | None:
 
     Returns:
         A reason, naming the line, when a parser of the rendered block could
-        read it as the block's own structure — an ATX heading, a line that
-        opens or closes a code fence, a Setext underline, or an HTML comment
-        left open. Whitespace at **both** ends is stripped before any of that
+        read it as the block's own structure — an ATX heading, a line opening
+        with the chain-heading marker `##` whether or not whitespace follows
+        it, a line that opens or closes a code fence, a Setext underline, or an
+        HTML comment left open. Whitespace at **both** ends is stripped before any of that
         is decided, so neither indentation nor trailing space hides one:
         CommonMark allows trailing whitespace on a Setext underline and on a
         thematic break, so `---   ` underlines the line above it exactly as
@@ -159,6 +186,12 @@ def _refusal(line: str) -> str | None:
         return (
             f"the body line {line!r} is a header, and the only headers a narrative holds are "
             f"{DECISIONS_HEADER!r} and {REJECTED_HEADER!r}"
+        )
+    if _CHAIN_HEADING_LINE.match(bare):
+        return (
+            f"the body line {line!r} opens with the chain-heading marker '##', so it looks "
+            f"like a heading to the parser that reads the block back, and a '##' line that "
+            f"is not '## [C<n>] Intent: <label>' is a malformed heading to it"
         )
     if _FENCE_LINE.match(bare):
         return (
@@ -227,7 +260,8 @@ class Narrative:
             ValueError: If `label` holds no word — it becomes the chain's
                 heading, and `## [C1] Intent: ` names no intent — or if a body
                 line is blank, spans more than one line, or is one of the
-                shapes `_refusal` names: a heading, a code fence, a Setext
+                shapes `_refusal` names: a heading, the chain-heading marker
+                `##` with anything or nothing behind it, a code fence, a Setext
                 underline, an HTML comment left open, each of them with any
                 indentation in front of it. All but the blank line are what
                 would survive into the block and be read there as its
