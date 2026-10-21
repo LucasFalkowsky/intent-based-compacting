@@ -8,12 +8,17 @@ a chain *achieved* is kept, what it *tried* becomes a candidate for removal.
 
 ```python
 from idc.chunk import chunk_session
-from idc.resolve import solution_files
+from idc.resolve import solution_files, solution_verification
 
 chunks = chunk_session(session)
 for entry in solution_files(session, chunks, chain):
     entry.path, entry.write, entry.edits   # the solution
     entry.superseded, entry.failed         # the path
+
+proof = solution_verification(session, chunks, chain)
+if proof is not None:
+    proof.status, proof.command, proof.output   # the solution
+    proof.discarded                             # the path
 ```
 
 Everything here is computed by code, never inferred by a model: the stage reads
@@ -34,7 +39,8 @@ Two properties hold throughout:
 
 The modules are one question each: `idc.resolve.calls` locates a chain's tool
 calls and reads what a single call did (which file, whole write or patch),
-`idc.resolve.writes` applies the last-write-per-file rule to them, and
+`idc.resolve.writes` applies the last-write-per-file rule to them,
+`idc.resolve.verification` keeps the run that proves the chain, and
 `idc.resolve.errors` holds the refusals.
 
 **Known limitation — an edit made outside a tool call is not detected.** The
@@ -51,6 +57,7 @@ as a bug.
 """
 
 from idc.resolve.calls import (
+    COMMAND_KEYS,
     CONTENT_KEYS,
     FILE_PATH_KEYS,
     REPLACEMENT_KEYS,
@@ -58,11 +65,20 @@ from idc.resolve.calls import (
     WriteKind,
     chain_calls,
     chain_chunks,
+    command_of,
     content_of,
     file_of,
     write_kind,
 )
 from idc.resolve.errors import ForeignChunkError, ResolveError, UnknownChunkError
+from idc.resolve.verification import (
+    SolutionVerification,
+    VerificationRun,
+    VerificationStatus,
+    exec_calls,
+    solution_verification,
+    verification_runs,
+)
 from idc.resolve.writes import SolutionFile, solution_files, write_calls
 
 # T5.1 (#21) opened this surface; the sibling sub-tickets of T5 append a block
@@ -89,4 +105,17 @@ __all__ = [
     "solution_files",
     "write_calls",
     "write_kind",
+]
+
+# T5.2 (#22) — the verification half of the solution, appended as a block of
+# its own for the reason the comment above gives.
+__all__ += [
+    "COMMAND_KEYS",
+    "SolutionVerification",
+    "VerificationRun",
+    "VerificationStatus",
+    "command_of",
+    "exec_calls",
+    "solution_verification",
+    "verification_runs",
 ]
