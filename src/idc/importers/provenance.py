@@ -49,12 +49,16 @@ is left exactly as the importer produced it.
 
 Known limitations, both deliberate:
 
-- **Only notices with an observed spelling are flagged.** `NOTICE_MARKERS` holds
-  one tuple per agent and is empty for Gemini CLI and OpenCode: Gemini CLI's
-  loop-recovery notice (the pointer in `idc.importers.gemini_cli`) has no
-  spelling corroborated anywhere in this repository, and OpenCode marks harness
-  text with `synthetic` already, which its importer reads. Inventing a marker
-  would flag real user turns away.
+- **Only notices with an observed spelling are flagged, and only when the text
+  matches whole.** `NOTICE_MARKERS` holds one tuple per agent and is empty for
+  Gemini CLI and OpenCode: Gemini CLI's loop-recovery notice (the pointer in
+  `idc.importers.gemini_cli`) has no spelling corroborated anywhere in this
+  repository, and OpenCode marks harness text with `synthetic` already, which its
+  importer reads. Inventing a marker would flag real user turns away — and so
+  would matching a corroborated one as a *prefix*: a user who pastes the notice
+  and keeps typing has opened a genuine intent, which T3.2 would then reduce
+  away. The comparison is equality for that reason, which also means a notice
+  spelling this repository has not seen stays unflagged.
 - **A bare `Session` whose `source` is `native-compaction` is refused.** Where
   the summary sits is `ImportedSession.native_summary_id`, which the canonical
   schema holds nowhere, and no content marker could find it for all three agents
@@ -93,11 +97,10 @@ HIDDEN_HARNESS_NOTICE = "harness-notice"
 """The message is an injected `system` notice, recorded but never sent."""
 
 NOTICE_MARKERS: dict[Agent, tuple[str, ...]] = {
-    # Observed in Claude Code transcripts and carried by
+    # The one spelling this repository corroborates, carried verbatim by
     # `tests/native/claude-code/interrupted_turn.jsonl`: the harness records the
-    # interruption as a `user` message whose whole text is the notice. The prefix
-    # covers the `for tool use` spelling and the bare one.
-    Agent.CLAUDE_CODE: ("[Request interrupted by user",),
+    # interruption as a `user` message whose whole text is the notice.
+    Agent.CLAUDE_CODE: ("[Request interrupted by user for tool use]",),
     # Gemini CLI injects a loop-recovery notice as a user turn, but no spelling of
     # it is corroborated in this repository, so none is matched here.
     Agent.GEMINI_CLI: (),
@@ -105,12 +108,15 @@ NOTICE_MARKERS: dict[Agent, tuple[str, ...]] = {
     # reads into `is_system_injected` already.
     Agent.OPENCODE: (),
 }
-"""Content prefixes that identify a harness-written notice in the user role.
+"""The complete texts that identify a harness-written notice in the user role.
 
 One entry per agent, so that a missing agent is a `KeyError` rather than a
-silent "this agent has no notices". A prefix is only listed when a transcript or
-a fixture in this repository shows it: a guessed marker would mark a real user
-turn as harness-written and T3.2 would reduce the user's own intent away.
+silent "this agent has no notices". A text is only listed when a transcript or a
+fixture in this repository shows it, and it is matched **whole**: a guessed
+marker, or a prefix test, would mark a real user turn as harness-written and
+T3.2 would reduce the user's own intent away. A notice spelling this repository
+has never seen is therefore not flagged — under-flagging keeps a harness turn in
+the context, over-flagging deletes an intent boundary.
 """
 
 
@@ -306,7 +312,9 @@ def _is_harness_notice(agent: Agent, message: Message) -> bool:
 
     Returns:
         Whether the message is in the user role, is not flagged as injected
-        already, and its content starts with one of the agent's notice markers.
+        already, and its content is exactly one of the agent's notice texts. The
+        comparison is equality, not a prefix test: the harness writes the notice
+        as the message's whole text, so anything around it is text a human typed.
 
     Raises:
         KeyError: If the agent has no entry in `NOTICE_MARKERS`, which would
@@ -314,7 +322,7 @@ def _is_harness_notice(agent: Agent, message: Message) -> bool:
     """
     if message.role is not Role.USER or message.is_system_injected:
         return False
-    return message.content.startswith(NOTICE_MARKERS[agent])
+    return message.content in NOTICE_MARKERS[agent]
 
 
 def _as_injected(message: Message) -> Message:
