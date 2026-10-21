@@ -133,7 +133,13 @@ run_shell_command = { category = "exec" }
 # The six entries below the corpus ones were added by T2.3 as the remaining
 # tools of OpenCode's own tool set — the write, content-search, globbing,
 # directory-listing, delegating and web counterparts of the Claude Code tools
-# above. OpenCode's remaining tool names (its patch and todo tools, and the
+# above. Their source is OpenCode's **documented tool set**, not a transcript:
+# the corpus corroborates only `read`, `edit` and `bash`, so these six are
+# **not corpus-corroborated** and belong to the same unverified class as the
+# record-level field names `opencode.py` documents. A wrong spelling there is
+# inert — the tool resolves to `other` and is logged — but one real session has
+# to confirm them before the study records its OpenCode condition.
+# OpenCode's remaining tool names (its patch and todo tools, and the
 # naming of MCP tools) are still absent: no transcript in this repository shows
 # how they are spelled, and an invented entry would resolve wrongly, where a
 # missing one resolves to `other` and is logged.
