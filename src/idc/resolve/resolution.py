@@ -175,6 +175,13 @@ def solution_call_ids(session: Session, chunks: Sequence[Chunk], chain: Chain) -
     Raises:
         ResolveError: If the chain and the chunks or the chunks and the session
             do not fit together; see `idc.resolve.errors`.
+
+            One input shape escapes this family and is tracked as #79: an
+            *overlapping* chunk list that covers a verification run twice
+            reaches `SolutionVerification` with that run on both sides, and
+            raises a plain `ValueError` from there. `chunk_session` produces no
+            overlapping list, so the pipeline cannot reach it — but this clause
+            does not hold for a caller that builds one by hand.
     """
     return _solution_ids(
         solution_files(session, chunks, chain),
@@ -201,6 +208,13 @@ def path_call_ids(session: Session, chunks: Sequence[Chunk], chain: Chain) -> tu
     Raises:
         ResolveError: If the chain and the chunks or the chunks and the session
             do not fit together; see `idc.resolve.errors`.
+
+            One input shape escapes this family and is tracked as #79: an
+            *overlapping* chunk list that covers a verification run twice
+            reaches `SolutionVerification` with that run on both sides, and
+            raises a plain `ValueError` from there. `chunk_session` produces no
+            overlapping list, so the pipeline cannot reach it — but this clause
+            does not hold for a caller that builds one by hand.
     """
     kept = set(solution_call_ids(session, chunks, chain))
     walked = _unique(located.id for located in chain_calls(session, chunks, chain))
@@ -228,6 +242,13 @@ def resolve(session: Session, chunks: Sequence[Chunk], chain: Chain) -> Resoluti
     Raises:
         ResolveError: If the chain and the chunks or the chunks and the session
             do not fit together; see `idc.resolve.errors`.
+
+            One input shape escapes this family and is tracked as #79: an
+            *overlapping* chunk list that covers a verification run twice
+            reaches `SolutionVerification` with that run on both sides, and
+            raises a plain `ValueError` from there. `chunk_session` produces no
+            overlapping list, so the pipeline cannot reach it — but this clause
+            does not hold for a caller that builds one by hand.
     """
     return Resolution(
         solution_files=solution_files(session, chunks, chain),
