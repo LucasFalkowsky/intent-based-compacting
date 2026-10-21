@@ -193,6 +193,35 @@ def test_resolving_the_same_chain_twice_gives_the_same_answer(name):
         assert resolve(session, chunks, chain) == resolve(session, chunks, chain)
 
 
+@pytest.mark.parametrize("name", FIXTURE_NAMES)
+def test_every_chain_resolves_the_same_over_a_doubled_chunk_list(name):
+    # The invariant behind #79, over the whole corpus: a chunk list that covers
+    # every message twice is *handed* input and not a caller's mistake, so the
+    # stage resolves it — with every call counted once, on one side — instead
+    # of refusing from outside `idc.resolve.errors`.
+    session, chunks, chains = classified(name)
+    doubled = [
+        *chunks,
+        *(
+            Chunk(id=f"{chunk.id}-again", start_index=chunk.start_index, end_index=chunk.end_index)
+            for chunk in chunks
+        ),
+    ]
+
+    for chain in chains:
+        expected = resolve(session, chunks, chain)
+        both = Chain(
+            id=chain.id,
+            label=chain.label,
+            chunk_ids=[*chain.chunk_ids, *(f"{chunk_id}-again" for chunk_id in chain.chunk_ids)],
+        )
+
+        resolution = resolve(session, doubled, both)
+
+        assert resolution.solution_call_ids == expected.solution_call_ids
+        assert resolution.path_call_ids == expected.path_call_ids
+
+
 # --- one example per kind of path call ------------------------------------
 
 
