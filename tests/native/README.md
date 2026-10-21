@@ -26,7 +26,7 @@ expected = NATIVE.expected_text("claude-code", "golden_session")  # the canonica
 - The **keys** of every record are the ones real transcripts of that agent carry; the
   **values** are invented, short and readable. A key that no real transcript shows would
   pin behaviour that was never observed, so it does not appear here. The Claude Code
-  records below were modelled on sessions under `~/.claude/projects/*/*.jsonl`.
+  records below were modelled on recorded Claude Code sessions.
 - Record identifiers are readable (`u01`, `a01`, `t01`, `toolu_01`) rather than UUIDs, so
   that a canonical golden file shows at a glance that the importer **takes** the
   transcript's identifiers instead of renumbering them.
