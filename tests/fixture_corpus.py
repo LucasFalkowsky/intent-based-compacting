@@ -17,8 +17,10 @@ the fixture name is the file name without its suffix. Anything that is not a
 
 Fixtures are loaded through `idc.schema.load`, so a malformed fixture fails as
 one `SchemaValidationError` naming the file, and no test ever sees an
-unvalidated transcript. The module has no dependency beyond the standard
-library and the canonical schema itself.
+unvalidated transcript. Beyond the standard library the module depends on
+exactly the two parts of the package whose artifacts it hands out: `idc.schema`
+for the sessions, and `idc.classify` (`load_gold`) for the gold labellings
+below.
 
 The corpus also holds the **gold chain labels** of `tests/fixtures/gold/` —
 one `<name>.json` per transcript, saying which intent chain each of its chunks
