@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from fixture_corpus import CORPUS, GOLD_DIR
+from fixture_corpus import COMPACT_DIR, CORPUS, GOLD_DIR
 from idc.chunk import chunk_session
 from idc.classify import (
     GOLD_CHUNKING,
@@ -153,7 +153,14 @@ def test_every_fixture_has_gold_labels():
 
 
 def test_the_gold_directory_holds_nothing_but_json_documents():
-    unexpected = [path.name for path in sorted(GOLD_DIR.iterdir()) if path.suffix != ".json"]
+    # Every *file* of `gold/` is a labelling; the one sub-directory it holds is
+    # `compact/`, the golden compaction Markdown added in T6.1 (#26), whose own
+    # suffix rule is pinned in `tests/test_compact_template.py`.
+    unexpected = [
+        path.name
+        for path in sorted(GOLD_DIR.iterdir())
+        if path != COMPACT_DIR and (path.is_dir() or path.suffix != ".json")
+    ]
 
     assert unexpected == []
 
