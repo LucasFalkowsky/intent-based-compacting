@@ -3,11 +3,10 @@
 **Audience: the orchestrating session only.** This file is not auto-loaded into any context; the
 orchestrating session reads it at the start of every session, and `CLAUDE.md` says so.
 
-It was split out of `CLAUDE.md` because every subagent paid for it: the project instructions are
-injected into each agent's context, so all thirteen subagents of one session carried ~6k tokens of
-board ids, label taxonomy, merge order and closing procedure that a subagent is explicitly
-forbidden to perform. `CLAUDE.md` now carries only what a subagent needs; everything an agent must
-*not* do is here.
+It was split out of `CLAUDE.md` on the belief that every subagent paid for it. **That belief was
+wrong and the measurement is recorded below**: `CLAUDE.md` is not injected into a subagent's
+context, so the split saved nothing. It is kept because a document that hands an agent rules it is
+forbidden to perform is confusing, and because the orchestrating session now has one place to look.
 
 Nothing in the process changed with the split — only where it is written down.
 
@@ -233,18 +232,30 @@ read pulled in *this session's own* review and decision comments: on #19 the bod
 the comments are **26 KB**. The result was 50k tokens spent adding a single assertion and 75k on a
 two-line guard.
 
-**What the measurement actually showed, once it was done properly.** A subagent that makes **zero**
-tool calls and answers with one word costs **33k tokens**. Shortening the *prompt* could never have
-fixed that, because the project instructions are injected into every agent's context whether the
-prompt mentions them or not — which is why the orchestration was moved out of `CLAUDE.md` into this
-file rather than merely left unmentioned. `CLAUDE.md` went from ~8.0k tokens to ~2.3k, so each
-subagent carries ~5.7k less, and across the thirteen subagents of one session that is ~75k that
-used to be spent handing agents rules they were forbidden to act on. The remaining ~23k of the 33k
-is the harness's own system prompt and tool schemas and is not ours to shrink.
+**What the measurement actually showed — including that one of its conclusions was wrong.** A
+subagent that makes **zero** tool calls and answers with one word costs **33k tokens**. The first
+conclusion drawn from that was that `CLAUDE.md`'s ~6k of orchestration was being paid for by every
+agent, and this file was split out to remove it. **The follow-up measurement refuted that:**
 
-The consequence for prompting is the opposite of what it looks like: since the fixed cost per agent
-dominates, **not spawning an agent is worth more than any prompt economy**. A pinpoint change is
-cheaper done by the orchestrating session than handed to a fresh 33k context — see the rules below.
+| probe | fixed cost |
+|---|---|
+| before the split (`CLAUDE.md` ~8.0k) | **33,152** |
+| after the split (`CLAUDE.md` ~2.3k) | **33,333** |
+
+No saving. A second probe, asked what its context contains rather than asked to do work, reported
+that `CLAUDE.md` is **not** in it and neither are the board ids — so it was never injected, and
+removing 5.7k from a file nobody loads could not have helped. Shortening the *prompt* could not
+have helped either, for the same reason.
+
+What the 33k actually is: the harness's own system prompt and tool schemas, plus this project's
+agent definition (~1.2k) and the prompt itself. **Only the last two are ours, and together they are
+under 5% of it.**
+
+So the one real lever is the one that was already true for a different reason: **not spawning an
+agent at all.** Every agent costs 33k before it reads a line. A pinpoint change is cheaper done by
+the orchestrating session than handed to a fresh 33k context — see the rules below. The second
+lever is what an agent *does* once started (an implementer spends ~98k on work, much of it
+re-reading large per-stage test modules), and that is not addressed here.
 
 **Context budget, which the orchestrating session is responsible for:**
 
@@ -300,13 +311,15 @@ subagent, and run "Closing a ticket". A `Scope/blocked` entry means: `blocked` l
   the orchestrating context, not to ritualise one-liners. Anything touching production behaviour
   still goes to an implementation subagent.
 
-  **This is the single largest lever on the cost of a session, and it is measured.** A subagent
-  that makes zero tool calls and answers with one word costs **33k tokens**; the fixed cost per
-  agent therefore dominates everything prompt economy can save. Four pinpoint corrections were
-  made directly in one session — three false or stale docstring sentences and one test-oracle
-  guard — and not spawning an agent for them saved ~130k tokens, more than the whole
-  orchestration split saves across thirteen agents. When the choice is "a fresh 33k context" or
-  "three lines and an honest note", take the three lines.
+  **This is the single largest lever on the cost of a session, and it is the only one that
+  measured true.** A subagent that makes zero tool calls and answers with one word costs **33k
+  tokens**, and essentially none of that is ours to shrink — the orchestration split, which was
+  supposed to cut it, measured as **no saving at all** (see "What the measurement actually
+  showed"). Six pinpoint corrections were made directly in one session — false or stale docstring
+  sentences, a test-oracle guard, and one test pinning a selection a mutation showed was unpinned
+  — and not spawning an agent for them avoided roughly **200k tokens** plus six worktrees and six
+  `make setup` runs. When the choice is "a fresh 33k context" or "three lines and an honest note",
+  take the three lines.
 
   **Never merge a claim you know to be false, though.** Two of those four corrections were
   `Raises`/evidence sentences that a review had just disproved; leaving them for the follow-up

@@ -38,10 +38,18 @@ perform any of it, which is why it is no longer in its context.
 not auto-loaded, so that is a deliberate step and not an optional one — the process is in that
 file, and until it is read the session does not know it.
 
-Why the split, measured rather than assumed: a subagent that makes **zero** tool calls and answers
-with one word costs **33k tokens**, of which ~10k was project documentation and ~6k of that was
-orchestration it must not act on. Across the thirteen subagents of one session that was ~78k tokens
-spent handing agents instructions they were forbidden to follow.
+**Why the split — and a correction, because the first reason given for it was wrong.** It was done
+on the assumption that this file is injected into every subagent's context, so that ~6k tokens of
+orchestration were being paid for thirteen times a session. **That assumption was false.** Measured
+with a probe subagent that makes zero tool calls and answers with one word: **33,152 tokens before
+the split, 33,333 after** — no saving at all. A second probe, asked what its context actually
+contains, answered that this file is **not** in it and neither are the board ids.
+
+So the split saves **no tokens**. It is kept for a different and smaller reason: a document that
+hands an agent rules it is forbidden to perform is confusing to read, and the orchestrating session
+now has one place to look. The ~33k a subagent costs before it does anything is the harness's own
+system prompt and tool schemas, which is not ours to shrink — which is why **not spawning an agent
+is the only large lever**, and the pinpoint rule in `docs/orchestration.md` says so.
 
 ## Working with local agent data
 
