@@ -719,6 +719,30 @@ def module_imports() -> set[str]:
     return imports_in(Path(llm_module.__file__).read_text(encoding="utf-8"))
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("from . import net_client", {"net_client"}, id="a-bare-relative-import"),
+        pytest.param("from .net_client import ask", {"net_client"}, id="a-relative-import"),
+        pytest.param("import http.client", {"http"}, id="a-dotted-import"),
+        pytest.param("from os import environ", {"os"}, id="an-absolute-from-import"),
+    ],
+)
+def test_the_import_walker_reads_every_import_shape(source, expected):
+    # `from . import x` is the shape that used to slip through: there
+    # `node.module` is `None` and the name sits on the alias instead, so a
+    # walker that read only `node.module` saw no import at all — and a sibling
+    # module holding a client is the plausible shape of an innocent future edit.
+    # #18 builds on this walker, so the hole would be inherited.
+    assert imports_in(source) == expected
+
+
+def test_a_bare_relative_import_would_fail_the_whitelist():
+    # The walker catching the name is only half of it: the name it yields has to
+    # be one the whitelist rejects, or catching it would change nothing.
+    assert imports_in("from . import net_client") - ALLOWED_IMPORTS == {"net_client"}
+
+
 def test_the_backend_imports_nothing_that_could_reach_the_network():
     # The ticket's hard constraint, stated about the module instead of about the
     # test suite: the client is injected, so this module needs no transport, no
