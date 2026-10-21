@@ -222,18 +222,23 @@ def _written_text(located: LocatedCall) -> str | None:
     return None
 
 
-def chain_heading(chain: Chain) -> str:
+def chain_heading(chain: Chain, label: str | None = None) -> str:
     """Return the block's heading line for one chain.
 
     Args:
         chain: The chain the block is about. Its `id` is already of the form
             `C<n>` — the schema enforces it — and carries the stability the
             round trip rests on, so it is written out as it stands.
+        label: The label to write instead of the chain's own. `Chain.label` is
+            a provisional truncation the classifier assigned, and T6.2 replaces
+            it with the one the model named the intent; the id stays the tool's
+            either way. Omitted — and `None` rather than falsy, so that the
+            caller's choice is what decides — the chain's own label is written.
 
     Returns:
         `## [<id>] Intent: <label>`, without a trailing newline.
     """
-    return f"## [{chain.id}] Intent: {chain.label}"
+    return f"## [{chain.id}] Intent: {chain.label if label is None else label}"
 
 
 def _solution_lines(resolution: Resolution) -> list[str]:

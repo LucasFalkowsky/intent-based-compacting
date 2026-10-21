@@ -485,12 +485,38 @@ def test_the_discarded_runs_are_path_and_never_rendered():
 # --- the package surface -------------------------------------------------------
 
 
-def test_the_package_exports_the_template_and_nothing_more():
+def test_the_package_exports_the_compaction_stage_and_nothing_more():
     import idc.compact
 
-    assert sorted(idc.compact.__all__) == idc.compact.__all__
+    # Not sorted as a whole: the sub-tickets of T6 each append a block of their
+    # own (`__all__ += [...]`), the convention `idc.resolve.__init__` states, so
+    # the list is sorted per block and not end to end. What has to hold of the
+    # whole list is that no name is exported twice, which is what a block that
+    # repeated a sibling's name would look like.
+    assert len(set(idc.compact.__all__)) == len(idc.compact.__all__)
     assert set(idc.compact.__all__) == {
+        "CompactError",
         "DECISIONS_HEADER",
+        "FakeNarrativeCall",
+        "FakeNarrativeClient",
+        "INSTRUCTION_PATH",
+        "INSTRUCTION_VERSION",
+        "INTENT_MARKER",
+        "Instruction",
+        "InstructionError",
+        "Narrative",
+        "NarrativeClient",
+        "NarrativeContractError",
+        "NarrativeRequest",
+        "NarrativeScriptExhaustedError",
+        "as_narrative",
+        "compact_chain",
+        "decisions_section",
+        "instruction",
+        "instruction_digest",
+        "load_instruction",
+        "rejected_section",
+        "render_narrative_block",
         "EMPTY_SECTION",
         "ERROR_NOTE",
         "NO_COMMAND_NOTE",
