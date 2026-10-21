@@ -89,6 +89,26 @@ from fixture_corpus import CORPUS
 gold = CORPUS.gold("interleaved_intents")  # validated on load
 ```
 
+## Golden compaction Markdown
+
+`gold/compact/<name>.md` holds, for every transcript, the Markdown its chains compact to —
+one block per chain, in chain order and separated by a blank line — which
+`tests/test_compact_template.py` compares against the renderer character for character
+(T6.1, #26). The deterministic half of the template is what it pins: the chain heading, the
+four section headers, the empty-section placeholder, and the Solution and Verification
+bullets with the content and output the fixture carries verbatim. The two narrative sections
+are a model's and are rendered as the placeholder here.
+
+The files are authored from the fixture documents and never from the renderer's output: a
+file regenerated from the code under test would agree with any change to it, including a
+wrong one.
+
+```python
+from fixture_corpus import CORPUS
+
+markdown = CORPUS.compact_markdown("single_intent")  # the bytes, never parsed
+```
+
 ## Conventions the corpus follows
 
 - Each file is byte-identical to what `idc.schema.dump` writes (indent 2, trailing
@@ -107,7 +127,10 @@ gold = CORPUS.gold("interleaved_intents")  # validated on load
 
 Drop a `<name>.json` canonical `Session` into this directory, add one `- \`<name>.json\` —
 …` line here, and write its gold chain labels into `gold/<name>.json` — a fixture without
-them fails `tests/test_classify_gold.py`, which pins the two sides against each other.
+them fails `tests/test_classify_gold.py`, which pins the two sides against each other. Write
+its golden compaction Markdown into `gold/compact/<name>.md` too — a labelled fixture without
+it fails `tests/test_compact_template.py`, which pins those two sides against each other the
+same way.
 Discovery is automatic: `CORPUS.names()` and the corpus-wide tests pick the file up without
 any list to update. If the fixture exists for a specific structural property, pin that
 property in `tests/test_fixture_cases.py`.

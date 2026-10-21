@@ -32,6 +32,15 @@ derive them from a transcript or from a classifier's own output.
 gold = CORPUS.gold("interleaved_intents")     # -> GoldChains, validated on load
 ```
 
+It holds the **golden compaction Markdown** of `tests/fixtures/gold/compact/`
+as well — one `<name>.md` per transcript, holding the block its chains must
+compact to (T6.1, #26). Handed out as the bytes on disk and never parsed, the
+way `text` hands out a transcript:
+
+```python
+markdown = CORPUS.compact_markdown("interleaved_intents")
+```
+
 The readers at the end of the module (`tool_calls`, `file_of`, `command_of`,
 `touched_files`, `written_files`, `results_by_call_id`, `exec_runs`) are
 mechanical: they only regroup the canonical fields a fixture already carries,
@@ -61,6 +70,15 @@ GOLD_DIR_NAME = "gold"
 
 GOLD_DIR = FIXTURES_DIR / GOLD_DIR_NAME
 """Absolute path of the gold chain labels of the shared corpus."""
+
+COMPACT_DIR_NAME = "compact"
+"""Sub-directory of the gold labels holding the golden compaction Markdown."""
+
+COMPACT_SUFFIX = ".md"
+"""One golden block sequence per transcript, as the Markdown it must render to."""
+
+COMPACT_DIR = GOLD_DIR / COMPACT_DIR_NAME
+"""Absolute path of the golden compaction Markdown of the shared corpus."""
 
 
 class Corpus:
@@ -203,6 +221,60 @@ class Corpus:
     def gold_labels(self) -> dict[str, GoldChains]:
         """Return every gold labelling of the corpus, keyed by transcript name."""
         return {path.stem: load_gold(path) for path in self.gold_paths()}
+
+    @property
+    def compact_directory(self) -> Path:
+        """Return the directory holding the corpus' golden compaction Markdown."""
+        return self.gold_directory / COMPACT_DIR_NAME
+
+    def compact_paths(self) -> list[Path]:
+        """Return the path of every golden compaction block sequence, sorted by name."""
+        return sorted(self.compact_directory.glob(f"*{COMPACT_SUFFIX}"))
+
+    def compact_names(self) -> list[str]:
+        """Return the name of every transcript the corpus holds golden Markdown for."""
+        return [path.stem for path in self.compact_paths()]
+
+    def compact_path(self, name: str) -> Path:
+        """Return the path of one transcript's golden compaction Markdown.
+
+        Args:
+            name: Transcript name, e.g. `interleaved_intents`.
+
+        Returns:
+            The absolute path of `gold/compact/<name>.md`.
+
+        Raises:
+            KeyError: If the corpus holds no golden Markdown of that name; the
+                message lists the ones it does hold.
+        """
+        path = self.compact_directory / f"{name}{COMPACT_SUFFIX}"
+        if not path.is_file():
+            known = ", ".join(self.compact_names()) or "none"
+            raise KeyError(
+                f"no golden Markdown {name!r} in {self.compact_directory}; known: {known}"
+            )
+        return path
+
+    def compact_markdown(self, name: str) -> str:
+        """Return one transcript's golden compaction Markdown verbatim, as UTF-8 text.
+
+        The blocks the compactor must render for that transcript's chains, in
+        chain order and separated by one blank line. Handed out as the bytes on
+        disk and never parsed: it is compared against the renderer's output
+        character for character, which is the only comparison that catches a
+        stray space or a lost newline.
+
+        Args:
+            name: Transcript name.
+
+        Returns:
+            The file content verbatim.
+
+        Raises:
+            KeyError: If no golden Markdown of that name exists.
+        """
+        return self.compact_path(name).read_text(encoding="utf-8")
 
 
 CORPUS = Corpus(FIXTURES_DIR)
