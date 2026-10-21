@@ -1,15 +1,40 @@
 """The corpus access layer: load a fixture by name, never by path."""
 
+import ast
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+import fixture_corpus
 from fixture_corpus import COMMAND_KEYS, CORPUS, Corpus, command_of, exec_runs
 from idc.schema import Agent, Message, Role, Session, ToolCall, ToolCategory, ToolResult
 
 TESTS_DIR = Path(__file__).parent.resolve()
 FIXTURES_DIR = TESTS_DIR / "fixtures"
+
+
+def packages_imported_by(module) -> set[str]:
+    """Return the `idc.*` modules a module imports, read off its own source."""
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    return {
+        node.module
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("idc.")
+    }
+
+
+def test_the_access_layer_names_every_package_it_depends_on():
+    # The layer hands out two artifacts of the package — the canonical sessions
+    # and the gold labellings — so it imports two modules of it. A docstring
+    # that understates that is how a reader ends up believing the corpus could
+    # be read without the tool.
+    doc = fixture_corpus.__doc__ or ""
+
+    undeclared = sorted(name for name in packages_imported_by(fixture_corpus) if name not in doc)
+
+    assert undeclared == [], f"the fixture_corpus docstring does not name: {undeclared}"
+    assert "no dependency beyond the standard library" not in doc
 
 
 def test_the_singleton_points_at_the_shared_corpus():
