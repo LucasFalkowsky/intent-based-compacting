@@ -176,6 +176,18 @@ def test_an_empty_part_is_not_handed_to_the_tokenizer_at_all():
     assert tokenizer.calls == ()
 
 
+def test_a_tool_call_without_arguments_contributes_its_name_alone():
+    # An empty argument object is not text the agent was sent, so it is not
+    # counted as the one word `{}` would be.
+    bare = message(
+        content="",
+        tool_calls=[ToolCall(id="c01", name="TodoWrite", category=ToolCategory.OTHER, args={})],
+    )
+
+    assert message_parts(bare) == ("TodoWrite",)
+    assert count_message(bare, FakeTokenizer()) == 1
+
+
 # --- the counts of the fixtures ----------------------------------------------
 
 
