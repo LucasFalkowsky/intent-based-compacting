@@ -371,6 +371,121 @@ def test_the_report_names_every_transcript_its_numbers_and_its_disagreements():
     assert report[-1] == "  interleaved_intents K3: C3 / C1"
 
 
+WORST_LEGAL_SCRIPTS = {
+    # The worst a run can do on the two multi-chunk fixtures without being
+    # refused: the first chunk has no candidate, so `NEW` is forced there, and
+    # every later decision is the one the gold does not name.
+    "interleaved_intents": [NEW, "C1", NEW],
+    "two_sequential_intents": [NEW, "C1"],
+}
+"""Per multi-chunk fixture, the legal script that agrees with the gold least."""
+
+
+def worst_legal_case(name: str) -> EvaluationCase:
+    """Return the case that runs the least agreeing legal script over a fixture."""
+    return evaluation_case(name, WORST_LEGAL_SCRIPTS.get(name, [NEW]))
+
+
+def hand_made_agreement(transcript: str, chunk_count: int) -> Agreement:
+    """Return an agreement over `chunk_count` chunks, with every decision wrong."""
+    pairs = chunk_count * (chunk_count - 1) // 2
+    return Agreement(
+        transcript=transcript,
+        chunk_count=chunk_count,
+        matches=0,
+        pair_count=pairs,
+        agreeing_pairs=0,
+        predicted_chains=chunk_count,
+        gold_chains=1,
+    )
+
+
+@pytest.mark.parametrize("chunk_count", [1, 2, 5])
+def test_an_agreement_knows_which_of_its_chunks_could_not_be_got_wrong(chunk_count):
+    # The first chunk of a transcript is offered no candidate, so `NEW` is the
+    # only decision the classifier accepts and both sides call that chain C1.
+    case = hand_made_agreement("a_fixture", chunk_count)
+
+    assert case.forced_chunks == 1
+    assert case.admits_no_wrong_decision == (chunk_count == 1)
+
+
+@pytest.mark.parametrize(
+    ("chunk_counts", "forced_chunks", "forced_transcripts", "floor"),
+    [
+        ((1,), 1, 1, 1.0),
+        ((1, 1, 1, 1, 1, 1, 1, 3, 2), 9, 7, 0.75),
+        ((4, 4), 2, 0, 0.25),
+        ((1, 1, 3, 2), 4, 2, 4 / 7),
+    ],
+)
+def test_the_corpus_agreement_derives_its_floor_from_its_cases(
+    chunk_counts, forced_chunks, forced_transcripts, floor
+):
+    # Nothing here is a constant of the current corpus: a case added or removed
+    # moves all four numbers, which is why they are derived and not written down.
+    result = CorpusAgreement(
+        cases=tuple(
+            hand_made_agreement(f"fixture_{position}", count)
+            for position, count in enumerate(chunk_counts, start=1)
+        ),
+        source=RunSource.adapter("FakeAdapter"),
+    )
+
+    assert result.forced_chunks == forced_chunks
+    assert result.forced_transcripts == forced_transcripts
+    assert result.floor_accuracy == pytest.approx(floor)
+
+
+def test_no_legal_run_over_the_corpus_scores_below_the_floor():
+    # The floor is not a convention but a property of the corpus: the script
+    # that agrees least of all the scripts the classifier accepts lands exactly
+    # on it, because the forced first chunks are all it gets right.
+    worst = evaluate_cases(
+        [worst_legal_case(name) for name in FIXTURE_NAMES], RunSource.adapter("FakeAdapter")
+    )
+
+    assert worst.chunk_count == 12
+    assert worst.forced_chunks == 9
+    assert worst.matches == worst.forced_chunks
+    assert worst.accuracy == pytest.approx(worst.floor_accuracy)
+    assert worst.accuracy == pytest.approx(0.75)
+
+
+def test_the_report_states_the_floor_it_derived_from_the_corpus():
+    result = evaluate_cases(
+        [evaluation_case(name, gold_script(gold_of(name))) for name in FIXTURE_NAMES],
+        RunSource.baseline(),
+    )
+
+    floor_lines = [line for line in format_report(result).splitlines() if line.startswith("floor")]
+
+    assert len(floor_lines) == 2
+    assert f"{result.floor_accuracy:.3f}" in floor_lines[0]
+    assert f"{result.forced_chunks} of {result.chunk_count} chunks" in floor_lines[0]
+    assert f"{result.pair_count} chunk pairs" in floor_lines[1]
+    assert f"{result.forced_transcripts} of {result.transcript_count} transcripts" in floor_lines[1]
+
+
+def test_the_floor_the_report_states_follows_the_corpus_it_was_run_over():
+    # Two cases of the same corpus, and the floor moves with them — the report
+    # cannot be carrying a number somebody wrote down once.
+    one = format_report(
+        evaluate_cases([worst_legal_case("interleaved_intents")], RunSource.adapter("FakeAdapter"))
+    )
+    two = format_report(
+        evaluate_cases(
+            [worst_legal_case("interleaved_intents"), worst_legal_case("single_intent")],
+            RunSource.adapter("FakeAdapter"),
+        )
+    )
+
+    assert "floor: accuracy 0.333" in one
+    assert "1 of 3 chunks" in one
+    assert "floor: accuracy 0.500" in two
+    assert "2 of 4 chunks" in two
+
+
 def test_the_report_of_a_perfect_run_lists_no_disagreement():
     report = format_report(
         evaluate_cases([evaluation_case("single_intent", [NEW])], RunSource.baseline())
