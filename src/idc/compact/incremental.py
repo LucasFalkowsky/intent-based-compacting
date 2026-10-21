@@ -38,6 +38,17 @@ this tool produces, because a chunk id comes from `idc.chunk.chunk_id` and a
 carried one from `idc.parse.placeholder_chunk_id`. `idc.classify.gold` reads a
 chunk id the same way.
 
+**A rewrite keeps the chain's earlier solution.** An extended chain's
+`Resolution` is this run's chunks alone, so the `Solution` section is the merge
+of the earlier block's and this one's — `idc.compact.merged_solution_section`,
+which the rewrite path hands to `compact_chain` (T6.4). The **`Verification`
+section is not merged**: it is this run's kept run alone, and the earlier
+block's is dropped rather than re-stated. Both runs claim to be "the run that
+proves the chain" and only one can be; the earlier one ran before the new chunks
+wrote anything, so it proves nothing about the chain as the block now states it.
+An extension that ran no command therefore states no verification, which is the
+honest answer and is pinned in `tests/test_compact_merge.py`.
+
 **A copy is a copy.** The block that goes out is the one that came in, not a
 re-render that agrees with it: `compacted_text` is returned unchanged, so a
 section an earlier version of the writer emitted — or a hand added — survives,
@@ -66,6 +77,7 @@ from collections.abc import Callable, Sequence
 
 from idc.chunk import CHUNK_ID_PREFIX
 from idc.compact.errors import CarriedChainError
+from idc.compact.merge import merged_solution_section
 from idc.compact.narrative import NarrativeClient, compact_chain
 from idc.resolve import Resolution
 from idc.schema import Chain
@@ -211,12 +223,14 @@ def incremental_blocks(
             blocks.append(str(chain.compacted_text))
             continue
         current = transcript_chain(chain)
+        resolution = resolution_of(current)
         blocks.append(
             compact_chain(
                 chain,
-                resolution_of(current),
+                resolution,
                 client,
                 user_messages=user_messages_of(current),
+                solution=merged_solution_section(chain, resolution),
             )
         )
     return blocks

@@ -50,6 +50,7 @@ from idc.compact.instruction import (
     instruction_digest,
     load_instruction,
 )
+from idc.compact.merge import merge_solution_bodies, merged_solution_section
 from idc.compact.narrative import (
     INTENT_MARKER,
     Narrative,
@@ -149,3 +150,12 @@ __all__ += [
 # review showed it escaping the stage's public entry point, where a caller could
 # not tell it from a built-in failure.
 __all__ += ["CarriedChainError"]
+
+# T6.4 (#29) — the merge an extended chain's rewrite goes through: the earlier
+# block's `Solution` section and this run's writes, last write winning per file.
+# Appended as a block of its own for the reason the comment above `__all__`
+# gives.
+__all__ += [
+    "merge_solution_bodies",
+    "merged_solution_section",
+]

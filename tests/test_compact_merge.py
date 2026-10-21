@@ -196,7 +196,8 @@ def test_the_fixture_is_the_tickets_own_case() -> None:
     assert f"- `{OVERWRITTEN}`" in old_body
     assert ADDED not in old_body
     assert [entry.path for entry in new_resolution().solution_files] == [OVERWRITTEN, ADDED]
-    assert carried.id == UNTOUCHED and extended.id == EXTENDED
+    assert carried.id == UNTOUCHED
+    assert extended.id == EXTENDED
 
 
 def test_an_extended_block_holds_the_new_a_and_the_new_b() -> None:
