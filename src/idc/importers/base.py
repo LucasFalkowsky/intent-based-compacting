@@ -137,11 +137,45 @@ class ImportedSession:
             was compacted. `idc.importers.provenance` reads it; a transcript
             compacted twice names the **last** summary, because that is the one
             the agent's context now starts at.
+
+    Invariant, checked on construction: `session.source` is `native-compaction`
+    exactly when `native_summary_id` is set. The two say the same thing about the
+    same transcript — *the agent compacted this and continued from that message*
+    — and either half alone is a transcript nothing can measure: provenance
+    without an identifier makes `idc.importers.provenance` count the history the
+    agent dropped as if the agent still had it, and an identifier without the
+    provenance makes it hide messages from a session that claims it was never
+    compacted. The check lives here rather than in `visible_context` because the
+    broken state should not be constructible at all, and it needs no canonical
+    field: `native_summary_id` is this dataclass's, not the schema's.
     """
 
     session: Session
     notes: tuple[ImportNote, ...] = ()
     native_summary_id: str | None = None
+
+    def __post_init__(self) -> None:
+        """Reject a session whose provenance and summary identifier disagree.
+
+        Raises:
+            TranscriptImportError: If the session was compacted by the agent
+                itself but names no summary, or names one without saying it was
+                compacted.
+        """
+        compacted = self.session.source is SessionSource.NATIVE_COMPACTION
+        if compacted and self.native_summary_id is None:
+            raise TranscriptImportError(
+                f"session {self.session.id!r} was compacted by "
+                f"{self.session.agent.value} itself, but names no native summary; "
+                "the message the agent continued from has to be recorded, or the "
+                "history it dropped would be counted as context"
+            )
+        if not compacted and self.native_summary_id is not None:
+            raise TranscriptImportError(
+                f"session {self.session.id!r} names {self.native_summary_id!r} as its "
+                f"native summary, but its provenance is {self.session.source.value!r} "
+                "rather than 'native-compaction'"
+            )
 
     def notes_of(self, kind: str) -> tuple[ImportNote, ...]:
         """Return the notes of one kind, in the order they are held.

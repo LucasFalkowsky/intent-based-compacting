@@ -68,6 +68,13 @@ Known limitations, both deliberate:
   stage that has to normalise a *reloaded* `native-compaction` document needs
   the summary to become a canonical field, which is a schema ticket of its own.
 
+  An `ImportedSession` cannot arrive in the same state: the invariant
+  `source is native-compaction` ⟺ `native_summary_id is not None` is checked in
+  `ImportedSession.__post_init__` (see `idc.importers.base`), not here, so the
+  pair is refused where it is built and no caller can construct it. This
+  function is left with the one case that *is* constructible — a bare `Session`,
+  which has no identifier field to agree with its provenance.
+
 `toolUseResult.interrupted` is **not** read here either, and that is the second
 pointer #10 was asked about: a Claude Code tool run the user cancelled still
 arrives in the agent's context as an ordinary result, so visibility is not what
@@ -239,7 +246,10 @@ def _unpack(session: ImportedSession | Session) -> tuple[Session, str | None]:
 
     Raises:
         TranscriptImportError: If a bare `Session` was compacted by the agent
-            itself, in which case nothing says where its summary is.
+            itself, in which case nothing says where its summary is. The same
+            question does not arise for an `ImportedSession`: its provenance and
+            its `native_summary_id` are checked against each other when it is
+            constructed.
     """
     if isinstance(session, ImportedSession):
         return session.session, session.native_summary_id
