@@ -161,18 +161,23 @@ def session_with_extra_argument(name: str, call_id: str, key: str, value: str) -
     return loads(Session, json.dumps(document))
 
 
-def session_with_result(
-    name: str, call_id: str, *, exit_code: int | None, is_error: bool, output: str | None = None
-) -> Session:
-    """Return a fixture with one call's result rewritten, via the load path.
+def rewrite_result(
+    document: dict,
+    call_id: str,
+    *,
+    exit_code: int | None,
+    is_error: bool,
+    output: str | None = None,
+) -> None:
+    """Rewrite one call's result inside a parsed fixture document, in place.
 
     The corpus has no chain whose every verification run failed — in all three
-    fixtures that run a command twice, the last run is the passing one — so the
-    `verification_failed` case is made by turning the passing run of
-    `failed_then_passing_command` red in the fixture's own document. The
-    messages, the chunks and the gold labelling are untouched by that.
+    fixtures that run a command twice, the last run is the passing one — and
+    none whose runs go green before they go red. Both shapes are made by
+    rewriting the result of `failed_then_passing_command` in the fixture's own
+    document; the messages, the chunks and the gold labelling are untouched by
+    that.
     """
-    document = json.loads(CORPUS.text(name))
     rewritten = 0
     for message in document["messages"]:
         result = message.get("tool_result")
@@ -182,7 +187,15 @@ def session_with_result(
             if output is not None:
                 result["output"] = output
             rewritten += 1
-    assert rewritten == 1, f"{call_id} must be answered exactly once in {name}"
+    assert rewritten == 1, f"{call_id} must be answered exactly once"
+
+
+def session_with_result(
+    name: str, call_id: str, *, exit_code: int | None, is_error: bool, output: str | None = None
+) -> Session:
+    """Return a fixture with one call's result rewritten, via the load path."""
+    document = json.loads(CORPUS.text(name))
+    rewrite_result(document, call_id, exit_code=exit_code, is_error=is_error, output=output)
     return loads(Session, json.dumps(document))
 
 
@@ -308,6 +321,33 @@ def test_a_run_whose_exit_code_the_transcript_does_not_hold_did_not_pass():
     assert verification.run.exit_code is None
     assert verification.run.passed is False
     assert verification.status is VerificationStatus.FAILED
+
+
+def test_a_run_that_failed_after_a_passing_one_does_not_unseat_it():
+    # The rule is "the last run that passed" (#20, #22), so a passing run stays
+    # the chain's proof even when a later run of the same chain went red. The
+    # later run is not dropped: it is in `discarded`, with its output, so a
+    # consumer sees that the chain did not end green. No transcript of the
+    # corpus has this shape, which is why it is built here — and why the
+    # reading is pinned rather than left to the next edit of the rule.
+    document = json.loads(CORPUS.text(FAILED_THEN_PASSING))
+    rewrite_result(
+        document, "c03", exit_code=0, is_error=False, output="5 passed in 0.20s\n"
+    )
+    rewrite_result(
+        document, "c06", exit_code=1, is_error=True, output="1 failed, 4 passed in 0.22s\n"
+    )
+    session, chunks, (chain,) = session_chains(
+        loads(Session, json.dumps(document)), FAILED_THEN_PASSING
+    )
+
+    verification = solution_verification(session, chunks, chain)
+
+    assert verification is not None
+    assert [run.passed for run in verification_runs(session, chunks, chain)] == [True, False]
+    assert verification.run.id == "c03"
+    assert verification.status is VerificationStatus.PASSED
+    assert ids(verification.discarded) == ["c06"], "the later failure is kept as path"
 
 
 def test_the_two_states_the_ticket_separates_are_two_values():
