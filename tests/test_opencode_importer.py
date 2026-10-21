@@ -625,9 +625,31 @@ def test_an_undeclared_tool_resolves_to_other_and_is_noted():
     assert calls["imaginary_tool"].category is ToolCategory.OTHER
 
 
-def test_an_undeclared_tool_is_logged_once_with_its_agent(caplog):
+def test_an_undeclared_tool_is_logged_once_with_its_agent(tmp_path, caplog):
+    """Three calls to one undeclared tool are **one** warning, not three.
+
+    The native `unknown_tool` fixture calls `imaginary_tool` exactly once, so it
+    cannot tell per-name logging from per-call logging. This record calls it
+    three times across two records — the shape that fails under per-call
+    logging — next to a declared tool that must stay out of the warnings.
+    """
+    path = write_jsonl(
+        tmp_path,
+        [
+            assistant_record(
+                "msg_1",
+                [
+                    tool_part("call_1", "imaginary_tool", completed()),
+                    tool_part("call_2", "imaginary_tool", completed()),
+                    tool_part("call_3", "task", completed()),
+                ],
+            ),
+            assistant_record("msg_2", [tool_part("call_4", "imaginary_tool", completed())]),
+        ],
+    )
+
     with caplog.at_level(logging.WARNING, logger="idc.importers"):
-        import_opencode(native("unknown_tool"))
+        imported = import_opencode(path)
 
     warnings = [
         record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING
@@ -636,6 +658,8 @@ def test_an_undeclared_tool_is_logged_once_with_its_agent(caplog):
     assert sum("'imaginary_tool'" in message for message in warnings) == 1
     assert all("opencode" in message for message in warnings)
     assert not any("'task'" in message for message in warnings)
+    assert imported.unknown_tools == ("imaginary_tool",)
+    assert [note.count for note in imported.notes_of(NOTE_UNKNOWN_TOOL)] == [3]
 
 
 def test_a_declared_tool_is_not_logged(caplog):
