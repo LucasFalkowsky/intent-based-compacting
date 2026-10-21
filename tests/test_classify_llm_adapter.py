@@ -566,6 +566,36 @@ def test_a_wrong_shaped_chain_id_is_refused_while_the_answer_is_read():
         adapter.decide(SUBJECT, CANDIDATES)
 
 
+class WronglyShapedCandidate:
+    """A candidate stand-in whose id is deliberately not a chain id.
+
+    `ChainCandidate` refuses such an id (#16) and `_decision_for` reads nothing
+    but `.id`, so a stand-in is what it takes to put the second guard in the one
+    situation that reaches it: an id the candidate check accepted and that is
+    still no `C<n>`.
+    """
+
+    def __init__(self, chain_id: str) -> None:
+        """Build the stand-in from the id it is to offer."""
+        self.id = chain_id
+
+
+def test_a_wrong_shaped_chain_id_that_reaches_the_decision_step_is_still_refused():
+    # The second of the two guards, called directly because nothing else
+    # reaches it: through `decide`, `_read_decision` has already refused `K1`
+    # one step earlier, which is why removing this one leaves the rest of the
+    # suite green. They are the same guard twice on purpose — one of them may
+    # be refactored away, and the promise that a model's answer never leaves
+    # this stage as a bare `ValueError` may not depend on which.
+    read = llm_module._ReadAnswer(chain_id="K1", label=None)
+
+    with pytest.raises(AdapterContractError) as caught:
+        llm_module._decision_for(read, (WronglyShapedCandidate("K1"),))
+
+    assert isinstance(caught.value, ClassifyError)
+    assert type(caught.value) is not ValueError, "a bare ValueError is what the guard prevents"
+
+
 def test_an_error_in_the_client_reaches_the_caller_unwrapped():
     # The second documented carve-out: only the backend knows what its own
     # timeout means, and a transport failure is no classification problem.
