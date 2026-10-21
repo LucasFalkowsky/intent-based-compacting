@@ -25,6 +25,9 @@ stay out of the module by `test_the_module_holds_no_backend_of_its_own`.
 
 import ast
 import math
+import os
+import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -43,7 +46,6 @@ from idc.classify import (
     S1MAdapter,
     S1MCall,
     ScorerContractError,
-    as_decision,
     classify,
     classify_chunks,
 )
@@ -94,6 +96,33 @@ connection itself. The scorer is injected; this module ships none."""
 
 MESSAGE = "make the retry backoff configurable"
 """The chunk text the stub scorers are asked about; its content is never read."""
+
+MULTI_CHUNK_FIXTURES = ("interleaved_intents", "two_sequential_intents")
+"""The corpus fixtures that chunk to more than one chunk.
+
+The other seven chunk to a single one, which costs the scorer zero calls — a
+determinism or ranking test over them compares two one-element chain lists and
+cannot exercise the adapter at all. Named rather than filtered, so that the
+`score_calls` assertion in the test says so loudly if the corpus changes.
+"""
+
+TIE_BREAK_PROGRAM = """
+from idc.classify import ChainCandidate, ChunkUnderDecision, S1MAdapter
+
+adapter = S1MAdapter(lambda chunk, candidate: 0.75)
+offered = tuple(
+    ChainCandidate(id=f"C{n}", label=f"intent {n}", last_user_message=f"about {n}")
+    for n in range(1, 21)
+)
+decision = adapter.decide(ChunkUnderDecision(id="K1", user_message="a message"), offered)
+print(decision.target, adapter.score_calls)
+"""
+"""A whole tie-break in a fresh interpreter, so the hash seed can be varied.
+
+Twenty candidates on one score: the first one offered has to win, and all
+twenty have to be asked. Printed rather than returned, because the point is
+that another *process* agrees.
+"""
 
 
 def subject(identifier: str = "K1", user_message: str = MESSAGE) -> ChunkUnderDecision:
@@ -341,11 +370,23 @@ def test_the_tie_break_follows_the_offered_order_and_not_the_chain_number():
     assert adapter.decide(subject(), candidates("C2", "C1")).target == "C2"
 
 
-def test_the_tie_break_is_stable_over_repeated_runs():
-    for _ in range(5):
-        adapter = S1MAdapter(TableScorer(default=0.75))
+@pytest.mark.parametrize("seed", ["0", "1", "42", "random"])
+def test_the_tie_break_is_stable_across_processes(seed):
+    # Repeating the decision inside one process proves nothing: there is no
+    # state the tie-break could pick up between iterations. What *could* vary is
+    # iteration order between processes, so the property is checked where it
+    # could break — 20 equally scored candidates under four hash seeds, in a
+    # fresh interpreter each time. `candidates()` walks an explicit order list,
+    # so nothing in the path hashes and the first offered candidate always wins.
+    completed = subprocess.run(
+        [sys.executable, "-c", TIE_BREAK_PROGRAM],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "PYTHONHASHSEED": seed, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
 
-        assert adapter.decide(subject(), candidates("C1", "C2", "C3")).target == "C1"
+    assert completed.stdout.split() == ["C1", "20"]
 
 
 # ---------------------------------------------------------------------------
@@ -411,8 +452,10 @@ def test_every_answer_is_a_decision_in_the_normal_form():
     opening = adapter.decide(subject("K2"), candidates())
 
     for decision in (extension, opening):
+        # `as_decision` is not asserted on here: it returns a `Decision`
+        # unchanged, so with the `isinstance` above it the call could not fail
+        # and would only read as a check.
         assert isinstance(decision, Decision)
-        assert as_decision(decision) is decision
         assert decision.confidence is not None
 
 
@@ -590,14 +633,21 @@ def test_the_confidence_reaches_the_assignment_record():
     ]
 
 
-@pytest.mark.parametrize("name", CORPUS.names())
+@pytest.mark.parametrize("name", MULTI_CHUNK_FIXTURES)
 def test_the_same_scorer_classifies_a_transcript_the_same_way_twice(name):
     session = CORPUS.session(name)
     chunks = chunk_session(session)
+    first_adapter = S1MAdapter(OverlapScorer(), threshold=0.1)
+    second_adapter = S1MAdapter(OverlapScorer(), threshold=0.1)
 
-    first = classify(session, chunks, S1MAdapter(OverlapScorer(), threshold=0.1))
-    second = classify(session, chunks, S1MAdapter(OverlapScorer(), threshold=0.1))
+    first = classify(session, chunks, first_adapter)
+    second = classify(session, chunks, second_adapter)
 
+    # Both runs have to have *asked* something, or two identical chain lists say
+    # nothing about the adapter — which is what restricts this to the fixtures
+    # that chunk to more than one chunk.
+    assert first_adapter.score_calls > 0
+    assert first_adapter.score_calls == second_adapter.score_calls
     assert [dumps(chain) for chain in first] == [dumps(chain) for chain in second]
 
 
