@@ -131,6 +131,17 @@ def fenced_texts(section: str) -> list[str]:
     return texts
 
 
+def fenced(text: str) -> str:
+    """Return `text` the way a fence holds it: with the closing newline it needs.
+
+    The renderer completes a text that does not end in a newline so that the
+    closing fence keeps a line of its own, which is pinned on its own below;
+    a test comparing fenced texts states the same completion rather than
+    repeating the rule as an expectation.
+    """
+    return text if not text or text.endswith("\n") else f"{text}\n"
+
+
 def replacement_of(call: ToolCall) -> str | None:
     """Return the text an edit call replaces with, read through the corpus' own pairs."""
     for _, replacement_key in REPLACEMENT_PAIRS:
@@ -271,7 +282,7 @@ def test_an_edited_file_renders_the_replacement_text_verbatim():
     section = solution_section(resolution)
 
     assert section.startswith(f"{SOLUTION_HEADER}\n- `{entry.path}`\n")
-    assert fenced_texts(section) == [replacement_of(entry.kept[0].call)]
+    assert fenced_texts(section) == [fenced(replacement_of(entry.kept[0].call))]
 
 
 def test_a_file_written_and_then_edited_renders_one_bullet_per_kept_write():
@@ -283,9 +294,9 @@ def test_a_file_written_and_then_edited_renders_one_bullet_per_kept_write():
 
     assert section.count(f"- `{entry.path}`\n") == 3
     assert fenced_texts(section)[1:] == [
-        content_of(entry.kept[0].call),
-        replacement_of(entry.kept[1].call),
-        replacement_of(entry.kept[2].call),
+        fenced(content_of(entry.kept[0].call)),
+        fenced(replacement_of(entry.kept[1].call)),
+        fenced(replacement_of(entry.kept[2].call)),
     ]
 
 
@@ -306,11 +317,16 @@ def test_a_superseded_and_a_failed_write_never_reach_the_solution():
 
     section = solution_section(resolution)
 
-    assert fenced_texts(section) == [content_of(entry.kept[0].call)]
+    texts = fenced_texts(section)
+
+    # The one accepted write, and no block of its own for either path write —
+    # a `not in` would not do: the write this one overwrote shares whole
+    # paragraphs with it, which is what makes it the same file twice.
+    assert texts == [fenced(content_of(entry.kept[0].call))]
     for located in (*entry.superseded, *entry.failed):
         text = content_of(located.call) or replacement_of(located.call)
         assert text
-        assert text not in section
+        assert fenced(text) not in texts
 
 
 def test_a_file_whose_every_write_failed_contributes_no_solution_content():
@@ -441,10 +457,41 @@ def test_an_empty_output_renders_an_empty_fence():
 
 def test_the_discarded_runs_are_path_and_never_rendered():
     _, resolution = only(WRITE_THEN_EDITS)
-    discarded = resolution.verification.discarded
+    kept, discarded = resolution.verification.run, resolution.verification.discarded
     assert discarded, "the fixture holds runs that did not prove the chain"
 
-    section = verification_section(resolution)
+    texts = fenced_texts(verification_section(resolution))
 
+    # By output, not by command: the chain ran the same command again, so the
+    # discarded runs are told apart from the kept one by what came back.
+    assert texts == [fenced(kept.output)]
     for run in discarded:
-        assert run.command not in section
+        assert fenced(run.output) not in texts
+
+
+# --- the package surface -------------------------------------------------------
+
+
+def test_the_package_exports_the_template_and_nothing_more():
+    import idc.compact
+
+    assert sorted(idc.compact.__all__) == idc.compact.__all__
+    assert set(idc.compact.__all__) == {
+        "DECISIONS_HEADER",
+        "EMPTY_SECTION",
+        "ERROR_NOTE",
+        "NO_COMMAND_NOTE",
+        "NO_CONTENT_NOTE",
+        "NO_RESULT_NOTE",
+        "REJECTED_HEADER",
+        "SECTION_HEADERS",
+        "SOLUTION_HEADER",
+        "UNKNOWN_EXIT_NOTE",
+        "VERIFICATION_HEADER",
+        "chain_heading",
+        "render_block",
+        "solution_section",
+        "verification_section",
+    }
+    for name in idc.compact.__all__:
+        assert hasattr(idc.compact, name)
