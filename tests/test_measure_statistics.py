@@ -49,7 +49,7 @@ from idc.measure import (
     lines_added_of,
     tool_statistics,
 )
-from idc.measure.statistics import REPLACEMENT_PAIRS
+from idc.measure.statistics import REPEAT_KEYS, REPLACEMENT_PAIRS
 from idc.schema import (
     Agent,
     Message,
@@ -81,6 +81,8 @@ class Expected:
         exit_codes: `exit_code` to how many answered calls carry it.
         error_results: Results whose `is_error` is true.
         failed_writes: `ToolCall.id` of the writes the agent saw fail.
+        unmeasured: `ToolCall.id` of the writes whose added lines the
+            transcript does not state.
     """
 
     reads: int
@@ -93,6 +95,7 @@ class Expected:
     exit_codes: dict[int | None, int]
     error_results: int
     failed_writes: tuple[str, ...]
+    unmeasured: tuple[str, ...] = ()
 
     @property
     def total(self) -> int:
@@ -143,16 +146,21 @@ CORPUS_EXPECTATIONS = {
         # sampler.py: c03 keeps `self._weights = weights`, replaces the one
         # `def __init__` line with three and appends one — 4; c11 replaces 7
         # lines with 2 that share none of them — 2.
+        # c08 carries `replace_all: true`: it renames every occurrence in
+        # loader.py and the transcript says neither how many there were nor
+        # what the file held, so its added lines are not stated and it adds
+        # nothing to the total.
         per_file={
             "src/rates/sampler.py": (2, 6),
             "tests/rates/test_sampler.py": (1, 1),
             "config/settings.toml": (1, 1),
-            "src/config/loader.py": (1, 1),
+            "src/config/loader.py": (1, 0),
         },
-        lines_added=9,
+        lines_added=8,
         exit_codes={None: 9, 0: 3},
         error_results=0,
         failed_writes=(),
+        unmeasured=("c08",),
     ),
     "rewritten_after_failed_edit": Expected(
         reads=1,
@@ -424,6 +432,45 @@ def test_per_file_writes_and_lines_match_the_fixture(name: str, expected: Expect
     assert {entry.path: (entry.writes, entry.lines_added) for entry in stats.per_file} == (
         expected.per_file
     )
+
+
+@pytest.mark.parametrize(("name", "expected"), sorted(CORPUS_EXPECTATIONS.items()))
+def test_unmeasured_writes_match_the_fixture(name: str, expected: Expected) -> None:
+    assert tool_statistics(CORPUS.session(name)).unmeasured_write_ids == expected.unmeasured
+
+
+def test_the_corpus_replace_all_edit_is_reported_as_unmeasured() -> None:
+    document = CORPUS.session("interleaved_intents")
+    repeating = [
+        call.id
+        for message in document.messages
+        for call in message.tool_calls
+        if call.args.get("replace_all") is True
+    ]
+    assert repeating == ["c08"], "the fixture this expectation rests on"
+    assert tool_statistics(document).unmeasured_write_ids == ("c08",)
+
+
+def test_the_repeat_flags_are_the_recorded_spellings() -> None:
+    assert REPEAT_KEYS == ("replace_all", "replaceAll")
+
+
+@pytest.mark.parametrize("repeat_key", REPEAT_KEYS)
+def test_an_edit_applied_to_every_occurrence_is_unmeasured(repeat_key: str) -> None:
+    call = write("c01", "src/a.py", old_string="one", new_string="two", **{repeat_key: True})
+    assert lines_added_of(call) is None
+    stats = tool_statistics(session(message(id="m01", tool_calls=[call])))
+    assert stats.unmeasured_write_ids == ("c01",)
+    assert stats.lines_added == 0
+    assert stats.files_edited == ("src/a.py",), "the file is known even when the lines are not"
+
+
+@pytest.mark.parametrize("repeat_key", REPEAT_KEYS)
+def test_an_edit_applied_once_is_counted(repeat_key: str) -> None:
+    call = write(
+        "c01", "src/a.py", old_string="one\n", new_string="one\ntwo\n", **{repeat_key: False}
+    )
+    assert lines_added_of(call) == 1
 
 
 def test_two_spellings_of_one_path_are_two_files() -> None:
