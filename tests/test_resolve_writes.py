@@ -277,6 +277,31 @@ def test_every_argument_spelling_the_agents_use_names_the_file(key):
     assert file_of(call) == "src/a.py"
 
 
+def test_a_write_that_carries_a_replacement_and_a_content_argument_is_read_as_an_edit():
+    # The one shape where the two signals disagree, and the reason
+    # `REPLACEMENT_KEYS` is consulted first. No agent of the study sends
+    # it, so it is built from the corpus: `c05` is an edit whose `new_string`
+    # is renamed to `content`, which leaves the `old_string` that proves it
+    # patches. Read as a full write it would supersede the write it patched and
+    # the file's real content would be gone from the solution; read as an edit
+    # it only keeps one write more than needed. The lossless reading wins.
+    session = session_with_renamed_argument(WRITE_THEN_TWO_EDITS, "c05", "new_string", "content")
+    chunks = chunk_session(session)
+    chain = Chain(id="C1", label="the one intent", chunk_ids=[chunks[0].id])
+    patched = next(call for call in all_write_calls(session) if call.id == "c05")
+    entry = {item.path: item for item in solution_files(session, chunks, chain)}[
+        "/repo/src/text/slug.py"
+    ]
+
+    assert "old_string" in patched.args
+    assert "content" in patched.args
+    assert write_kind(patched) is WriteKind.EDIT
+    assert content_of(patched) is None
+    assert entry.write is not None
+    assert entry.write.id == "c03", "the full write it patched is still the accepted one"
+    assert ids(entry.edits) == ["c05", "c07"]
+
+
 def test_a_call_whose_arguments_name_no_file_is_attributed_to_none():
     call = ToolCall(id="c01", name="Write", category=ToolCategory.WRITE, args={"content": "x"})
 
@@ -435,6 +460,36 @@ def test_a_chunk_that_reaches_past_the_transcript_is_refused():
 def test_the_refusals_are_one_family():
     assert issubclass(UnknownChunkError, ResolveError)
     assert issubclass(ForeignChunkError, ResolveError)
+
+
+def test_a_solution_file_names_the_ids_its_solution_is_expressed_in():
+    entry = files_of(WRITE_THEN_TWO_EDITS)["/repo/src/text/slug.py"]
+
+    assert entry.call_ids == ("c03", "c05", "c07")
+    assert entry.call_ids == tuple(ids(entry.kept))
+
+
+def test_a_solution_file_that_states_nothing_is_a_programming_error():
+    # A plain `ValueError`, not a `ResolveError`: the mistake is in a caller's
+    # own construction and not in input the stage was handed.
+    located = files_of(REWRITTEN)["docs/install.md"].write
+    with pytest.raises(ValueError, match="name the file"):
+        SolutionFile(path="   ", write=located, edits=(), superseded=(), failed=())
+    with pytest.raises(ValueError, match="no write at all"):
+        SolutionFile(path="docs/install.md", write=None, edits=(), superseded=(), failed=())
+
+
+def test_a_file_whose_every_write_failed_is_an_entry_with_an_empty_solution():
+    # Reachable, and the one entry whose `kept` is empty: the writes of the file
+    # are reported as failed, so the partition stays complete and nothing claims
+    # the file was changed. No corpus transcript gives up on a file like that,
+    # so the shape is pinned on the value object.
+    failed = files_of(REWRITTEN)["docs/install.md"].failed
+    entry = SolutionFile(path="docs/install.md", write=None, edits=(), superseded=(), failed=failed)
+
+    assert entry.kept == ()
+    assert entry.call_ids == ()
+    assert ids(entry.failed) == ["c03"]
 
 
 def test_a_located_call_reports_what_the_agent_saw() -> None:

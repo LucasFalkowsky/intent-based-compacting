@@ -23,7 +23,7 @@ import pytest
 from idc.resolve import (
     CONTENT_KEYS,
     FILE_PATH_KEYS,
-    REPLACEMENT_KEY_PAIRS,
+    REPLACEMENT_KEYS,
     ForeignChunkError,
     LocatedCall,
     ResolveError,
@@ -42,7 +42,7 @@ from idc.resolve import (
 EXPECTED_EXPORTS = {
     "CONTENT_KEYS",
     "FILE_PATH_KEYS",
-    "REPLACEMENT_KEY_PAIRS",
+    "REPLACEMENT_KEYS",
     "ForeignChunkError",
     "LocatedCall",
     "ResolveError",
@@ -80,7 +80,7 @@ TYPE_EXPORTS = (
 )
 """Every exported name that is a type: the result types and the error family."""
 
-KEY_TUPLE_EXPORTS = ("CONTENT_KEYS", "FILE_PATH_KEYS", "REPLACEMENT_KEY_PAIRS")
+KEY_TUPLE_EXPORTS = ("CONTENT_KEYS", "FILE_PATH_KEYS", "REPLACEMENT_KEYS")
 """The exported names that are argument-key tables rather than code."""
 
 
@@ -127,7 +127,7 @@ def test_the_argument_keys_are_the_spellings_the_corpus_records():
     # without a transcript showing it would pin behaviour nobody saw.
     assert FILE_PATH_KEYS == ("file_path", "filePath", "absolute_path")
     assert CONTENT_KEYS == ("content",)
-    assert REPLACEMENT_KEY_PAIRS == (("old_string", "new_string"), ("oldString", "newString"))
+    assert REPLACEMENT_KEYS == ("old_string", "new_string", "oldString", "newString")
 
 
 def test_the_write_kinds_are_the_two_the_last_write_rule_distinguishes():
