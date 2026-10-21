@@ -666,6 +666,202 @@ def test_the_heading_shape_the_messages_state_is_the_one_the_writer_renders():
     assert HEADING_PATTERN.match(HEADING_SHAPE) is None
 
 
+# --- what ends a line, and what only Python thinks ends one ---------------------
+
+
+NOT_LINE_TERMINATORS = (
+    ("vertical tab", "\x0b"),
+    ("form feed", "\x0c"),
+    ("file separator", "\x1c"),
+    ("group separator", "\x1d"),
+    ("record separator", "\x1e"),
+    ("next line", "\x85"),
+    ("line separator", " "),
+    ("paragraph separator", " "),
+)
+"""The seven characters `str.splitlines()` breaks on and CommonMark does not.
+
+Written as code points because they are invisible. CommonMark knows three line
+endings — LF, CR and CRLF — so a line that holds one of these holds a character
+and nothing more, and the structure on either side of it is one line's worth.
+A scanner that disagreed read the run after a form feed as a line of its own,
+starting at column zero, which is how a closing fence written inside a Solution
+body ended a fence opened flush and handed the headers beneath it to the
+splitter — the very escape the indentation rule exists to refuse.
+"""
+
+CONTENT_WHITESPACE = (
+    ("tab", "\t"),
+    ("space and tab", " \t"),
+    ("two spaces and tab", "  \t"),
+    ("no-break space", " "),
+    ("em space", " "),
+    ("ideographic space", "　"),
+    ("zero-width space", "​"),
+)
+"""Whitespace that is not a space, and therefore not a structural indent.
+
+The parser's indent allowance is counted in literal spaces: a tab is not
+expanded to the next tab stop and an exotic space is not folded to one. Both
+readings agree with CommonMark on every line here — a tab within three spaces
+reaches column four, so CommonMark reads it as indented code, and the others are
+not Unicode whitespace CommonMark strips — but they agree only because the
+arithmetic works out, which is a reason to pin the result rather than restate it.
+"""
+
+
+@pytest.mark.parametrize(("name", "character"), NOT_LINE_TERMINATORS)
+def test_a_non_terminator_before_a_closing_fence_does_not_close_it(name, character):
+    # The escape of the previous round through a second door: with the scanner
+    # splitting on everything Python calls a line break, a form feed before the
+    # run made it look flush, the fence closed, `### Verification` inside the
+    # Solution body became a section of its own, `body()` returned `- ESCAPED`
+    # and the block's real Verification was shadowed with nothing raised.
+    escape = f"- `x.py`\n```\nline a\n{character}```\n{SECTION_HEADERS[3]}\n- ESCAPED"
+    text = built(bodies={SECTION_HEADERS[2]: escape})
+
+    with pytest.raises(UnterminatedFenceError) as caught:
+        parse_blocks(text)
+
+    assert caught.value.line == 8
+
+
+@pytest.mark.parametrize(("name", "character"), NOT_LINE_TERMINATORS)
+def test_a_non_terminator_before_a_chain_heading_opens_no_block(name, character):
+    swallowed = f"{EMPTY_SECTION}\n{character}## [C2] Intent: smuggled past the line split"
+    text = built(bodies={SECTION_HEADERS[3]: swallowed})
+
+    blocks = parse_blocks(text)
+
+    # One line, so one piece of content: the heading does not begin a block and
+    # does not cut the first one short of its last section.
+    assert [block.chain_id for block in blocks] == ["C1"]
+    assert blocks[0].body(SECTION_HEADERS[3]) == f"{swallowed}\n"
+    assert blocks[0].text == text
+
+
+@pytest.mark.parametrize(("name", "character"), NOT_LINE_TERMINATORS)
+def test_a_non_terminator_does_not_shift_the_line_a_refusal_names(name, character):
+    # Every refusal names a line number, so a character counted as a break would
+    # make every message below it point one line too far.
+    bodies = {
+        SECTION_HEADERS[0]: f"- a{character}b",
+        SECTION_HEADERS[2]: "- `notes.md`\n```\nnever closed",
+    }
+
+    with pytest.raises(UnterminatedFenceError) as caught:
+        parse_blocks(built(bodies=bodies))
+
+    assert caught.value.line == 8
+
+
+def test_a_text_that_ends_in_a_newline_gains_no_trailing_empty_line():
+    with pytest.raises(NoHeadingError) as caught:
+        parse_blocks("one line, and the newline that ends it\n")
+
+    assert caught.value.line_count == 1
+
+
+def test_a_text_that_does_not_end_in_a_newline_still_parses():
+    text = built().removesuffix("\n")
+
+    block = parse_blocks(text)[0]
+
+    assert [section.header for section in block.sections] == list(SECTION_HEADERS)
+    assert block.text == text
+
+
+def test_windows_line_endings_end_a_line():
+    text = built().replace("\n", "\r\n")
+
+    block = parse_blocks(text)[0]
+
+    assert [section.header for section in block.sections] == list(SECTION_HEADERS)
+    assert block.text == text
+
+
+def test_a_bare_carriage_return_ends_a_line():
+    # CommonMark's third line ending. It is a line ending here too, so a block a
+    # hand saved with classic Mac endings is read as the structure it looks like
+    # rather than as one very long line.
+    text = built().replace("\n", "\r")
+
+    block = parse_blocks(text)[0]
+
+    assert [section.header for section in block.sections] == list(SECTION_HEADERS)
+    assert block.text == text
+
+
+@pytest.mark.parametrize(("name", "prefix"), CONTENT_WHITESPACE)
+def test_whitespace_that_is_not_a_space_leaves_a_chain_heading_content(name, prefix):
+    swallowed = f"{EMPTY_SECTION}\n{prefix}## [C2] Intent: indented with no space"
+    text = built(bodies={SECTION_HEADERS[3]: swallowed})
+
+    blocks = parse_blocks(text)
+
+    assert [block.chain_id for block in blocks] == ["C1"]
+    assert blocks[0].body(SECTION_HEADERS[3]) == f"{swallowed}\n"
+    assert blocks[0].text == text
+
+
+@pytest.mark.parametrize(("name", "prefix"), CONTENT_WHITESPACE)
+def test_whitespace_that_is_not_a_space_leaves_a_section_header_content(name, prefix):
+    header = SECTION_HEADERS[2]
+    text = built().replace(f"\n{header}\n", f"\n{prefix}{header}\n")
+
+    with pytest.raises(MissingSectionError) as caught:
+        parse_blocks(text)
+
+    assert caught.value.header == header
+    assert caught.value.present == (SECTION_HEADERS[0], SECTION_HEADERS[1], SECTION_HEADERS[3])
+
+
+@pytest.mark.parametrize(("name", "prefix"), CONTENT_WHITESPACE)
+def test_whitespace_that_is_not_a_space_opens_no_fence(name, prefix):
+    notes = "### Notes"
+    fenced = f"- `notes.md`\n{prefix}```\n{notes}\n{prefix}```"
+    text = built(bodies={SECTION_HEADERS[2]: fenced})
+
+    block = parse_blocks(text)[0]
+
+    # No fence, so the header between the two runs is structure: it opens a
+    # section of its own, exactly as a four-space run does.
+    assert [section.header for section in block.sections] == [
+        *SECTION_HEADERS[:3],
+        notes,
+        SECTION_HEADERS[3],
+    ]
+    assert block.text == text
+
+
+@pytest.mark.parametrize(("name", "prefix"), CONTENT_WHITESPACE)
+def test_whitespace_that_is_not_a_space_closes_no_fence(name, prefix):
+    fenced = f"- `notes.md`\n```\nline a\n{prefix}```"
+    text = built(bodies={SECTION_HEADERS[2]: fenced})
+
+    with pytest.raises(UnterminatedFenceError) as caught:
+        parse_blocks(text)
+
+    assert caught.value.line == 8
+    assert caught.value.fence == "```"
+
+
+def test_a_zero_width_space_before_a_section_header_is_the_prose_the_writer_counts_on():
+    # Load-bearing for T6.1: the writer deliberately lets a narrative section
+    # keep a zero-width-space-prefixed `### Solution`, on the stated assumption
+    # that this parser dedents literal spaces only and then matches
+    # `SECTION_HEADERS` by equality. Were the match an `in` or a looser prefix
+    # test, that assumption would break here and nowhere else.
+    prose = f"{EMPTY_SECTION}\n​{SECTION_HEADERS[2]}"
+    text = built(bodies={SECTION_HEADERS[1]: prose})
+
+    block = parse_blocks(text)[0]
+
+    assert [section.header for section in block.sections] == list(SECTION_HEADERS)
+    assert block.body(SECTION_HEADERS[1]) == f"{prose}\n"
+    assert block.text == text
+
+
 # --- what a caller built wrongly -----------------------------------------------
 
 
