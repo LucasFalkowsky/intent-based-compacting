@@ -8,12 +8,17 @@ a chain *achieved* is kept, what it *tried* becomes a candidate for removal.
 
 ```python
 from idc.chunk import chunk_session
-from idc.resolve import solution_files
+from idc.resolve import solution_files, solution_verification
 
 chunks = chunk_session(session)
 for entry in solution_files(session, chunks, chain):
     entry.path, entry.write, entry.edits   # the solution
     entry.superseded, entry.failed         # the path
+
+proof = solution_verification(session, chunks, chain)
+if proof is not None:
+    proof.status, proof.command, proof.output   # the solution
+    proof.discarded                             # the path
 ```
 
 Everything here is computed by code, never inferred by a model: the stage reads
