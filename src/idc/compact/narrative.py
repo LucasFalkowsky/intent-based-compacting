@@ -27,10 +27,13 @@ the two section bodies — and `as_narrative` reads exactly that shape or raises
 - The response holds the intent marker and the two narrative headers, each
   exactly once, in the template's order, with the intent marker first and
   nothing before it.
-- **No other line may look like a heading or open a code fence.** That is what
-  keeps a model from writing the deterministic sections itself: a `### Solution`
-  of its own, a second `## [C…]` heading naming a chain the classifier never
-  opened, or a fence that would swallow the headers the renderer appends below.
+- **No other line may be read as structure.** A heading, a line that opens or
+  closes a code fence, a Setext underline, an HTML comment left open — each of
+  them with *any* indentation in front of it, since a parser keyed on the header
+  literal reads an indented `### Solution` as one. That is what keeps a model
+  from writing the deterministic sections itself: a `### Solution` of its own, a
+  second `## [C…]` heading naming a chain the classifier never opened, or a
+  fence that would swallow the headers the renderer appends below.
   A near miss (`### Decisions and constraints`) is refused for the same reason
   the headers are pinned character for character in T6.1 — a block is parsed
   back by its headers on the next run (T6.3), and a section lost there is a
@@ -84,21 +87,87 @@ is refused: a model may not choose the identifier that a later run recognizes
 the chain by.
 """
 
-_HEADING_LINE = re.compile(r"^#{1,6}(\s|$)")
-"""A Markdown ATX heading at the start of a line — one to six `#` and a space.
+_HEADING_LINE = re.compile(r"#{1,6}(\s|$)")
+"""A Markdown ATX heading — one to six `#` followed by whitespace or nothing.
 
-`#hashtag` is not one, which is the rule Markdown itself applies. Only the start
-of a line is matched: an indented `###` is text in a bullet, and the block's
-headers are all at column zero.
+Matched against a line whose leading whitespace has been stripped, with no
+indentation allowance at all, and that is deliberately stricter than Markdown:
+CommonMark reads a line indented by four spaces as an indented code block
+rather than as a heading. The consumer of this format is not a CommonMark
+renderer, though — it is a parser that reads a block back on the next run and
+finds its sections by the header literal (T6.3). To that parser `    ###
+Solution` holds `### Solution`, so an indented copy of a header is a copy, and
+four leading spaces are refused like one. `#hashtag` is still not a heading,
+which is the rule Markdown itself applies.
 """
 
-_FENCE_LINE = re.compile(r"^(```|~~~)")
-"""A line that opens or closes a fenced code block.
+_FENCE_LINE = re.compile(r"(```|~~~)")
+"""A line that opens or closes a fenced code block, indentation stripped.
 
 Refused in a narrative body for the same reason a stray header is: the renderer
-appends the deterministic sections *below* the narrative, and an unclosed fence
+appends the deterministic sections *below* the narrative, and a fence left open
 in it would enclose them — a `Solution` section that is no longer read as one.
+Indented fences are refused with the unindented ones, and a tilde fence is why:
+nothing the renderer appends closes one, so a `  ~~~` in the last narrative
+section encloses the whole deterministic tail of the block.
 """
+
+_SETEXT_UNDERLINE = re.compile(r"(-+|=+)$")
+"""A line of nothing but dashes or nothing but equals signs.
+
+Markdown reads it as the underline that turns the line above it into a heading,
+so `Solution` and `---` on two body lines are a `Solution` heading in the
+rendered block. The underline is refused rather than the pair: it is the line
+that carries the meaning, a body line is a bullet and never a rule, and a
+single-line rule needs no state in the reader. `---` as a thematic break and as
+a front-matter delimiter go with it, which is no loss for a bullet list.
+"""
+
+_CLOSED_COMMENT = re.compile(r"<!--.*?-->")
+"""One complete HTML comment, for removing the closed ones from a line.
+
+What is left is an opener that the line does not close, and that comments out
+everything below it — including the deterministic sections. A comment opened and
+closed on one line encloses nothing and is not this module's business.
+"""
+
+
+def _refusal(line: str) -> str | None:
+    """Return why `line` would be read as structure in a block, or `None`.
+
+    Args:
+        line: One line of a response or of a narrative body, right-stripped.
+
+    Returns:
+        A reason, naming the line, when a parser of the rendered block could
+        read it as the block's own structure — an ATX heading, a line that
+        opens or closes a code fence, a Setext underline, or an HTML comment
+        left open. Leading whitespace is stripped before any of that is
+        decided, so no amount of indentation hides one. `None` for every other
+        line, indented bullets included.
+    """
+    bare = line.lstrip()
+    if _HEADING_LINE.match(bare):
+        return (
+            f"the body line {line!r} is a header, and the only headers a narrative holds are "
+            f"{DECISIONS_HEADER!r} and {REJECTED_HEADER!r}"
+        )
+    if _FENCE_LINE.match(bare):
+        return (
+            f"the body line {line!r} opens or closes a code fence; a narrative is bullet "
+            f"lines, and a fence would enclose the sections rendered below it"
+        )
+    if _SETEXT_UNDERLINE.fullmatch(bare):
+        return (
+            f"the body line {line!r} underlines the line above it into a header, which is "
+            f"a header the block does not have"
+        )
+    if "<!--" in _CLOSED_COMMENT.sub("", line):
+        return (
+            f"the body line {line!r} opens an HTML comment it does not close, which would "
+            f"comment out the sections rendered below it"
+        )
+    return None
 
 
 def _body_lines(lines: Sequence[str]) -> tuple[str, ...]:
@@ -149,9 +218,13 @@ class Narrative:
         Raises:
             ValueError: If `label` holds no word — it becomes the chain's
                 heading, and `## [C1] Intent: ` names no intent — or if a body
-                line is blank, spans more than one line, is a Markdown heading,
-                or opens a code fence. The last three are what would survive
-                into the block and be read there as its structure.
+                line is blank, spans more than one line, or is one of the
+                shapes `_refusal` names: a heading, a code fence, a Setext
+                underline, an HTML comment left open, each of them with any
+                indentation in front of it. All but the blank line are what
+                would survive into the block and be read there as its
+                structure, which is the same guard `as_narrative` applies to a
+                model's response.
         """
         if not self.label.strip():
             raise ValueError("a narrative's label must hold a word; it names the chain's intent")
@@ -160,15 +233,10 @@ class Narrative:
                 raise ValueError("a narrative's body holds no blank line")
             if "\n" in line or "\r" in line:
                 raise ValueError(f"a narrative's body line spans one line; got {line!r}")
-            if _HEADING_LINE.match(line):
+            reason = _refusal(line)
+            if reason is not None:
                 raise ValueError(
-                    f"a narrative's body line may not be a header; got {line!r} — the block's "
-                    f"own headers are what it is parsed back by"
-                )
-            if _FENCE_LINE.match(line):
-                raise ValueError(
-                    f"a narrative's body line may not open a code fence; got {line!r} — it "
-                    f"would enclose the sections rendered below it"
+                    f"a narrative holds no line a block would read as its structure: {reason}"
                 )
 
 
@@ -228,13 +296,14 @@ def _found_markers(lines: Sequence[str]) -> list[tuple[int, str]]:
         `_EXPECTED_MARKERS`.
 
     Raises:
-        NarrativeContractError: If a line is a Markdown heading that is none of
-            the three markers, or opens a code fence. Both are refused here
-            rather than where the bodies are sliced, because both are a line
+        NarrativeContractError: If a line is one of the shapes `_refusal`
+            names and is none of the three markers. They are refused here
+            rather than where the bodies are sliced, because each is a line
             that would be read as *structure* in the rendered block: a
-            `### Solution` of the model's own, a second `## [C…]` heading, a
-            misspelled narrative header, or a fence enclosing the sections the
-            renderer appends below.
+            `### Solution` of the model's own — indented or not — a second
+            `## [C…]` heading, a misspelled narrative header, a fence or an
+            HTML comment enclosing the sections the renderer appends below, or
+            a Setext underline making a header out of the line above it.
     """
     found: list[tuple[int, str]] = []
     for position, line in enumerate(lines):
@@ -242,16 +311,12 @@ def _found_markers(lines: Sequence[str]) -> list[tuple[int, str]]:
         if marker is not None:
             found.append((position, marker))
             continue
-        if _HEADING_LINE.match(line):
+        reason = _refusal(line)
+        if reason is not None:
             raise NarrativeContractError(
-                f"a narrative client wrote the header {line!r}, which is not one of its two: "
-                f"{DECISIONS_HEADER!r} and {REJECTED_HEADER!r}. The other sections of a block "
-                f"are written from the transcript, not by a model"
-            )
-        if _FENCE_LINE.match(line):
-            raise NarrativeContractError(
-                f"a narrative client opened a code fence ({line!r}); a narrative is bullet "
-                f"lines, and a fence would enclose the sections rendered below it"
+                f"a narrative client wrote a line a block would read as its structure: "
+                f"{reason}. The other sections of a block are written from the transcript, "
+                f"not by a model"
             )
     return found
 
@@ -284,10 +349,11 @@ def as_narrative(value: object) -> Narrative:
             does not hold exactly the three markers in that order with the
             intent marker first — a header missing, repeated, misspelled, out of
             order, or added (`### Solution`, `### Verification`, a second
-            `## [C…]` heading), and prose before the first marker. Also if a
-            line of a body opens a code fence, or the label holds no word. The
-            message names the line it refused, so a backend that answered in
-            prose fails where it answered.
+            `## [C…]` heading), and prose before the first marker. Also if any
+            other line would be read as the block's structure — `_refusal`
+            names the shapes, and indenting one does not help — or if the label
+            holds no word. The message names the line it refused, so a backend
+            that answered in prose fails where it answered.
     """
     if not isinstance(value, str):
         raise NarrativeContractError(
