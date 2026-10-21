@@ -20,10 +20,14 @@ Markdown, not transcripts, and a few lines of it is the whole input.
 No test here calls a model, and none reads a transcript of this machine.
 """
 
+import ast
+import subprocess
+import sys
 from collections.abc import Callable
+from pathlib import Path
 
-import idc.compact.merge as merge_module
-import idc.parse.blocks as parse_blocks_module
+import pytest
+
 from fixture_corpus import CORPUS
 from idc.chunk import chunk_session
 from idc.compact import (
@@ -509,17 +513,135 @@ def test_the_stage_rewrites_from_the_merged_section_and_not_the_resolution() -> 
     assert solution.index("src/billing/export.py") < solution.index(ADDED)
 
 
-def test_the_fence_rule_is_the_one_the_reader_applies() -> None:
-    """The copied fence pattern is compared to the reader's, not merely to itself.
+SRC_SOURCES = sorted(Path(__file__).resolve().parents[1].joinpath("src/idc").rglob("*.py"))
+"""Every source file of the tool — what the one-definition census below reads."""
 
-    `idc.compact.merge` re-spells the fence scan because `idc.parse`'s is private.
-    A behavioural pin catches a change to *this* module's copy, but a review showed
-    that changing the **reader's** pattern leaves every test here green — so the
-    two can drift apart in the direction that matters. Comparing the patterns is
-    blunt and is the point: it fails the moment either side is edited alone.
+READER_PACKAGE = "src/idc/parse/"
+"""Where the line scan is defined; every other file has to import it from there."""
+
+PATTERN_SPELLINGS = ("`{3,}", r"(?<=\n)", r"(?<=\r)")
+"""The pieces the two patterns are spelled with, as regex source.
+
+T8.3 made the scan public because these were spelled twice: a stale copy of
+either reopens a defect three review rounds of #34 paid for. A grep is blunt and
+is the point — it catches the second spelling at the moment it is written,
+whereas a behavioural test only catches it once the two copies disagree.
+"""
+
+COMPACT_SOURCES = sorted(
+    Path(__file__).resolve().parents[1].joinpath("src/idc/compact").glob("*.py")
+)
+"""Every source file of the writer — what the import-cycle census below reads."""
+
+
+def module_level_imports(source: str) -> set[str]:
+    """Return the modules a source file imports at import time.
+
+    Only the top-level statements are read, because only those run when the
+    module is imported: an import inside a function body is exactly the deferral
+    this package uses to stay clear of the cycle.
     """
-    assert merge_module._FENCE_LINE.pattern == parse_blocks_module._FENCE_LINE.pattern
-    assert merge_module._LINE_ENDING.pattern == parse_blocks_module._LINE_ENDING.pattern
+    imported: set[str] = set()
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            imported.add(node.module)
+    return imported
+
+
+def test_the_line_scan_has_one_definition_in_the_source_tree() -> None:
+    """No second spelling of either pattern outside `idc.parse`.
+
+    This replaces the pattern-string comparison of #29, which pinned that two
+    copies agreed. There are no longer two copies to compare: `idc.parse`
+    exports `split_lines`, `fence_opening` and `closes_fence`, and every other
+    module imports them.
+    """
+    outside = [path for path in SRC_SOURCES if READER_PACKAGE not in path.as_posix()]
+
+    assert outside, "the census found no file to search, so finding nothing proves nothing"
+    respelled = sorted(
+        (path.name, spelling)
+        for path in outside
+        for spelling in PATTERN_SPELLINGS
+        if spelling in path.read_text(encoding="utf-8")
+    )
+    assert respelled == []
+
+
+def test_the_merge_opens_its_fences_through_the_readers_public_name(monkeypatch) -> None:
+    """The cut runs the reader's own fence scan, not a copy of its rule.
+
+    Stubbing `idc.parse.fence_opening` leaves `idc.parse.blocks` untouched — the
+    reader holds its own reference — so this is discriminating in the direction
+    #29 could not pin: a module that re-spelled the rule would keep cutting the
+    fenced bullets correctly with the public name stubbed away.
+    """
+    assert NOTES_BULLET in merged_body(NOTES_BULLET)
+
+    monkeypatch.setattr("idc.parse.fence_opening", lambda line: None)
+
+    assert NOTES_BULLET not in merged_body(NOTES_BULLET)
+
+
+def test_the_merge_cuts_its_lines_through_the_readers_public_name(monkeypatch) -> None:
+    """The same for the line split, pinned on the form-feed body.
+
+    With `str.splitlines` in its place the run behind the form feed becomes a
+    line of its own, closes the fence it is inside of, and the bullet beneath it
+    is cut out of the kept file's content and overlaid away.
+
+    The path is **counted** and not looked for, for the reason
+    `test_a_fence_run_behind_a_form_feed_closes_nothing` gives: what is overlaid
+    in begins with the two lines the cut dropped, so the truncated body still
+    holds `odd` as a substring. It was written as `odd not in` first and passed
+    with the stub in place.
+    """
+    odd = f"- `docs/odd.md`\n```\n\f```\n- `{OVERWRITTEN}`\n```\n"
+    assert merged_body(odd).count(f"- `{OVERWRITTEN}`") == 2
+
+    monkeypatch.setattr("idc.parse.split_lines", lambda text: text.splitlines(True))
+
+    assert merged_body(odd).count(f"- `{OVERWRITTEN}`") == 1
+
+
+def test_the_writer_imports_the_reader_nowhere_at_module_level() -> None:
+    """`idc.parse.blocks` imports this package, so this direction is a cycle.
+
+    Every import of the reader in here is deferred into the function that needs
+    it, which is the precedent `idc.compact.incremental` set and states.
+    """
+    assert COMPACT_SOURCES, "the census found no file to read"
+
+    offenders = sorted(
+        path.name
+        for path in COMPACT_SOURCES
+        for module in module_level_imports(path.read_text(encoding="utf-8"))
+        if module == "idc.parse" or module.startswith("idc.parse.")
+    )
+    assert offenders == []
+
+
+@pytest.mark.parametrize("first", ["idc.compact", "idc.parse"])
+def test_either_package_imports_first(first: str) -> None:
+    """An import cycle is a crash at import time, not a failing assertion.
+
+    The census above reads the source; this runs it. Each order is a fresh
+    interpreter, because by the time this test module is collected both packages
+    are long imported and either order would pass in-process.
+    """
+    second = "idc.parse" if first == "idc.compact" else "idc.compact"
+
+    result = subprocess.run(
+        [sys.executable, "-c", f"import {first}\nimport {second}\nprint('imported')"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "imported"
 
 
 def test_a_path_named_twice_on_the_old_side_is_overwritten_as_one_file() -> None:

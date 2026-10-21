@@ -39,6 +39,15 @@ no more: `_LINE_ENDING`. `str.splitlines` would break on seven further
 characters that end no line in Markdown, and each of them reopened the escape
 above through a second door — a closing run behind a form feed reached
 `_dedented` looking flush.
+
+**Three of those rules are public**, because a second stage needs them and had
+re-spelled them: `idc.compact.merge` cuts a rendered `Solution` body into one
+segment per bullet, which takes the reader's own notion of what a line is and of
+what opens a fence. `split_lines`, `fence_opening` and `closes_fence` are that
+notion, `_scan` is written in terms of them, and the patterns behind them stay
+private — a caller wants the question answered, not the regex. T8.3 (#94) made
+them public after #29 had copied the two patterns and pinned the copies by
+comparing their pattern strings.
 """
 
 import re
@@ -64,11 +73,14 @@ __all__ = [
     "PLACEHOLDER_CHUNK_PREFIX",
     "ParsedBlock",
     "ParsedSection",
+    "closes_fence",
+    "fence_opening",
     "join_blocks",
     "parse_blocks",
     "parse_chains",
     "placeholder_chunk_id",
     "split_blocks",
+    "split_lines",
 ]
 
 BLOCK_SEPARATOR = "\n"
@@ -124,12 +136,17 @@ _HEADING_START = "##"
 _FENCE_LINE = re.compile(r"^(`{3,})(.*)$")
 """A line that may open a code fence: a run of backticks and an info string.
 
-Anchored at the run and carrying **no indent allowance of its own**: `_scan`
-matches it against the line `_dedented` handed back, the way `_headings` matches
-`HEADING_PATTERN` against it, so that the indentation rule really does have one
-place and not two spellings that have to be kept in step. A run followed by a
-backtick is not an opening fence (an info string holds none), which keeps an
-inline span from opening one.
+Anchored at the run and carrying **no indent allowance of its own**:
+`fence_opening` matches it against the line `_dedented` handed back, the way
+`_headings` matches `HEADING_PATTERN` against it, so that the indentation rule
+really does have one place and not two spellings that have to be kept in step. A
+run followed by a backtick is not an opening fence (an info string holds none),
+which keeps an inline span from opening one.
+
+Private on purpose, and the only spelling of it in the project: `fence_opening`
+is what a caller outside this module is offered, because the pattern alone
+answers neither of the two conditions above — it matches an indented run and a
+run whose info string holds a backtick just as readily.
 """
 
 
@@ -137,8 +154,8 @@ _LINE_ENDING = re.compile(r"(?<=\n)|(?<=\r)(?!\n)")
 """Where one line ends and the next begins: after an LF, a CRLF or a bare CR.
 
 CommonMark's three line endings and nothing else, written as a zero-width split
-so that `_lines` keeps every byte of the input. The lookahead is what keeps a
-CRLF one ending rather than two: the CR of a CRLF does not break a line of its
+so that `split_lines` keeps every byte of the input. The lookahead is what keeps
+a CRLF one ending rather than two: the CR of a CRLF does not break a line of its
 own, so no empty line appears between a line and the next.
 
 Deliberately **not** `str.splitlines`, which also breaks on the vertical tab, the
@@ -153,8 +170,13 @@ character a `## [C2]` heading cut its block short instead.
 """
 
 
-def _lines(text: str) -> list[str]:
+def split_lines(text: str) -> list[str]:
     """Return the lines of `text`, their terminators kept.
+
+    What a *line* is, for everything that reads or writes a compacted block.
+    `_scan` cuts its input with this, and so does `idc.compact.merge` when it
+    cuts a rendered `Solution` body into bullets — the two agree because there
+    is one function, not two patterns that match today.
 
     Args:
         text: The text to cut into lines.
@@ -162,10 +184,15 @@ def _lines(text: str) -> list[str]:
     Returns:
         One entry per line, each ending in its own terminator except a last line
         the text does not terminate, so that `"".join` of them is `text` again —
-        which is what lets `ParsedBlock.text` be the bytes the block occupied. A
-        text that ends in a terminator ends with that line and gains no trailing
-        empty one, and an empty text holds no line at all. The line numbers the
-        refusals in `idc.parse.errors` name are counted off this list.
+        which is what lets `ParsedBlock.text` be the bytes the block occupied and
+        a kept bullet be copied byte for byte. A text that ends in a terminator
+        ends with that line and gains no trailing empty one, and an empty text
+        holds no line at all. The line numbers the refusals in
+        `idc.parse.errors` name are counted off this list.
+
+        A terminator is an LF, a CRLF or a bare CR and nothing else — see
+        `_LINE_ENDING` for the seven characters `str.splitlines` adds to that
+        list and for what reading them as endings let through.
     """
     lines = _LINE_ENDING.split(text)
     if lines and not lines[-1]:
@@ -322,7 +349,7 @@ def _bare(line: str) -> str:
     """Return one line without its terminator, so a pattern can anchor at its end.
 
     Args:
-        line: A line as `_lines` returned it.
+        line: A line as `split_lines` returned it.
 
     Returns:
         The line without its line terminator — LF, CRLF or a bare CR, the three
@@ -341,7 +368,8 @@ def _dedented(bare: str) -> str | None:
     The single place the indentation rule is decided, for all four kinds of line
     that carry structure: `_headings` matches `HEADING_PATTERN` against what this
     returns and tests `_HEADING_START` on it, `_sections` tests `_SECTION_START`
-    on it, and `_scan` matches both `_FENCE_LINE` and the closing run on it.
+    on it, and `fence_opening` and `closes_fence` read the two ends of a fence
+    off it.
 
     Args:
         bare: One line without its terminator, as `_bare` returned it.
@@ -371,6 +399,59 @@ def _dedented(bare: str) -> str | None:
     return stripped
 
 
+def fence_opening(line: str) -> str | None:
+    """Return the backtick run `line` opens a code fence with, or `None`.
+
+    One half of what a caller outside this module needs to walk a block's fences;
+    `closes_fence` is the other. `_scan` is written in terms of both, so the rule
+    a caller gets is the rule the reader applies and not a copy of it.
+
+    Args:
+        line: One line as `split_lines` returned it, terminator and all.
+
+    Returns:
+        The run of three or more backticks the line opens a fence with — what
+        `closes_fence` then needs, because a fence is closed only by a run at
+        least as long — or `None` for every line that opens none. Three
+        conditions have to hold: the run stands at the start of the line, the
+        line carries at most `MAX_STRUCTURE_INDENT` leading spaces (indented
+        further it is content), and the info string after the run holds no
+        backtick, so an inline span opens nothing. The defect on record is
+        against the closing half of the rule rather than this one — see
+        `closes_fence`.
+    """
+    dedented = _dedented(_bare(line))
+    if dedented is None:
+        return None
+    match = _FENCE_LINE.match(dedented)
+    if match is None or "`" in match.group(2):
+        return None
+    return match.group(1)
+
+
+def closes_fence(line: str, fence: str) -> bool:
+    """Say whether `line` closes a fence that `fence` opened.
+
+    Args:
+        line: One line as `split_lines` returned it, terminator and all.
+        fence: The run the fence was opened with, as `fence_opening` returned it.
+
+    Returns:
+        True when the line is a run of backticks at least as long as `fence`,
+        indented by at most `MAX_STRUCTURE_INDENT` spaces and followed by nothing
+        but whitespace. "At least as long" and the indent bound are both
+        load-bearing: a shorter run inside a longer fence is content, and a run
+        indented out of structure closes nothing — it is the line a hand leaves
+        inside a list item, and taking it for a close would hand the section
+        headers beneath it to the splitter.
+    """
+    dedented = _dedented(_bare(line))
+    if dedented is None:
+        return False
+    closing = dedented.rstrip()
+    return bool(closing) and set(closing) == {"`"} and len(closing) >= len(fence)
+
+
 def _spans(starts: Sequence[int], total: int) -> list[tuple[int, int]]:
     """Return each start paired with the line the next one begins on.
 
@@ -396,41 +477,33 @@ def _scan(text: str) -> tuple[list[str], list[int]]:
         text: The text to scan.
 
     Returns:
-        The lines as `_lines` cut them, terminators kept — `"".join` of them is
-        `text` again — and the indices of the lines that are structure: not inside a
-        fenced block, and not a fence line themselves. Those are the only lines
-        a heading or a section header may be read off, which is what makes a
-        `###` inside a four-backtick fence content.
+        The lines as `split_lines` cut them, terminators kept — `"".join` of them
+        is `text` again — and the indices of the lines that are structure: not
+        inside a fenced block, and not a fence line themselves. Those are the
+        only lines a heading or a section header may be read off, which is what
+        makes a `###` inside a four-backtick fence content.
 
-        A fence is closed by a run of at least as many backticks as opened it,
-        indented by at most `MAX_STRUCTURE_INDENT` spaces and followed by
-        nothing but whitespace. "At least as many" and the indent bound are both
-        load-bearing: a shorter run inside a longer fence is content, and a run
-        indented out of structure closes nothing — it is the line a hand leaves
-        inside a list item, and taking it for a close would hand the section
-        headers beneath it to the splitter.
+        What opens and what closes a fence is `fence_opening` and
+        `closes_fence`, which is also what `idc.compact.merge` walks its bullets
+        with — the one place either rule is written.
 
     Raises:
         UnterminatedFenceError: If a fence is opened and never closed. Reading
             on instead would take every heading after it for fenced content.
     """
-    lines = _lines(text)
+    lines = split_lines(text)
     structural: list[int] = []
     fence: str | None = None
     opened = 0
     for index, line in enumerate(lines):
-        dedented = _dedented(_bare(line))
         if fence is None:
-            match = None if dedented is None else _FENCE_LINE.match(dedented)
-            if match is not None and "`" not in match.group(2):
-                fence, opened = match.group(1), index
+            opening = fence_opening(line)
+            if opening is not None:
+                fence, opened = opening, index
             else:
                 structural.append(index)
             continue
-        if dedented is None:
-            continue
-        closing = dedented.rstrip()
-        if closing and set(closing) == {"`"} and len(closing) >= len(fence):
+        if closes_fence(line, fence):
             fence = None
     if fence is not None:
         raise UnterminatedFenceError(opened + 1, fence)
