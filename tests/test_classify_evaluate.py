@@ -20,6 +20,7 @@ Around them, two things are tested the way the ticket requires them to be:
 import json
 import subprocess
 import sys
+from itertools import product
 
 import pytest
 
@@ -30,6 +31,7 @@ from idc.classify import (
     GOLD_CHUNKING,
     NEW,
     Agreement,
+    ClassifyError,
     CorpusAgreement,
     DecisionRecordError,
     Disagreement,
@@ -622,6 +624,61 @@ def test_the_command_reports_a_recorded_run_of_the_wrong_length(tmp_path, capsys
 
     assert status == EXIT_INPUT_ERROR
     assert "interleaved_intents" in capsys.readouterr().err
+
+
+def write_gold(directory, name, **overrides):
+    """Write a gold document for one transcript and return its directory."""
+    directory.mkdir(parents=True, exist_ok=True)
+    document = {
+        "transcript": name,
+        "chunking": GOLD_CHUNKING,
+        "note": "A document written by a test, one key at a time.",
+        "chains": {"K1": "C1"},
+    } | overrides
+    (directory / f"{name}.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    return directory
+
+
+def test_the_command_refuses_a_gold_document_whose_chunking_it_cannot_perform(tmp_path, capsys):
+    # The refusal that keeps a labelling from being scored against the wrong
+    # chunks, driven the way a user meets it: a document, through the command.
+    gold_dir = write_gold(tmp_path / "gold", "single_intent", chunking="subagent-chunks")
+
+    status = main([str(gold_dir), str(FIXTURES_DIR)])
+
+    captured = capsys.readouterr()
+    assert status == EXIT_INPUT_ERROR
+    assert "subagent-chunks" in captured.err
+    assert captured.out == ""
+
+
+def test_no_legal_run_can_get_the_partition_right_and_the_names_wrong():
+    # Two arbitrary labellings can diverge all the way — 0.0 accuracy at a 1.0
+    # Rand index (`METRIC_CASES["chains-renamed"]`) — but a *run* of this
+    # pipeline cannot: the store numbers chains in opening order and a gold
+    # labelling that does not is refused, so a run that found the gold partition
+    # also found its names. Every script the classifier accepts is enumerated.
+    gold = gold_of("interleaved_intents")
+    session = CORPUS.session("interleaved_intents")
+    scored = 0
+
+    for script in product([NEW, "C1", "C2", "C3"], repeat=len(gold)):
+        try:
+            result = evaluate_adapter(gold, session, FakeAdapter(list(script)))
+        except ClassifyError:
+            continue
+        scored += 1
+        assert (result.rand_index == 1.0) == (result.accuracy == 1.0), script
+
+    assert scored > 1
+
+
+def test_the_coverage_guard_is_documented_as_a_library_level_one():
+    # Through the command the recorded-run length check or a script running out
+    # trips first (`test_the_command_reports_a_recorded_run_of_the_wrong_length`),
+    # so the guard protects a caller that scores a labelling it built itself —
+    # and must not be read as end-to-end protection.
+    assert "library-level guard" in (GoldCoverageError.__doc__ or "")
 
 
 def test_load_decisions_reads_new_and_a_chain_id(tmp_path):
