@@ -134,12 +134,6 @@ def session_with_command(name: str, call_id: str, command: str) -> Session:
     return loads(Session, json.dumps(document))
 
 
-def path_of(name: str) -> tuple[str, ...]:
-    """Return the path call ids of a single-chain fixture."""
-    session, chunks, chain = only_chain(name)
-    return path_call_ids(session, chunks, chain)
-
-
 # --- the acceptance criterion: the partition ------------------------------
 
 
