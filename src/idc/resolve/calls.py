@@ -109,13 +109,17 @@ def file_of(call: ToolCall) -> str | None:
         The path exactly as the agent wrote it — not normalized, not resolved:
         two spellings of one file are two files here, because the resolver has
         no filesystem and `/repo/src/a.py` and `src/a.py` cannot be compared
-        without one. The first key of `FILE_PATH_KEYS` that holds a string
-        wins; `None` means no argument named a file, which includes a call that
-        names it under a spelling this build has never seen.
+        without one. The first key of `FILE_PATH_KEYS` that holds a path wins;
+        `None` means no argument named a file, which covers three cases: no
+        such key, a key spelled in a way this build has never seen, and a key
+        whose value holds no word. The last one is read as *no* path rather
+        than as the file `""`, which would group into an entry naming a file
+        nothing names — a `SolutionFile` refuses that, and a transcript must
+        not be able to trigger a refusal outside `idc.resolve.errors`.
     """
     for key in FILE_PATH_KEYS:
         value = call.args.get(key)
-        if isinstance(value, str):
+        if isinstance(value, str) and value.strip():
             return value
     return None
 
