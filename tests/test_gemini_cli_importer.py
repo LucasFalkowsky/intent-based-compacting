@@ -1145,7 +1145,12 @@ def test_an_undeclared_tool_resolves_to_other_and_is_noted():
     imported = import_gemini_cli(document("unknown_tool"))
 
     assert imported.unknown_tools == ("teleport_file",)
-    assert [note.kind for note in imported.notes_of(NOTE_UNKNOWN_TOOL)] == [NOTE_UNKNOWN_TOOL]
+    # The one undeclared call is noted once, and the declared `invoke_agent`
+    # next to it is not noted at all. Asserting the notes' `kind` instead would
+    # be vacuous: `notes_of` filters by kind.
+    assert [(note.detail, note.count) for note in imported.notes_of(NOTE_UNKNOWN_TOOL)] == [
+        ("teleport_file", 1)
+    ]
     calls = {
         call.name: call.category
         for message in imported.session.messages
@@ -1154,13 +1159,34 @@ def test_an_undeclared_tool_resolves_to_other_and_is_noted():
     assert calls["teleport_file"] is ToolCategory.OTHER
 
 
-def test_an_undeclared_tool_is_logged_once_per_name(caplog):
+def test_an_undeclared_tool_is_logged_once_per_name(tmp_path, caplog):
+    # Two calls of the *same* undeclared tool, because one call cannot tell
+    # once-per-name from once-per-occurrence. The note counts both; the warning
+    # is written once, so a second occurrence cannot bury the next one.
+    path = write_jsonl(
+        tmp_path,
+        [
+            metadata_record(),
+            gemini_record(
+                "g1",
+                "x",
+                toolCalls=[
+                    tool_call("c1", "teleport_file", {"destination": "/repo/out"}),
+                    tool_call("c2", "teleport_file", {"destination": "/repo/tmp"}),
+                ],
+            ),
+        ],
+    )
+
     with caplog.at_level(logging.WARNING, logger="idc.importers"):
-        import_gemini_cli(document("unknown_tool"))
+        imported = import_gemini_cli(path)
 
     warnings = [record for record in caplog.records if "teleport_file" in record.getMessage()]
     assert len(warnings) == 1
     assert "other" in warnings[0].getMessage()
+    assert [(note.detail, note.count) for note in imported.notes_of(NOTE_UNKNOWN_TOOL)] == [
+        ("teleport_file", 2)
+    ]
 
 
 def test_a_declared_tool_is_not_logged(caplog):
