@@ -377,6 +377,28 @@ def test_an_unreadable_content_is_noted_by_its_shape(tmp_path):
     assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
 
 
+def test_an_unreadable_content_yields_no_message_and_is_noted_twice(tmp_path):
+    """Gemini CLI drops the turn, as Claude Code does — not as OpenCode does.
+
+    The README calls the unreadable content the one case where the importers
+    deliberately differ; this pins which side Gemini CLI is on. The record is
+    noted both for the content it carried and for carrying no message.
+    """
+    path = write_jsonl(
+        tmp_path,
+        [metadata_record(), user_record("u1", {"text": "lost"}), user_record("u2", "text")],
+    )
+
+    imported = import_gemini_cli(path)
+
+    assert [message.id for message in imported.session.messages] == ["u2"]
+    assert [note.detail for note in imported.notes_of(NOTE_DROPPED_BLOCK)] == ["<content: object>"]
+    assert [note.detail for note in imported.notes_of(NOTE_SKIPPED_RECORD)] == [
+        "<metadata>",
+        "user",
+    ]
+
+
 def test_a_part_that_is_not_an_object_is_noted_by_its_shape(tmp_path):
     path = write_jsonl(tmp_path, [metadata_record(), user_record("u1", ["bare string"])])
 
@@ -1187,6 +1209,29 @@ def test_an_undeclared_tool_is_logged_once_per_name(tmp_path, caplog):
     assert [(note.detail, note.count) for note in imported.notes_of(NOTE_UNKNOWN_TOOL)] == [
         ("teleport_file", 2)
     ]
+
+
+def test_a_document_that_looks_like_metadata_but_names_no_project_hash_says_so(tmp_path):
+    """The diagnostic names the key that kept the document from being read.
+
+    A single-document session whose metadata names no `projectHash` is not
+    recognised as the metadata record, so its `messages` are never read. The
+    error says that rather than claiming the transcript holds no message.
+    """
+    path = tmp_path / "session-legacy.json"
+    path.write_text(
+        json.dumps(
+            {
+                "sessionId": SESSION_ID,
+                "startTime": "2026-09-20T12:00:00.000Z",
+                "messages": [user_record("u1", "fix the exporter")],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TranscriptImportError, match="projectHash"):
+        import_gemini_cli(path)
 
 
 def test_a_declared_tool_is_not_logged(caplog):
