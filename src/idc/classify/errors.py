@@ -340,6 +340,12 @@ class GoldCoverageError(ClassifyError):
     intersection, or the smaller of the two. The usual cause is a labelling
     written against another chunking, or a transcript that has grown since.
 
+    It is a **library-level guard**, for a caller that scores a labelling it
+    produced elsewhere (`agreement`, `per_chunk_accuracy`, `rand_index`). The
+    command does not reach it: a recorded run of the wrong length is refused
+    before anything is scored (`DecisionRecordError`), and a decision list that
+    is too short runs out inside the classifier (`ScriptExhaustedError`).
+
     Attributes:
         missing: Chunk ids the gold labels and the run does not, in gold order.
         unexpected: Chunk ids the run labels and the gold does not, in run
