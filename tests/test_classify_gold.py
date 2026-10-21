@@ -58,6 +58,8 @@ GOLD_LABELS: dict[str, dict[str, str]] = {
     "failed_then_passing_command": {"K1": "C1"},
     # A, B, A — the discriminating case: the third turn rejoins C1.
     "interleaved_intents": {"K1": "C1", "K2": "C2", "K3": "C1"},
+    # A file written, patched in vain and written again stays one intent too.
+    "rewritten_after_failed_edit": {"K1": "C1"},
     "single_intent": {"K1": "C1"},
     # A slash command is no user turn, so there is one chunk, hence one chain.
     "slash_command": {"K1": "C1"},

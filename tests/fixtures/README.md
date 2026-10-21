@@ -1,6 +1,6 @@
 # Shared transcript fixture corpus
 
-Nine hand-written **canonical** transcripts — one `Session` document per file, not an
+Ten hand-written **canonical** transcripts — one `Session` document per file, not an
 agent-native transcript (importing those is T2). Every later ticket's tests are written
 against this corpus instead of against transcripts of their own, so a fixture's structure
 is a contract: `tests/test_fixture_cases.py` pins the property each one exists for, and
@@ -41,6 +41,9 @@ session = CORPUS.session("interleaved_intents")  # validated on load
 - `write_then_two_edits.json` — one file created and then edited twice (`write_file`,
   `replace`, `replace`) plus a second file written once, so the last write **per file** is
   resolvable and the two superseded writes are distinguishable from it.
+- `rewritten_after_failed_edit.json` — the same file written twice (`Write`, a refused
+  `Edit`, `Write`) and nothing run: the overwritten write is distinguishable from the
+  accepted one, and a write the agent saw fail is neither of the two.
 - `already_compacted_block.json` — a session with `source = intent-compaction` whose first
   message holds a rendered summary block for the chains `C1` and `C2`, followed by one new
   turn that rewrites a file of `C2`'s solution and adds another: the re-entry input for the

@@ -63,7 +63,7 @@ FIXTURE_NAMES = CORPUS.names()
 MULTI_CHUNK_FIXTURES = ("interleaved_intents", "two_sequential_intents")
 """The fixtures a classifier can get wrong at all.
 
-Seven of the nine transcripts hold a single chunk, where the only decision an
+Eight of the ten transcripts hold a single chunk, where the only decision an
 adapter may make is `NEW` — naming a chain is `UnknownChainError`, because none
 is on offer yet. A wrong script therefore exists only for these two, which
 `test_a_single_chunk_transcript_admits_only_the_gold_decision` pins.
@@ -269,7 +269,7 @@ def test_a_wrong_script_names_the_chunks_it_got_wrong():
     "name", [name for name in FIXTURE_NAMES if name not in MULTI_CHUNK_FIXTURES]
 )
 def test_a_single_chunk_transcript_admits_only_the_gold_decision(name):
-    # Why the wrong-script test covers two fixtures and not nine: with no chain
+    # Why the wrong-script test covers two fixtures and not ten: with no chain
     # open yet, naming one is refused by the classifier before any scoring.
     with pytest.raises(UnknownChainError):
         evaluate_adapter(gold_of(name), CORPUS.session(name), FakeAdapter(["C1"]))
@@ -451,11 +451,11 @@ def test_no_legal_run_over_the_corpus_scores_below_the_floor():
         [worst_legal_case(name) for name in FIXTURE_NAMES], RunSource.adapter("FakeAdapter")
     )
 
-    assert worst.chunk_count == 12
-    assert worst.forced_chunks == 9
+    assert worst.chunk_count == 13
+    assert worst.forced_chunks == 10
     assert worst.matches == worst.forced_chunks
     assert worst.accuracy == pytest.approx(worst.floor_accuracy)
-    assert worst.accuracy == pytest.approx(0.75)
+    assert worst.accuracy == pytest.approx(10 / 13)
 
 
 def test_the_report_states_the_floor_it_derived_from_the_corpus():
@@ -578,9 +578,9 @@ def test_the_command_scores_a_recorded_run(tmp_path, capsys):
     status = main([str(GOLD_DIR), str(FIXTURES_DIR), "--decisions", str(decisions_dir)])
 
     out = capsys.readouterr().out
-    # 11 of the corpus' 12 chunks and 3 of its 4 chunk pairs, by hand.
+    # 12 of the corpus' 13 chunks and 3 of its 4 chunk pairs, by hand.
     assert status == 0
-    assert "accuracy 0.917, rand index 0.750" in out
+    assert "accuracy 0.923, rand index 0.750" in out
     assert "interleaved_intents K3: C3 / C1" in out
 
 
