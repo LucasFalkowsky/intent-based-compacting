@@ -36,7 +36,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
-from idc.measure.statistics import REPLACEMENT_PAIRS
 
 from fixture_corpus import CORPUS
 from fixture_corpus import REPLACEMENT_PAIRS as CORPUS_REPLACEMENT_PAIRS
@@ -50,6 +49,7 @@ from idc.measure import (
     lines_added_of,
     tool_statistics,
 )
+from idc.measure.statistics import REPLACEMENT_PAIRS
 from idc.schema import (
     Agent,
     Message,

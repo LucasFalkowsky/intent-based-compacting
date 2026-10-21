@@ -1,9 +1,10 @@
 """The failures of the measurement stage, as one catchable family.
 
 Measurement is handed two kinds of input from outside its own code: a
-**transcript**, whose `model` field says which tokenizer the numbers have to be
-produced with, and a pair of **token counts** that a previous stage produced.
-Everything that can go wrong with either is a `MeasureError`, so a caller (and
+**transcript** — whose `model` field says which tokenizer the numbers have to be
+produced with, and whose tool calls are what the exploration rate is a rate of —
+and a pair of **token counts** that a previous stage produced. Everything that
+can go wrong with either is a `MeasureError`, so a caller (and
 T10's CLI) catches the whole stage with one `except`, and each subclass carries
 the values its message is built from — the shape `idc.classify.errors`,
 `idc.resolve.errors`, `idc.compact.errors` and `idc.parse.errors` established.
@@ -20,13 +21,15 @@ The line between the family and a plain `ValueError` is drawn here the way
   `before` or `after` is a programming error and raises a plain `ValueError`
   that is deliberately *not* a `MeasureError`.
 
-`EmptyBaselineError` is both, and deliberately overlaps rather than splits —
+`EmptyBaselineError` and `NoToolCallsError` are both, and deliberately overlap
+rather than split —
 exactly as `idc.compact.errors.NarrativeContractError` and
 `idc.classify.errors.AdapterContractError` do. A `before` of zero is at once a
 property of the transcript the stage was handed (a visible context that holds
 no word) and a value no caller may divide by, so a caller never has to catch two
 families for one event and a caller that reads it as a value problem is not made
-wrong.
+wrong. A visible context that holds no tool call is the same event one metric
+further on, and is reported the same way.
 
 What is **not** here: the refusal of `idc.importers.visible_context`. A session
 the agent compacted itself but whose summary cannot be located raises
@@ -42,6 +45,7 @@ __all__ = [
     "EmptyBaselineError",
     "MeasureError",
     "NoTokenizerError",
+    "NoToolCallsError",
     "UnknownModelError",
 ]
 
@@ -156,4 +160,40 @@ class EmptyBaselineError(MeasureError, ValueError):
         super().__init__(
             f"the baseline counts no token, so no compression rate is defined for it "
             f"(after = {after}); measure a context that holds at least one word"
+        )
+
+
+class NoToolCallsError(MeasureError, ValueError):
+    """An exploration rate was asked for from a session that made no tool call.
+
+    `read_calls / total_calls` has no value at `total_calls == 0`, and the
+    refusal is the one `EmptyBaselineError` makes for the same shape of
+    question: a `0.0` would read as "this session explored nothing" for a
+    session that used no tool at all, and a `nan` would travel into a results
+    table without a line of output saying so.
+
+    The refusal is raised by `ToolStatistics.exploration_rate` and **not** by
+    the constructor, because the other metrics of that object are defined at
+    zero calls — no file was edited, no line was added, the histogram is empty —
+    and refusing to build it would discard three good numbers with the one that
+    is undefined.
+
+    `MeasureError` **and** `ValueError`; see this module's docstring for why the
+    two sides overlap here.
+
+    Attributes:
+        session_id: `Session.id` of the transcript that made no tool call, so
+            the message names the transcript to look at.
+    """
+
+    def __init__(self, session_id: str) -> None:
+        """Build the error from the session whose rate was asked for.
+
+        Args:
+            session_id: `Session.id` of that session.
+        """
+        self.session_id = session_id
+        super().__init__(
+            f"the visible context of {session_id!r} holds no tool call, so no exploration "
+            f"rate is defined for it; its other statistics are reported as they stand"
         )
