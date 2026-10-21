@@ -182,7 +182,10 @@ from idc.importers.base import (
     SessionBuilder,
     block_message_id,
     joined_text,
+    note_unreadable_content,
     parse_timestamp,
+    shape,
+    type_name,
 )
 from idc.importers.jsonl import JsonLine, read_json_lines
 from idc.importers.tool_registry import ToolRegistry
@@ -225,17 +228,6 @@ METADATA_RECORD = "<metadata>"
 
 NO_PART_KIND = "<no part kind>"
 """How a content part that carries none of the known keys is named."""
-
-NO_TYPE = "<no type>"
-"""How a record that names no `type` at all is reported in the notes."""
-
-NULL_TYPE = "<null type>"
-"""How a record whose `type` is `null` is reported in the notes.
-
-Distinct from `NO_TYPE`: a missing field is a shape this importer does not know,
-a `null` one is damaged, and `str(None)` reads the same for both — and the same
-as a type genuinely spelled `"None"`.
-"""
 
 SECOND_SESSION = "<sessionId: a second value>"
 """How a record naming a session other than the first one is reported.
@@ -354,9 +346,9 @@ def import_gemini_cli(path: str | Path, *, registry: ToolRegistry | None = None)
                 log.extend(builder, line, embedded)
             builder.note(NOTE_SKIPPED_RECORD, METADATA_RECORD)
             continue
-        builder.note(NOTE_SKIPPED_RECORD, _type_name(record))
+        builder.note(NOTE_SKIPPED_RECORD, type_name(record))
     for message_id, line, record in log.messages():
-        kind = _type_name(record)
+        kind = type_name(record)
         reader = READERS.get(kind)
         if reader is None or not reader(builder, line, record, message_id):
             builder.note(NOTE_SKIPPED_RECORD, kind)
@@ -467,11 +459,11 @@ class _MessageLog:
         """
         for entry in entries:
             if not isinstance(entry, Mapping):
-                builder.note(NOTE_DROPPED_BLOCK, f"{FIELD_MESSAGES}/<entry: {_shape(entry)}>")
+                builder.note(NOTE_DROPPED_BLOCK, f"{FIELD_MESSAGES}/<entry: {shape(entry)}>")
                 continue
             message_id = _record_id(builder, entry)
             if message_id is None:
-                builder.note(NOTE_SKIPPED_RECORD, _type_name(entry))
+                builder.note(NOTE_SKIPPED_RECORD, type_name(entry))
                 continue
             self.put(message_id, line, entry)
 
@@ -527,52 +519,9 @@ def _record_id(builder: SessionBuilder, record: Mapping[str, Any]) -> str | None
     if isinstance(value, str) and value:
         return value
     if value is not None:
-        detail = "<id: empty string>" if value == "" else f"<id: {_shape(value)}>"
+        detail = "<id: empty string>" if value == "" else f"<id: {shape(value)}>"
         builder.note(NOTE_DROPPED_BLOCK, detail)
     return None
-
-
-def _type_name(holder: Mapping[str, Any]) -> str:
-    """Return the `type` of a record as the notes name it.
-
-    Args:
-        holder: One transcript record.
-
-    Returns:
-        The `type` field as a string, or `NO_TYPE` when it names none and
-        `NULL_TYPE` when it names `null`. A type that is present and not a
-        string keeps its own spelling (`7`).
-    """
-    if "type" not in holder:
-        return NO_TYPE
-    kind = holder["type"]
-    return NULL_TYPE if kind is None else str(kind)
-
-
-def _shape(value: Any) -> str:
-    """Return the JSON shape of a value, to name something that has no kind.
-
-    Args:
-        value: The value a note is about.
-
-    Returns:
-        Its JSON type name — `object`, `array`, `string`, `number`, `boolean`,
-        `null`. A note about a part names the part's kind; a value that is not a
-        part has none, so its shape is the only honest thing to report.
-    """
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "boolean"
-    if isinstance(value, int | float):
-        return "number"
-    if isinstance(value, str):
-        return "string"
-    if isinstance(value, Mapping):
-        return "object"
-    if isinstance(value, list):
-        return "array"
-    return type(value).__name__
 
 
 def _part_name(part: Mapping[str, Any]) -> str:
@@ -621,20 +570,8 @@ def _parts(builder: SessionBuilder, content: Any, *, prefix: str = "") -> list[M
         if isinstance(entry, Mapping):
             parts.append(entry)
         else:
-            builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<entry: {_shape(entry)}>")
+            builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<entry: {shape(entry)}>")
     return parts
-
-
-def _note_unreadable_content(builder: SessionBuilder, content: Any, *, prefix: str = "") -> None:
-    """Note a content value that is neither text nor a part list.
-
-    An absent content (`None`) is not noted: the record carried nothing, so
-    nothing was lost. Anything else — a number, an object — did carry something
-    this importer cannot read, and the note is what keeps that from being a
-    silent loss in a tool whose output is a measurement.
-    """
-    if content is not None and not isinstance(content, str | list):
-        builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<content: {_shape(content)}>")
 
 
 def _part_text(builder: SessionBuilder, part: Mapping[str, Any], *, prefix: str = "") -> str:
@@ -652,7 +589,7 @@ def _part_text(builder: SessionBuilder, part: Mapping[str, Any], *, prefix: str 
     if isinstance(value, str):
         return value
     if value is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{PART_TEXT}/<text: {_shape(value)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{prefix}{PART_TEXT}/<text: {shape(value)}>")
     return ""
 
 
@@ -672,7 +609,7 @@ def _text_content(builder: SessionBuilder, content: Any, *, prefix: str = "") ->
     """
     if isinstance(content, str):
         return content
-    _note_unreadable_content(builder, content, prefix=prefix)
+    note_unreadable_content(builder, content, prefix=prefix)
     texts: list[str] = []
     for part in _parts(builder, content, prefix=prefix):
         if _part_name(part) == PART_TEXT:
@@ -711,7 +648,7 @@ def _add_user_record(
     if isinstance(content, str):
         text, text_index, found = content, 0, []
     else:
-        _note_unreadable_content(builder, content)
+        note_unreadable_content(builder, content)
         text, text_index, found = _user_parts(builder, line, content)
     if SNAPSHOT_MARKER in text:
         builder.add_native_summary(message_id=message_id, content=text, timestamp=timestamp)
@@ -792,7 +729,7 @@ def _result_part(builder: SessionBuilder, line: JsonLine, part: Mapping[str, Any
     response = part.get(PART_FUNCTION_RESPONSE)
     if not isinstance(response, Mapping):
         raise builder.fail(
-            f"a {PART_FUNCTION_RESPONSE} part is a {_shape(response)}, not an object",
+            f"a {PART_FUNCTION_RESPONSE} part is a {shape(response)}, not an object",
             line=line.number,
         )
     call_id = response.get("id")
@@ -827,7 +764,7 @@ def _response_output(builder: SessionBuilder, response: Mapping[str, Any]) -> tu
         if payload is not None:
             builder.note(
                 NOTE_DROPPED_BLOCK,
-                f"{PART_FUNCTION_RESPONSE}/<response: {_shape(payload)}>",
+                f"{PART_FUNCTION_RESPONSE}/<response: {shape(payload)}>",
             )
         return "", False
     for key, failure in (("output", False), ("error", True)):
@@ -835,9 +772,7 @@ def _response_output(builder: SessionBuilder, response: Mapping[str, Any]) -> tu
         if isinstance(reported, str):
             return reported, failure
         if reported is not None:
-            builder.note(
-                NOTE_DROPPED_BLOCK, f"{PART_FUNCTION_RESPONSE}/<{key}: {_shape(reported)}>"
-            )
+            builder.note(NOTE_DROPPED_BLOCK, f"{PART_FUNCTION_RESPONSE}/<{key}: {shape(reported)}>")
             return "", failure
     if payload:
         builder.note(NOTE_DROPPED_BLOCK, f"{PART_FUNCTION_RESPONSE}/<response: object>")
@@ -952,7 +887,7 @@ def _model_text(builder: SessionBuilder, content: Any, calls: list[ToolCall]) ->
         part repeating a recorded call is neither imported nor noted — nothing
         was lost, the call is already there.
     """
-    _note_unreadable_content(builder, content)
+    note_unreadable_content(builder, content)
     known = {call.id for call in calls}
     texts: list[str] = []
     for part in _parts(builder, content):
@@ -988,7 +923,7 @@ def _function_call_part(
     """
     call = part.get(PART_FUNCTION_CALL)
     if not isinstance(call, Mapping):
-        builder.note(NOTE_DROPPED_BLOCK, f"{PART_FUNCTION_CALL}/<call: {_shape(call)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{PART_FUNCTION_CALL}/<call: {shape(call)}>")
         return None
     call_id = call.get("id")
     name = call.get("name")
@@ -1000,7 +935,7 @@ def _function_call_part(
     args = call.get("args")
     if not isinstance(args, Mapping):
         if args is not None:
-            builder.note(NOTE_DROPPED_BLOCK, f"{PART_FUNCTION_CALL}/{name}/<args: {_shape(args)}>")
+            builder.note(NOTE_DROPPED_BLOCK, f"{PART_FUNCTION_CALL}/{name}/<args: {shape(args)}>")
         args = {}
     return builder.tool_call(name, call_id=call_id, args=dict(args))
 
@@ -1021,14 +956,14 @@ def _call_entries(builder: SessionBuilder, record: Mapping[str, Any]) -> list[Ma
     if entries is None:
         return []
     if not isinstance(entries, list):
-        builder.note(NOTE_DROPPED_BLOCK, f"<{FIELD_TOOL_CALLS}: {_shape(entries)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"<{FIELD_TOOL_CALLS}: {shape(entries)}>")
         return []
     calls: list[Mapping[str, Any]] = []
     for entry in entries:
         if isinstance(entry, Mapping):
             calls.append(entry)
         else:
-            builder.note(NOTE_DROPPED_BLOCK, f"{FIELD_TOOL_CALLS}/<entry: {_shape(entry)}>")
+            builder.note(NOTE_DROPPED_BLOCK, f"{FIELD_TOOL_CALLS}/<entry: {shape(entry)}>")
     return calls
 
 
@@ -1067,7 +1002,7 @@ def _tool_call(
         if arguments is not None:
             builder.note(
                 NOTE_DROPPED_BLOCK,
-                f"{FIELD_TOOL_CALLS}/{name}/<args: {_shape(arguments)}>",
+                f"{FIELD_TOOL_CALLS}/{name}/<args: {shape(arguments)}>",
             )
     call = builder.tool_call(name, call_id=call_id, args=args)
     return (
@@ -1103,7 +1038,7 @@ def _tool_result(
     if result is None:
         return None
     if not isinstance(result, list):
-        builder.note(NOTE_DROPPED_BLOCK, f"{FIELD_TOOL_CALLS}/{name}/<result: {_shape(result)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{FIELD_TOOL_CALLS}/{name}/<result: {shape(result)}>")
         return None
     parts = _parts(builder, result, prefix=f"{FIELD_TOOL_CALLS}/")
     if not parts:
@@ -1117,7 +1052,7 @@ def _tool_result(
             if not isinstance(response, Mapping):
                 builder.note(
                     NOTE_DROPPED_BLOCK,
-                    f"{PART_FUNCTION_RESPONSE}/<response: {_shape(response)}>",
+                    f"{PART_FUNCTION_RESPONSE}/<response: {shape(response)}>",
                 )
                 continue
             output, response_failed = _response_output(builder, response)
@@ -1156,7 +1091,7 @@ def _is_error(builder: SessionBuilder, status: Any) -> bool:
     if isinstance(status, str):
         return status != SUCCESS_STATUS
     if status is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"{FIELD_TOOL_CALLS}/<status: {_shape(status)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{FIELD_TOOL_CALLS}/<status: {shape(status)}>")
         return True
     return False
 
@@ -1204,7 +1139,7 @@ READERS: dict[str, Reader] = {
 
 A reader returns whether the record yielded a canonical message; everything
 else — a record type that is not in this table, and one that is but held no
-message — is noted as skipped by its type, as `_type_name` spells it. That is
+message — is noted as skipped by its type, as `type_name` spells it. That is
 what keeps a new Gemini CLI record type a line in the import's notes instead of
 a crash or a silent loss.
 """

@@ -48,7 +48,7 @@ below follows from them:
 - anything else -> skipped, and noted by its kind; a record that names neither a `role`
   nor a `type` is noted as `<no kind>`, one whose `role` is `null` as `<null role>` and
   one whose `type` is `null` as `<null type>`. A dropped *part* is named the same way, by
-  `_type_name`.
+  `type_name`.
 
 Two rules decide the rest.
 
@@ -142,6 +142,8 @@ from idc.importers.base import (
     SessionBuilder,
     block_message_id,
     joined_text,
+    shape,
+    type_name,
 )
 from idc.importers.jsonl import JsonLine, read_json_lines
 from idc.importers.tool_registry import ToolRegistry
@@ -165,17 +167,6 @@ STATE_COMPLETED = "completed"
 STATE_ERROR = "error"
 STATE_PENDING = "pending"
 STATE_RUNNING = "running"
-
-NO_TYPE = "<no type>"
-"""How a part, or a record read as one, that names no `type` is reported."""
-
-NULL_TYPE = "<null type>"
-"""How a part or record whose `type` is `null` is reported in the notes.
-
-Distinct from `NO_TYPE`: a missing field is a shape this importer does not know,
-a `null` one is damaged, and `str(None)` reads the same for both — and the same
-as a kind genuinely spelled `"None"`.
-"""
 
 NULL_ROLE = "<null role>"
 """How a record whose `role` is `null` is reported, for the same reason."""
@@ -241,26 +232,6 @@ def import_opencode(path: str | Path, *, registry: ToolRegistry | None = None) -
     return builder.build(session_id=session_id)
 
 
-def _type_name(holder: Mapping[str, Any]) -> str:
-    """Return the `type` of a part, or of a record, as the notes name it.
-
-    Args:
-        holder: One of a record's parts, or a record itself.
-
-    Returns:
-        The `type` field as a string, or `NO_TYPE` when it names none and
-        `NULL_TYPE` when it names `null`. Those two are different problems — a
-        shape this importer does not know versus a damaged one — and `str(None)`
-        would report them as the same one, which is also how a kind that is
-        genuinely spelled `"None"` would become indistinguishable from both. A
-        type that is present and not a string keeps its own spelling (`7`).
-    """
-    if "type" not in holder:
-        return NO_TYPE
-    kind = holder["type"]
-    return NULL_TYPE if kind is None else str(kind)
-
-
 def _kind_name(record: Mapping[str, Any]) -> str:
     """Return what kind of record this is, as the dispatch and the notes name it.
 
@@ -271,41 +242,15 @@ def _kind_name(record: Mapping[str, Any]) -> str:
         Its `type` when it names one — that is how the compaction summary is
         spelled — and otherwise its `role`, which is how every message record
         is. A record with neither is `NO_KIND`; a `null` role is `NULL_ROLE`,
-        for the reason `_type_name` keeps `NULL_TYPE` apart from `NO_TYPE`. A
+        for the reason `type_name` keeps `NULL_TYPE` apart from `NO_TYPE`. A
         role that is present and not a string keeps its own spelling.
     """
     if "type" in record:
-        return _type_name(record)
+        return type_name(record)
     if "role" not in record:
         return NO_KIND
     role = record["role"]
     return NULL_ROLE if role is None else str(role)
-
-
-def _shape(value: Any) -> str:
-    """Return the JSON shape of a value, to name something that has no kind.
-
-    Args:
-        value: The value a note is about.
-
-    Returns:
-        Its JSON type name — `object`, `array`, `string`, `number`, `boolean`,
-        `null`. A note about a part names the part's kind; a value that is not a
-        part has none, so its shape is the only honest thing to report.
-    """
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "boolean"
-    if isinstance(value, int | float):
-        return "number"
-    if isinstance(value, str):
-        return "string"
-    if isinstance(value, Mapping):
-        return "object"
-    if isinstance(value, list):
-        return "array"
-    return type(value).__name__
 
 
 def _record_id(builder: SessionBuilder, line: JsonLine) -> str:
@@ -331,7 +276,7 @@ def _record_id(builder: SessionBuilder, line: JsonLine) -> str:
     if isinstance(identifier, str) and identifier:
         return identifier
     if identifier is not None:
-        detail = "<id: empty string>" if identifier == "" else f"<id: {_shape(identifier)}>"
+        detail = "<id: empty string>" if identifier == "" else f"<id: {shape(identifier)}>"
         builder.note(NOTE_DROPPED_BLOCK, detail)
     return f"line-{line.number}"
 
@@ -360,7 +305,7 @@ def _timestamp(builder: SessionBuilder, line: JsonLine) -> datetime | None:
         return None
     if not isinstance(recorded, Mapping):
         raise builder.fail(
-            f"the record's time is a {_shape(recorded)}, not an object", line=line.number
+            f"the record's time is a {shape(recorded)}, not an object", line=line.number
         )
     return _instant(builder, recorded.get("created"), line=line.number)
 
@@ -410,14 +355,14 @@ def _parts(builder: SessionBuilder, record: Mapping[str, Any]) -> list[Mapping[s
     if parts is None:
         return []
     if not isinstance(parts, list):
-        builder.note(NOTE_DROPPED_BLOCK, f"<parts: {_shape(parts)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"<parts: {shape(parts)}>")
         return []
     kept: list[Mapping[str, Any]] = []
     for entry in parts:
         if isinstance(entry, Mapping):
             kept.append(entry)
         else:
-            builder.note(NOTE_DROPPED_BLOCK, f"<entry: {_shape(entry)}>")
+            builder.note(NOTE_DROPPED_BLOCK, f"<entry: {shape(entry)}>")
     return kept
 
 
@@ -440,7 +385,7 @@ def _part_text(builder: SessionBuilder, part: Mapping[str, Any]) -> str:
     if isinstance(value, str):
         return value
     if value is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TEXT}/<text: {_shape(value)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TEXT}/<text: {shape(value)}>")
     return ""
 
 
@@ -462,7 +407,7 @@ def _texts(builder: SessionBuilder, parts: list[Mapping[str, Any]]) -> list[str]
         if part.get("type") == PART_TEXT:
             texts.append(_part_text(builder, part))
         else:
-            builder.note(NOTE_DROPPED_BLOCK, _type_name(part))
+            builder.note(NOTE_DROPPED_BLOCK, type_name(part))
     return texts
 
 
@@ -485,7 +430,7 @@ def _is_synthetic(builder: SessionBuilder, part: Mapping[str, Any]) -> bool:
     if isinstance(flag, bool):
         return flag
     if flag is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TEXT}/<{SYNTHETIC_FLAG}: {_shape(flag)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TEXT}/<{SYNTHETIC_FLAG}: {shape(flag)}>")
     return False
 
 
@@ -562,7 +507,7 @@ def _add_assistant_record(builder: SessionBuilder, line: JsonLine) -> bool:
             if result is not None:
                 results.append((index, result))
         else:
-            builder.note(NOTE_DROPPED_BLOCK, _type_name(part))
+            builder.note(NOTE_DROPPED_BLOCK, type_name(part))
     builder.add_message(
         message_id=record_id,
         role=Role.ASSISTANT,
@@ -625,7 +570,7 @@ def _summary(builder: SessionBuilder, record: Mapping[str, Any]) -> str:
     if isinstance(summary, str):
         texts.append(summary)
     elif summary is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"{RECORD_COMPACTION}/<summary: {_shape(summary)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{RECORD_COMPACTION}/<summary: {shape(summary)}>")
     texts.extend(_texts(builder, _parts(builder, record)))
     return joined_text(texts)
 
@@ -646,11 +591,11 @@ def _note_unread_references(builder: SessionBuilder, recent: Any) -> None:
     if recent is None:
         return
     if not isinstance(recent, list):
-        builder.note(NOTE_DROPPED_BLOCK, f"{RECORD_COMPACTION}/<recent: {_shape(recent)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{RECORD_COMPACTION}/<recent: {shape(recent)}>")
         return
     for entry in recent:
         if not isinstance(entry, str):
-            builder.note(NOTE_DROPPED_BLOCK, f"{RECORD_COMPACTION}/<recent entry: {_shape(entry)}>")
+            builder.note(NOTE_DROPPED_BLOCK, f"{RECORD_COMPACTION}/<recent entry: {shape(entry)}>")
 
 
 def _tool_part(
@@ -704,7 +649,7 @@ def _state(builder: SessionBuilder, part: Mapping[str, Any], name: str) -> Mappi
     if isinstance(state, Mapping):
         return state
     if state is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TOOL}/{name}/<state: {_shape(state)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TOOL}/{name}/<state: {shape(state)}>")
     return None
 
 
@@ -728,7 +673,7 @@ def _arguments(
     if isinstance(arguments, Mapping):
         return dict(arguments)
     if arguments is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TOOL}/{name}/<input: {_shape(arguments)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TOOL}/{name}/<input: {shape(arguments)}>")
     return {}
 
 
@@ -783,7 +728,7 @@ def _status_detail(state: Mapping[str, Any]) -> str:
 
     Returns:
         `<no status>` when the state names none and `<null status>` when it
-        names `null` — the two are different problems, as for `_type_name` —
+        names `null` — the two are different problems, as for `type_name` —
         the status itself when it is a string, and its shape otherwise.
     """
     if "status" not in state:
@@ -791,7 +736,7 @@ def _status_detail(state: Mapping[str, Any]) -> str:
     status = state["status"]
     if status is None:
         return NULL_STATUS
-    return f"<status: {status}>" if isinstance(status, str) else f"<status: {_shape(status)}>"
+    return f"<status: {status}>" if isinstance(status, str) else f"<status: {shape(status)}>"
 
 
 def _output(builder: SessionBuilder, value: Any, *, name: str, field: str) -> str:
@@ -811,7 +756,7 @@ def _output(builder: SessionBuilder, value: Any, *, name: str, field: str) -> st
     if isinstance(value, str):
         return value
     if value is not None:
-        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TOOL}/{name}/<{field}: {_shape(value)}>")
+        builder.note(NOTE_DROPPED_BLOCK, f"{PART_TOOL}/{name}/<{field}: {shape(value)}>")
     return ""
 
 

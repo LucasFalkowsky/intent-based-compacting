@@ -18,6 +18,11 @@ lives here:
   distinct name.
 - **Reading a timestamp.** The canonical schema requires timezone-aware
   instants; `parse_timestamp` attaches UTC when the agent records no offset.
+- **Naming what could not be read.** `type_name` spells the `type` of a record or
+  of one of its content blocks the way the notes do, `shape` names a value that
+  has no kind at all by its JSON shape, and `note_unreadable_content` records a
+  content that is neither text nor a block list. All three agents need exactly
+  this and all three needed it identically.
 - **One error type.** Everything the importers raise themselves is a
   `TranscriptImportError` naming the file, so the CLI never shows a traceback.
   The canonical schema's own `SchemaValidationError` is deliberately *not*
@@ -40,7 +45,7 @@ imported.unknown_tools                    # ()
 
 import logging
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -62,13 +67,18 @@ __all__ = [
     "NOTE_DROPPED_BLOCK",
     "NOTE_SKIPPED_RECORD",
     "NOTE_UNKNOWN_TOOL",
+    "NO_TYPE",
+    "NULL_TYPE",
     "ImportNote",
     "ImportedSession",
     "SessionBuilder",
     "TranscriptImportError",
     "block_message_id",
     "joined_text",
+    "note_unreadable_content",
     "parse_timestamp",
+    "shape",
+    "type_name",
 ]
 
 LOGGER = logging.getLogger("idc.importers")
@@ -86,6 +96,17 @@ NOTE_SKIPPED_RECORD = "skipped-record"
 
 NOTE_DROPPED_BLOCK = "dropped-block"
 """A content block the canonical schema has no field for, named by its kind."""
+
+NO_TYPE = "<no type>"
+"""How a record, or one of its content blocks, that names no `type` is reported."""
+
+NULL_TYPE = "<null type>"
+"""How a record, or one of its content blocks, whose `type` is `null` is reported.
+
+Distinct from `NO_TYPE`: a missing field is a shape the importer does not know,
+a `null` one is damaged, and `str(None)` reads the same for both — and the same
+as a kind genuinely spelled `"None"`.
+"""
 
 
 class TranscriptImportError(ValueError):
@@ -242,6 +263,57 @@ def block_message_id(base: str, index: int, *, only: bool) -> str:
         `base` when the record yields one message, else `base#<index>`.
     """
     return base if only else f"{base}#{index}"
+
+
+def type_name(holder: Mapping[str, Any]) -> str:
+    """Return the `type` of a record or of a content block as the notes name it.
+
+    Args:
+        holder: One transcript record, or one of its content blocks or parts.
+
+    Returns:
+        The `type` field as a string, or `NO_TYPE` when it names none and
+        `NULL_TYPE` when it names `null`. Those two are different problems — a
+        shape the importer does not know versus a damaged one — and `str(None)`
+        would report them as the same one, which is also how a kind that is
+        genuinely spelled `"None"` would become indistinguishable from both. A
+        type that is present and not a string keeps its own spelling (`7`).
+
+        One function for both levels on purpose: the collision was first fixed
+        for records and then found again for blocks.
+    """
+    if "type" not in holder:
+        return NO_TYPE
+    kind = holder["type"]
+    return NULL_TYPE if kind is None else str(kind)
+
+
+def shape(value: Any) -> str:
+    """Return the JSON shape of a value, to name something that has no kind.
+
+    Args:
+        value: The value a note is about.
+
+    Returns:
+        Its JSON type name — `object`, `array`, `string`, `number`, `boolean`,
+        `null` — and otherwise the name of its Python type. A note about a block
+        names the block's kind; a value that is not a block has none, so its
+        shape is the only honest thing to report. `bool` is checked before the
+        numbers because it is a subclass of `int`.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int | float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, Mapping):
+        return "object"
+    if isinstance(value, list):
+        return "array"
+    return type(value).__name__
 
 
 class SessionBuilder:
@@ -509,3 +581,21 @@ def joined_text(parts: Iterable[str]) -> str:
         between them.
     """
     return "\n\n".join(part for part in parts if part)
+
+
+def note_unreadable_content(builder: SessionBuilder, content: Any, *, prefix: str = "") -> None:
+    """Note a content value that is neither text nor a block list.
+
+    Args:
+        builder: The session being assembled, for the notes.
+        content: The content value the record carried.
+        prefix: What to put in front of the note's detail, naming where in the
+            record the content sat.
+
+    An absent content (`None`) is not noted: the record carried nothing, so
+    nothing was lost. Anything else — a number, an object — did carry something
+    the importer cannot read, and the note is what keeps that from being a
+    silent loss in a tool whose output is a measurement.
+    """
+    if content is not None and not isinstance(content, str | list):
+        builder.note(NOTE_DROPPED_BLOCK, f"{prefix}<content: {shape(content)}>")

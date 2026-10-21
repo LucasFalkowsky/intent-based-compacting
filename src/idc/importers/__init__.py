@@ -57,16 +57,21 @@ from collections.abc import Callable
 from pathlib import Path
 
 from idc.importers.base import (
+    NO_TYPE,
     NOTE_DROPPED_BLOCK,
     NOTE_SKIPPED_RECORD,
     NOTE_UNKNOWN_TOOL,
+    NULL_TYPE,
     ImportedSession,
     ImportNote,
     SessionBuilder,
     TranscriptImportError,
     block_message_id,
     joined_text,
+    note_unreadable_content,
     parse_timestamp,
+    shape,
+    type_name,
 )
 from idc.importers.claude_code import import_claude_code
 from idc.importers.gemini_cli import import_gemini_cli
@@ -101,6 +106,8 @@ __all__ = [
     "NOTE_SKIPPED_RECORD",
     "NOTE_UNKNOWN_TOOL",
     "NOTICE_MARKERS",
+    "NO_TYPE",
+    "NULL_TYPE",
     "PENDING_IMPORTERS",
     "REGISTRY_PATH",
     "REGISTRY_VERSION",
@@ -123,9 +130,12 @@ __all__ = [
     "import_transcript",
     "joined_text",
     "load_tool_registry",
+    "note_unreadable_content",
     "parse_timestamp",
     "read_json_lines",
+    "shape",
     "tool_registry",
+    "type_name",
     "visible_context",
 ]
 
