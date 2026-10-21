@@ -39,6 +39,7 @@ from idc.classify import FakeAdapter, classify, gold_script
 from idc.compact import (
     DECISIONS_HEADER,
     REJECTED_HEADER,
+    SECTION_HEADERS,
     Narrative,
     NarrativeContractError,
     as_narrative,
@@ -230,11 +231,37 @@ def test_no_response_the_writer_accepts_renders_a_block_the_reader_refuses(pair)
     )
 
 
+def test_no_response_the_writer_accepts_injects_a_section(pair):
+    """The invariant the parseability property does not carry.
+
+    A block can parse and still hold a section the tool never rendered: the
+    reader's section test is the bare prefix `###`, so `###NOTE` — and
+    `######NOTE`, which starts with it — becomes a section of its own. The block
+    round-trips byte for byte, so the parseability property above stays green,
+    while the narrative section's body is cut short at that line for any
+    consumer that asks for it by header. Injecting a section is the thing the
+    guard exists to prevent, so it is the thing to assert.
+    """
+    injected: list[tuple[tuple[str, ...], list[str]]] = []
+    accepted = 0
+    for body in GENERATED_BODIES:
+        block = written(pair, *body)
+        if block is None:
+            continue
+        accepted += 1
+        headers = [section.header for section in parse_blocks(block)[0].sections]
+        if headers != list(SECTION_HEADERS):
+            injected.append((body, headers))
+    assert injected == []
+    assert accepted > len(GENERATED_BODIES) // 2, (
+        f"only {accepted} of {len(GENERATED_BODIES)} bodies were accepted"
+    )
+
+
 # --- prose both sides accept, and must keep accepting ---------------------------
 
 LEGITIMATE_LINES = {
     "a_one_hash_tag": "#NOTE",
-    "a_six_hash_tag": "######NOTE",
     "an_issue_reference": "- fixes #42 in the parser",
     "a_header_inside_inline_code": "- never write `### Solution` yourself",
 }
@@ -242,9 +269,15 @@ LEGITIMATE_LINES = {
 
 The last one is load-bearing: the instruction tells a model not to write the
 deterministic headers itself, and a guard that refused the sentence saying so
-would refuse the sentence most worth writing. `#NOTE` is prose to the reader
-(one `#` is no marker of its) and `######NOTE` is a section header it tolerates
-like any other it did not render, so neither is a disagreement.
+would refuse the sentence most worth writing. `#NOTE` is prose to the reader:
+one `#` is no marker of its, since its tests are the bare prefixes `###` and
+then `##`.
+
+`######NOTE` was on this list and should not have been. It parses, so it looked
+legitimate — but the reader's section test is the bare prefix `###`, which
+`######NOTE` starts with, so it becomes an **injected section**. The ticket that
+listed it as prose to keep was wrong about it, and
+`test_no_response_the_writer_accepts_injects_a_section` is what caught that.
 """
 
 
@@ -263,7 +296,6 @@ def test_the_legitimate_lines_cover_every_enumerated_shape():
     assert set(LEGITIMATE_LINES) == {
         "a_header_inside_inline_code",
         "a_one_hash_tag",
-        "a_six_hash_tag",
         "an_issue_reference",
     }
 

@@ -103,12 +103,12 @@ finds its sections by the header literal (T6.3). To that parser `    ###
 Solution` holds `### Solution`, so an indented copy of a header is a copy, and
 four leading spaces are refused like one. `#hashtag` is still not a heading,
 which is the rule Markdown itself applies — and that is why this pattern is not
-the whole guard: `_CHAIN_HEADING_LINE` refuses the one run length where the
+the whole guard: `_STRUCTURE_MARKER` refuses the one run length where the
 parser does not apply that rule either.
 """
 
-_CHAIN_HEADING_LINE = re.compile(r"##(?!#)")
-"""Exactly two `#`, whatever follows them — the marker a block's heading opens with.
+_STRUCTURE_MARKER = re.compile(r"##")
+"""Two or more `#`, whatever follows them — the markers the reader reads a block by.
 
 Refused on its own and not through `_HEADING_LINE`, because the parser that
 reads a block back does not ask for whitespace after this run: it tests the bare
@@ -187,11 +187,12 @@ def _refusal(line: str) -> str | None:
             f"the body line {line!r} is a header, and the only headers a narrative holds are "
             f"{DECISIONS_HEADER!r} and {REJECTED_HEADER!r}"
         )
-    if _CHAIN_HEADING_LINE.match(bare):
+    if _STRUCTURE_MARKER.match(bare):
         return (
-            f"the body line {line!r} opens with the chain-heading marker '##', so it looks "
-            f"like a heading to the parser that reads the block back, and a '##' line that "
-            f"is not '## [C<n>] Intent: <label>' is a malformed heading to it"
+            f"the body line {line!r} opens with '##', which is how the parser that reads "
+            f"the block back finds its structure: it tests the bare prefixes '###' for a "
+            f"section header and then '##' for a chain heading, so such a line becomes a "
+            f"section the tool never rendered or a heading that is malformed to it"
         )
     if _FENCE_LINE.match(bare):
         return (
