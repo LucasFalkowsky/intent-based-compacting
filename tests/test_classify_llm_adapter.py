@@ -553,11 +553,13 @@ def test_a_chain_answered_where_none_is_open_is_rejected():
     assert caught.value.known == ()
 
 
-def test_a_wrong_shaped_chain_id_never_escapes_as_a_bare_value_error():
+def test_a_wrong_shaped_chain_id_is_refused_while_the_answer_is_read():
     # The trap `Decision`'s docstring marks: a model asked for `C<n>` writes
     # `K1`, and `Decision.extend("K1")` would be a plain `ValueError` instead of
-    # a failure of the stage. The adapter reads its answers through the
-    # contract's own helpers, so this stays catchable.
+    # a failure of the stage. This pins the *first* of the two guards against
+    # it — `_read_decision` refuses `K1` while reading the answer, so no id of
+    # that shape ever reaches the decision step. The second guard, which only
+    # a direct call can reach, is pinned by the test below.
     adapter = adapter_for('{"decision": "K1"}', max_attempts=1)
 
     with pytest.raises(ClassifyError):
