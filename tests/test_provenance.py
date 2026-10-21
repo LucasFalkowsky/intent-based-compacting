@@ -287,6 +287,12 @@ def test_normalising_the_same_session_twice_yields_the_same_result(agent):
     assert visible_context(result) == visible_context(result)
 
 
+def test_a_hidden_message_reads_as_one_diagnostic_line():
+    context = visible_context(imported(Agent.CLAUDE_CODE, COMPACTED_FIXTURES))
+
+    assert [str(hidden) for hidden in context.hidden] == ["replaced-by-compaction: u40"]
+
+
 def test_the_hidden_reasons_are_the_two_the_module_declares():
     gemini = visible_context(imported(Agent.GEMINI_CLI, RAW_FIXTURES))
     claude = visible_context(imported(Agent.CLAUDE_CODE, COMPACTED_FIXTURES))
