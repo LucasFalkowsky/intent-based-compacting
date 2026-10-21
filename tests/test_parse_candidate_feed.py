@@ -33,7 +33,7 @@ from datetime import UTC, datetime
 import pytest
 
 from fixture_corpus import CORPUS
-from idc.chunk import chunk_session
+from idc.chunk import chunk_session, chunk_with_subagents
 from idc.classify import NEW, ChainStore, FakeAdapter, FakeCall, classify, classify_chunks
 from idc.parse import parse_chains, placeholder_chunk_id, split_blocks
 from idc.schema import Agent, Chain, Chunk, Message, Role, Session
@@ -84,6 +84,11 @@ def session_and_chunks(name: str) -> tuple[Session, list[Chunk]]:
     """Return a fixture's session and its user-boundary chunks."""
     session = CORPUS.session(name)
     return session, chunk_session(session)
+
+
+def is_task_tool(agent: Agent, tool_name: str) -> bool:
+    """Stand in for `ToolRegistry.is_subagent_tool` (#6), as T3.3's tests do."""
+    return agent is Agent.CLAUDE_CODE and tool_name == "Task"
 
 
 def shown(call: FakeCall) -> dict[str, str]:
@@ -175,6 +180,27 @@ def test_a_parsed_chain_extended_by_a_turn_without_text_shows_that_empty_turn():
     assert {candidate.id: candidate.last_user_message for candidate in store.candidates()} == {
         UNTOUCHED: CSV_LABEL,
         EXTENDED: "",
+    }
+
+
+def test_a_parsed_chain_extended_by_a_subagent_chunk_keeps_showing_its_label():
+    # The limit of the rule, pinned so that no docstring may claim more than it
+    # does: a chunk of subagent work carries no user turn at all, and `append`
+    # leaves the last user message as it found it — so the chain the subagent
+    # chunk joined still offers its label. That is the right answer here (the
+    # label is still the only thing said about the intent), but it is *not* "the
+    # first chunk of this run replaces the label".
+    session = CORPUS.session("subagent_result")
+    chunks = chunk_with_subagents(session, is_task_tool)
+    subagent_chunks = [chunk for chunk in chunks if chunk.origin.value == "subagent"]
+    store = ChainStore(session, parsed())
+
+    assert subagent_chunks, "the fixture must hold a subagent chunk"
+    store.append(EXTENDED, subagent_chunks[0])
+
+    assert {candidate.id: candidate.last_user_message for candidate in store.candidates()} == {
+        UNTOUCHED: CSV_LABEL,
+        EXTENDED: LIMITER_LABEL,
     }
 
 
