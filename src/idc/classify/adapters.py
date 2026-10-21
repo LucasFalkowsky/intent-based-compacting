@@ -97,7 +97,7 @@ class ChunkUnderDecision:
             for a chunk of subagent work — and empty as well when the turn
             itself carried no text, which `from_chunk` does not tell apart. The
             same absence that `ChainCandidate.last_user_message` spells as the
-            empty string.
+            empty string for a chain whose chunks carry no turn.
     """
 
     id: str
@@ -147,16 +147,27 @@ class ChainCandidate:
     Deliberately not the `Chain` itself: a candidate carries what a backend can
     decide from and nothing that would let it reach into the transcript. The
     last user message is the one piece of the chain's content that is offered,
-    because it is what says what the chain is currently about — the label alone
-    is a provisional truncation until the compactor writes a real one.
+    because it is what says what the chain is currently about.
+
+    A chain carried over from an earlier run (#33) has no such turn to offer:
+    its chunks are not ranges over this transcript, so nothing can be read for
+    it here. Its candidate carries the chain's **label** as that message
+    instead (#35) — the real label the compactor wrote as the block's Intent
+    heading (T6), not a truncation of a turn, and the only thing such a chain
+    has to say what it is about. The first chunk this run appends to it replaces
+    the label with that chunk's own turn.
 
     Attributes:
         id: The chain's stable id, `C<n>`.
-        label: The chain's label; provisional until T6 replaces it.
-        last_user_message: Content of the last real user turn of the chain's
-            last chunk, verbatim. Empty when the chain has none — a chain
-            carried over from an earlier run, whose chunks are not part of this
-            transcript, or a chain whose last chunk holds subagent work.
+        label: The chain's label: provisional, cut from the chain's first user
+            message, for a chain this run opened (see
+            `idc.classify.store.provisional_label`); the compactor's own for a
+            chain parsed out of a summary block.
+        last_user_message: Content of the last real user turn seen in the chain,
+            verbatim — or that chain's label, for a carried-over chain this run
+            has not appended a chunk to yet. Empty when no chunk of the chain
+            carried a user turn, which is the case for a chain of subagent work,
+            and when the turn itself carried no text.
     """
 
     id: str
