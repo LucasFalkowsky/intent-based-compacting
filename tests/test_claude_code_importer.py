@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from idc.importers import (
+    IMPORTERS,
     NOTE_DROPPED_BLOCK,
     NOTE_SKIPPED_RECORD,
     NOTE_UNKNOWN_TOOL,
@@ -1444,18 +1445,27 @@ def test_the_dispatcher_accepts_the_agents_wire_string():
     assert import_transcript("claude-code", path).session.agent is Agent.CLAUDE_CODE
 
 
-# Parametrized over the dispatcher's own table rather than over a literal list:
-# the two importers after T2.2 each remove their agent from it as they land, and
-# a literal list would have to be edited in lockstep by a branch that is about
-# to make its entry wrong.
-@pytest.mark.parametrize("agent", sorted(PENDING_IMPORTERS, key=lambda agent: agent.value))
-def test_an_agent_without_an_importer_is_reported_with_its_ticket(agent, tmp_path):
+# Every agent now has an importer, so `PENDING_IMPORTERS` is empty and
+# parametrizing over it would make this test vanish into a silent "empty
+# parameter set" skip -- taking the dispatcher's pending-agent path out of the
+# suite unnoticed. The path still exists and still has to work, so it is
+# exercised against a monkeypatched table instead of against the live one.
+def test_an_agent_without_an_importer_is_reported_with_its_ticket(monkeypatch, tmp_path):
+    agent = Agent.OPENCODE
+    monkeypatch.setitem(PENDING_IMPORTERS, agent, "T2.3")
+    monkeypatch.delitem(IMPORTERS, agent)
     path = write_jsonl(tmp_path, [user_record("u1", "hello")])
 
     with pytest.raises(TranscriptImportError, match=agent.value) as error:
         import_transcript(agent, path)
 
     assert "T2." in str(error.value)
+
+
+def test_no_agent_is_left_without_an_importer() -> None:
+    """The reason the test above needs a monkeypatched table: nothing is pending."""
+    assert PENDING_IMPORTERS == {}
+    assert set(IMPORTERS) == set(Agent)
 
 
 def test_an_agent_the_study_does_not_cover_is_rejected(tmp_path):
