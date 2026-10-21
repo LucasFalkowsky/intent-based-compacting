@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from idc.chunk import reduce_session
 from idc.importers import (
     HIDDEN_HARNESS_NOTICE,
     HIDDEN_REPLACED_BY_COMPACTION,
@@ -512,6 +513,52 @@ def test_a_session_compacted_twice_round_trips_naming_the_second_summary():
         HiddenMessage("c50", HIDDEN_REPLACED_BY_COMPACTION),
         HiddenMessage("u51", HIDDEN_REPLACED_BY_COMPACTION),
     ]
+
+
+# --- …and survives the stages between those two invocations ------------------
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_a_reduced_natively_compacted_session_normalises_like_the_imported_one(agent):
+    # The identifier is only useful if the stages between the import and the
+    # normalisation carry it. The chunker's reduction rebuilds the session, so
+    # it is the first stage that can lose it — and a reduced transcript that no
+    # longer says where the agent's context starts is refused, which is the
+    # refusal this ticket exists to remove.
+    result = imported(agent, COMPACTED_FIXTURES)
+
+    reduced = reduce_session(result.session).session
+
+    assert reduced.native_summary_id == SUMMARY_IDS[agent]
+    context = visible_context(reduced)
+    assert list(context.message_ids) == COMPACTED_VISIBLE[agent]
+    assert list(context.hidden) == COMPACTED_HIDDEN[agent]
+    assert context.messages[0].id == SUMMARY_IDS[agent]
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_every_message_of_a_reduced_session_is_either_visible_or_hidden_exactly_once(agent):
+    reduced = reduce_session(imported(agent, COMPACTED_FIXTURES).session).session
+
+    context = visible_context(reduced)
+
+    accounted = list(context.message_ids) + list(context.hidden_ids)
+    assert sorted(accounted) == sorted(message.id for message in reduced.messages)
+
+
+def test_a_session_compacted_twice_still_names_its_second_summary_after_reduction():
+    # The shape the preamble rule cannot protect by position: the second summary
+    # block sits after a real user turn, so reduction would have dropped it and
+    # left the identifier naming a message the document no longer holds.
+    session = import_transcript(
+        Agent.CLAUDE_CODE, NATIVE.path("claude-code", "compacted_twice")
+    ).session
+
+    reduced = reduce_session(session).session
+
+    assert reduced.native_summary_id == "c51"
+    assert "c51" in [message.id for message in reduced.messages]
+    assert list(visible_context(reduced).message_ids) == ["c51", "u52"]
 
 
 # --- the result is stable ----------------------------------------------------
