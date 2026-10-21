@@ -335,3 +335,20 @@ def test_the_order_of_the_counted_parts_is_the_transcript_s_own(corpus):
 
     assert tokenizer.calls == again.calls
     assert tokenizer.calls[0] == fixture.messages[0].content
+
+
+def test_a_count_does_not_record_which_tokenizer_produced_it(corpus):
+    """The gap the module docstring now states, pinned so the prose stays true.
+
+    `count_context` takes the tokenizer from its caller and never checks it
+    against the document's `model`, so a `claude-*` session counted with any
+    tokenizer yields a `ContextCount` whose only definition-bearing field is
+    that `model`. A review found the docstring claiming the opposite. The run
+    manifest (#39) is what has to record the tokenizer set a run used; this
+    asserts the value object does not pretend to.
+    """
+    session = corpus.session("single_intent")
+    count = count_context(session, FakeTokenizer())
+
+    assert not hasattr(count, "tokenizer")
+    assert count.model == session.model

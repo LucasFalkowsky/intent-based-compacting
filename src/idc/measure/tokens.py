@@ -49,9 +49,17 @@ between them, not against a provider's invoice. What is **not** claimed is that
 the omitted framing cancels in the rate: it does not. A compacted context holds
 fewer messages, so it carries less framing, and whether that pushes the true
 saving above or below the one reported here depends on how the text is
-distributed over the messages on either side — which is why the output names
-the definition the number was produced under instead of presenting it as the
-provider's own.
+distributed over the messages on either side.
+
+**What the output does *not* carry is which tokenizer produced the number.**
+The tokenizer is injected and `count_context` never checks it against the
+document's `model`, so a session recorded as one model can be counted with any
+tokenizer a caller hands over and nothing in the `ContextCount` would say so.
+That is deliberate — the registry is the caller's, by the decision above — but
+it means a count is reproducible only together with the tokenizer set the run
+used, which is the run manifest's job to record (#39) and not this value
+object's to guess at. An earlier version of this paragraph claimed the output
+named its own definition; it does not, and a review disproved it.
 
 **The refusal that is passed through.** `count_context` resolves what is visible
 with `idc.importers.visible_context` and does not re-derive it. That function
@@ -163,9 +171,11 @@ class ContextCount:
 
     Attributes:
         session_id: `Session.id` of the transcript that was counted.
-        model: The model the document recorded, or `None`. Kept because the
-            number is only comparable against another one counted with the same
-            tokenizer, and the model is what says which that was.
+        model: The model the document recorded, or `None`. Kept because it is
+            what a reader resolves a tokenizer *from* — **not** a record of
+            which tokenizer was actually used: the tokenizer is injected and is
+            never checked against this field, so the two can disagree. See the
+            module docstring.
         tokens: The whole visible context.
         per_message: One entry per visible message, in transcript order.
         hidden_ids: Identifiers of the messages that are in the file and not in
