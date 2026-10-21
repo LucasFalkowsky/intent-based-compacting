@@ -340,7 +340,11 @@ def _as_injected(message: Message) -> Message:
 
     Built through the canonical constructor rather than copied field by field in
     place: the imported session must stay exactly as the importer produced it,
-    and the copy has to satisfy the schema like any other message.
+    and the copy has to satisfy the schema like any other message. The fields
+    come from `Message.model_fields` rather than from a list written out here,
+    so a field the canonical schema gains later is carried over instead of being
+    silently reset to its default — `extra="forbid"` catches a field too many,
+    nothing would catch a field too few.
 
     Args:
         message: The message to flag.
@@ -351,13 +355,5 @@ def _as_injected(message: Message) -> Message:
     Raises:
         SchemaValidationError: If the copy does not satisfy the canonical schema.
     """
-    return Message(
-        id=message.id,
-        role=message.role,
-        content=message.content,
-        timestamp=message.timestamp,
-        is_system_injected=True,
-        is_command=message.is_command,
-        tool_calls=list(message.tool_calls),
-        tool_result=message.tool_result,
-    )
+    fields = {name: getattr(message, name) for name in Message.model_fields}
+    return Message(**{**fields, "is_system_injected": True})
