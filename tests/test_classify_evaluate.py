@@ -395,6 +395,52 @@ def test_the_command_scores_a_recorded_run(tmp_path, capsys):
     assert "interleaved_intents K3: C3 / C1" in out
 
 
+def test_the_baseline_report_cannot_be_mistaken_for_a_recorded_run(tmp_path, capsys):
+    # The baseline scores `gold_script` against the labels it was built from, so
+    # it is 1.000 by construction; a recording of those same decisions scores
+    # 1.000 too. The numbers are therefore identical and only the provenance
+    # tells the two apart — which is why the report has to carry it.
+    decisions_dir = tmp_path / "decisions"
+    for name in FIXTURE_NAMES:
+        write_decisions(
+            decisions_dir, name, [recorded(entry) for entry in gold_script(gold_of(name))]
+        )
+
+    assert main([str(GOLD_DIR), str(FIXTURES_DIR)]) == 0
+    baseline = capsys.readouterr().out
+    assert main([str(GOLD_DIR), str(FIXTURES_DIR), "--decisions", str(decisions_dir)]) == 0
+    replayed = capsys.readouterr().out
+
+    assert "accuracy 1.000, rand index 1.000" in baseline
+    assert "accuracy 1.000, rand index 1.000" in replayed
+    assert baseline != replayed
+    assert "gold baseline" in baseline
+    assert "by construction" in baseline
+    assert "gold baseline" not in replayed
+    assert str(decisions_dir) in replayed
+
+
+@pytest.mark.parametrize("decisions", [None, "runs/s1m-0.5"])
+def test_the_corpus_line_itself_names_the_source_of_its_numbers(decisions, tmp_path, capsys):
+    # The corpus line is the one a reader pastes, so the source has to be on it
+    # and not only on a header line the paste leaves behind.
+    if decisions is not None:
+        decisions = tmp_path / decisions
+        for name in FIXTURE_NAMES:
+            write_decisions(
+                decisions, name, [recorded(entry) for entry in gold_script(gold_of(name))]
+            )
+    argv = [str(GOLD_DIR), str(FIXTURES_DIR)]
+    argv += [] if decisions is None else ["--decisions", str(decisions)]
+
+    assert main(argv) == 0
+
+    corpus = [line for line in capsys.readouterr().out.splitlines() if line.startswith("corpus")]
+    expected = "gold baseline" if decisions is None else f"recorded run {decisions}"
+    assert len(corpus) == 1
+    assert expected in corpus[0]
+
+
 def test_the_command_reports_a_missing_gold_directory_without_a_traceback(tmp_path, capsys):
     status = main([str(tmp_path / "nowhere"), str(FIXTURES_DIR)])
 
