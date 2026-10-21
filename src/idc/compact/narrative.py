@@ -27,10 +27,14 @@ the two section bodies — and `as_narrative` reads exactly that shape or raises
 - The response holds the intent marker and the two narrative headers, each
   exactly once, in the template's order, with the intent marker first and
   nothing before it.
-- **No other line may be read as structure.** A heading, a line that opens or
-  closes a code fence, a Setext underline, an HTML comment left open — each of
-  them with *any* indentation in front of it, since a parser keyed on the header
-  literal reads an indented `### Solution` as one. That is what keeps a model
+- **No other line may be read as structure.** A heading, a line opening with
+  the chain-heading marker `##` whether or not whitespace follows the two hashes,
+  a line that opens or closes a code fence, a Setext underline, an HTML comment
+  left open — each of them with *any* indentation in front of it, since a parser
+  keyed on the header literal reads an indented `### Solution` as one. The `##`
+  rule is wider than Markdown's own: `##NOTE` is prose to a renderer and a
+  heading line to the parser of a block, and that disagreement rendered blocks
+  that could not be read back (T8.4). That is what keeps a model
   from writing the deterministic sections itself: a `### Solution` of its own, a
   second `## [C…]` heading naming a chain the classifier never opened, or a
   fence that would swallow the headers the renderer appends below.
@@ -98,7 +102,38 @@ renderer, though — it is a parser that reads a block back on the next run and
 finds its sections by the header literal (T6.3). To that parser `    ###
 Solution` holds `### Solution`, so an indented copy of a header is a copy, and
 four leading spaces are refused like one. `#hashtag` is still not a heading,
-which is the rule Markdown itself applies.
+which is the rule Markdown itself applies — and that is why this pattern is not
+the whole guard: `_STRUCTURE_MARKER` refuses the five run lengths, two through
+six, that the parser reads as structure without asking for that whitespace.
+"""
+
+_STRUCTURE_MARKER = re.compile(r"##")
+"""Two or more `#`, whatever follows them — the markers the reader reads a block by.
+
+Refused on its own and not through `_HEADING_LINE`, because the parser that
+reads a block back does not ask for whitespace after this run: it tests the bare
+`##` prefix, and a `##` line that is not `## [C<n>] Intent: <label>` is a
+`MalformedHeadingError` to it. So `##NOTE` was prose here and structure there,
+and the block the renderer produced for it could never be read again (T8.4).
+
+What that costs is a body line opening with two to six `#` followed by anything
+but whitespace: `##NOTE`, `##TODO`, `###NOTE`, `######NOTE`. The model is asked
+again for that response, which is the cheap half of the trade — a block the
+reader cannot read, or reads as sections the tool never wrote, is a summary
+nothing can trust.
+
+**A longer run is refused for a second reason, and it is not parseability.** The
+parser tests the bare `###` prefix for a *section* header **before** it tests
+`##`, and it keeps every section it did not render. So `###NOTE` — and
+`######NOTE`, which starts with it — parses and round-trips byte for byte while
+the block gains a section the tool never wrote, and the narrative section above
+it is cut short for any consumer asking by header. Injecting a section is what
+this guard exists to prevent, so it is refused here.
+
+`#NOTE` stays prose: one `#` is no prefix the parser reads structure by. An
+earlier version of this docstring argued that `###NOTE` needed no refusal
+because "the two sides already agree on it" — they do not, and
+`test_no_response_the_writer_accepts_injects_a_section` is what disproved it.
 """
 
 _FENCE_LINE = re.compile(r"(```|~~~)")
@@ -146,9 +181,10 @@ def _refusal(line: str) -> str | None:
 
     Returns:
         A reason, naming the line, when a parser of the rendered block could
-        read it as the block's own structure — an ATX heading, a line that
-        opens or closes a code fence, a Setext underline, or an HTML comment
-        left open. Whitespace at **both** ends is stripped before any of that
+        read it as the block's own structure — an ATX heading, a line opening
+        with the chain-heading marker `##` whether or not whitespace follows
+        it, a line that opens or closes a code fence, a Setext underline, or an
+        HTML comment left open. Whitespace at **both** ends is stripped before any of that
         is decided, so neither indentation nor trailing space hides one:
         CommonMark allows trailing whitespace on a Setext underline and on a
         thematic break, so `---   ` underlines the line above it exactly as
@@ -159,6 +195,13 @@ def _refusal(line: str) -> str | None:
         return (
             f"the body line {line!r} is a header, and the only headers a narrative holds are "
             f"{DECISIONS_HEADER!r} and {REJECTED_HEADER!r}"
+        )
+    if _STRUCTURE_MARKER.match(bare):
+        return (
+            f"the body line {line!r} opens with '##', which is how the parser that reads "
+            f"the block back finds its structure: it tests the bare prefixes '###' for a "
+            f"section header and then '##' for a chain heading, so such a line becomes a "
+            f"section the tool never rendered or a heading that is malformed to it"
         )
     if _FENCE_LINE.match(bare):
         return (
@@ -227,7 +270,8 @@ class Narrative:
             ValueError: If `label` holds no word — it becomes the chain's
                 heading, and `## [C1] Intent: ` names no intent — or if a body
                 line is blank, spans more than one line, or is one of the
-                shapes `_refusal` names: a heading, a code fence, a Setext
+                shapes `_refusal` names: a heading, the chain-heading marker
+                `##` with anything or nothing behind it, a code fence, a Setext
                 underline, an HTML comment left open, each of them with any
                 indentation in front of it. All but the blank line are what
                 would survive into the block and be read there as its
