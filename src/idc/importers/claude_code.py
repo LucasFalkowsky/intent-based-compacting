@@ -18,7 +18,7 @@ resolving tool categories, logging unknown tools and validating the result are
   and it is an intent boundary T3.1 splits on.
 - `user` with `isCompactSummary` -> an injected `system` message carrying the
   summary's text, the session's `source` becomes `native-compaction` and the
-  message is the result's `native_summary_id`; any other block of that record is
+  message is the session's `native_summary_id`; any other block of that record is
   dropped and noted like anywhere else. A session compacted twice names the
   second summary, which is where the agent's context then starts.
 - `user` with `isMeta` -> a `user` message marked `is_system_injected`.

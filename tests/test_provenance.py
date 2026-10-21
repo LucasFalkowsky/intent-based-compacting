@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from idc.chunk import reduce_session
 from idc.importers import (
     HIDDEN_HARNESS_NOTICE,
     HIDDEN_REPLACED_BY_COMPACTION,
@@ -19,6 +20,7 @@ from idc.schema import (
     Agent,
     Message,
     Role,
+    SchemaValidationError,
     Session,
     SessionSource,
     ToolCall,
@@ -119,11 +121,13 @@ def session(
     *messages: Message,
     source: SessionSource = SessionSource.RAW,
     agent: Agent = Agent.CLAUDE_CODE,
+    native_summary_id: str | None = None,
 ) -> Session:
     return Session(
         id="sess-1",
         agent=agent,
         source=source,
+        native_summary_id=native_summary_id,
         created_at=datetime(2026, 9, 10, 9, tzinfo=UTC),
         messages=list(messages),
     )
@@ -196,12 +200,18 @@ def test_the_visible_session_is_a_valid_canonical_document(agent):
 
 @pytest.mark.parametrize("agent", list(Agent))
 def test_the_importer_names_the_native_summary_it_imported(agent):
-    assert imported(agent, COMPACTED_FIXTURES).native_summary_id == SUMMARY_IDS[agent]
+    result = imported(agent, COMPACTED_FIXTURES)
+
+    assert result.native_summary_id == SUMMARY_IDS[agent]
+    assert result.session.native_summary_id == SUMMARY_IDS[agent]
 
 
 @pytest.mark.parametrize("agent", list(Agent))
 def test_a_raw_transcript_names_no_native_summary(agent):
-    assert imported(agent, RAW_FIXTURES).native_summary_id is None
+    result = imported(agent, RAW_FIXTURES)
+
+    assert result.native_summary_id is None
+    assert result.session.native_summary_id is None
 
 
 # --- harness text in the user role ------------------------------------------
@@ -379,13 +389,19 @@ def test_a_compacted_session_without_its_summary_is_refused():
 
 
 def test_a_summary_identifier_that_is_not_in_the_session_is_refused():
-    result = ImportedSession(
-        session=session(message("u1", content="go"), source=SessionSource.NATIVE_COMPACTION),
+    # Schema-valid on purpose — referential completeness is not enforced (#3) — and
+    # refused here, because the cut-off point cannot be located.
+    truncated = session(
+        message("u1", content="go"),
+        source=SessionSource.NATIVE_COMPACTION,
         native_summary_id="c9",
     )
 
     with pytest.raises(TranscriptImportError, match="c9"):
-        visible_context(result)
+        visible_context(truncated)
+
+    with pytest.raises(TranscriptImportError, match="c9"):
+        visible_context(ImportedSession(session=truncated))
 
 
 # --- provenance and the summary identifier say the same thing ----------------
@@ -400,18 +416,153 @@ def test_an_imported_compacted_session_that_names_no_summary_cannot_be_built():
         ImportedSession(session=compacted)
 
 
-def test_an_imported_session_that_names_a_summary_must_be_compacted_natively():
+def test_a_session_that_names_a_summary_must_be_compacted_natively():
+    # The other half of the pair is now a canonical invariant: both fields live on
+    # `Session`, so the contradiction is refused by the schema and `ImportedSession`
+    # can no longer be handed one — the identifier is read off the session it names.
     summary = message("c1", role=Role.SYSTEM, content="summary", is_system_injected=True)
 
     for source in (SessionSource.RAW, SessionSource.INTENT_COMPACTION):
-        with pytest.raises(TranscriptImportError, match="native-compaction"):
-            ImportedSession(session=session(summary, source=source), native_summary_id="c1")
+        with pytest.raises(SchemaValidationError, match="native-compaction"):
+            session(summary, source=source, native_summary_id="c1")
+
+
+def test_the_imported_session_reads_its_summary_identifier_off_the_session():
+    # One place holds the fact, so the two cannot drift apart: `ImportedSession`
+    # no longer carries a second copy that a caller could set independently.
+    result = import_transcript(Agent.CLAUDE_CODE, NATIVE.path("claude-code", "native_compaction"))
+
+    assert result.native_summary_id == result.session.native_summary_id == "c40"
+    with pytest.raises(TypeError):
+        ImportedSession(session=result.session, native_summary_id="c40")
+    # Pinned on assignment too, not only on construction: the property is the
+    # single home of the fact, so nothing may give it a second value later.
+    with pytest.raises((TypeError, AttributeError)):
+        result.native_summary_id = "c99"
 
 
 def test_the_importers_build_sessions_that_satisfy_the_invariant():
     for agent in Agent:
         assert imported(agent, RAW_FIXTURES).native_summary_id is None
         assert imported(agent, COMPACTED_FIXTURES).native_summary_id is not None
+
+
+# --- the summary survives a file, so two CLI invocations can see it ----------
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_a_natively_compacted_session_round_trips_with_its_summary_identified(agent):
+    # The gap this ticket closes: T10.1 runs one command per stage with files in
+    # between, so what the file does not carry is lost between two invocations.
+    original = imported(agent, COMPACTED_FIXTURES).session
+
+    reloaded = loads(Session, dumps(original))
+
+    assert reloaded.native_summary_id == SUMMARY_IDS[agent]
+    assert reloaded == original
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_a_reloaded_document_normalises_exactly_like_the_imported_session(agent):
+    result = imported(agent, COMPACTED_FIXTURES)
+
+    from_import = visible_context(result)
+    from_file = visible_context(loads(Session, dumps(result.session)))
+
+    assert from_file.message_ids == from_import.message_ids
+    assert from_file.hidden == from_import.hidden
+    assert from_file.normalised_ids == from_import.normalised_ids
+    assert from_file == from_import
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_a_reloaded_raw_document_normalises_exactly_like_the_imported_session(agent):
+    result = imported(agent, RAW_FIXTURES)
+
+    from_file = visible_context(loads(Session, dumps(result.session)))
+
+    assert from_file == visible_context(result)
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_the_visible_session_identifies_the_summary_it_starts_at(agent):
+    # The visible context is itself a canonical document a later stage reads from a
+    # file, so it has to stay self-describing — otherwise normalising it a second
+    # time would be the refusal this ticket exists to remove.
+    visible = visible_context(imported(agent, COMPACTED_FIXTURES)).session
+
+    assert visible.native_summary_id == SUMMARY_IDS[agent]
+    renormalised = visible_context(loads(Session, dumps(visible)))
+
+    assert list(renormalised.message_ids) == COMPACTED_VISIBLE[agent]
+    assert renormalised.hidden == ()
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_a_reloaded_raw_session_names_no_summary(agent):
+    assert loads(Session, dumps(imported(agent, RAW_FIXTURES).session)).native_summary_id is None
+
+
+def test_a_session_compacted_twice_round_trips_naming_the_second_summary():
+    original = import_transcript(
+        Agent.CLAUDE_CODE, NATIVE.path("claude-code", "compacted_twice")
+    ).session
+
+    reloaded = loads(Session, dumps(original))
+
+    assert reloaded.native_summary_id == "c51"
+    assert list(visible_context(reloaded).message_ids) == ["c51", "u52"]
+    assert list(visible_context(reloaded).hidden) == [
+        HiddenMessage("u50", HIDDEN_REPLACED_BY_COMPACTION),
+        HiddenMessage("c50", HIDDEN_REPLACED_BY_COMPACTION),
+        HiddenMessage("u51", HIDDEN_REPLACED_BY_COMPACTION),
+    ]
+
+
+# --- …and survives the stages between those two invocations ------------------
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_a_reduced_natively_compacted_session_normalises_like_the_imported_one(agent):
+    # The identifier is only useful if the stages between the import and the
+    # normalisation carry it. The chunker's reduction rebuilds the session, so
+    # it is the first stage that can lose it — and a reduced transcript that no
+    # longer says where the agent's context starts is refused, which is the
+    # refusal this ticket exists to remove.
+    result = imported(agent, COMPACTED_FIXTURES)
+
+    reduced = reduce_session(result.session).session
+
+    assert reduced.native_summary_id == SUMMARY_IDS[agent]
+    context = visible_context(reduced)
+    assert list(context.message_ids) == COMPACTED_VISIBLE[agent]
+    assert list(context.hidden) == COMPACTED_HIDDEN[agent]
+    assert context.messages[0].id == SUMMARY_IDS[agent]
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_every_message_of_a_reduced_session_is_either_visible_or_hidden_exactly_once(agent):
+    reduced = reduce_session(imported(agent, COMPACTED_FIXTURES).session).session
+
+    context = visible_context(reduced)
+
+    accounted = list(context.message_ids) + list(context.hidden_ids)
+    assert sorted(accounted) == sorted(message.id for message in reduced.messages)
+
+
+def test_a_session_compacted_twice_still_names_its_second_summary_after_reduction():
+    # The shape the preamble rule cannot protect by position: the second summary
+    # block sits after a real user turn, so reduction would have dropped it and
+    # left the identifier naming a message the document no longer holds.
+    session = import_transcript(
+        Agent.CLAUDE_CODE, NATIVE.path("claude-code", "compacted_twice")
+    ).session
+
+    reduced = reduce_session(session).session
+
+    assert reduced.native_summary_id == "c51"
+    assert "c51" in [message.id for message in reduced.messages]
+    assert list(visible_context(reduced).message_ids) == ["c51", "u52"]
 
 
 # --- the result is stable ----------------------------------------------------

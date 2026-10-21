@@ -42,10 +42,37 @@ from idc.chunk import (
     reduce_chunks,
     reduce_session,
 )
-from idc.schema import Chunk, Role, Session, SessionSource, dumps, loads
+from idc.importers import TranscriptImportError, import_transcript, visible_context
+from idc.schema import Agent, Chunk, Role, Session, SessionSource, dumps, loads
+from native_transcripts import NATIVE
 
 FIXTURE_NAMES = CORPUS.names()
 """Every fixture of the shared corpus, discovered at collection time."""
+
+NATIVE_SUMMARIES = {
+    Agent.CLAUDE_CODE: "c40",
+    Agent.OPENCODE: "msg_22c",
+    Agent.GEMINI_CLI: "c40",
+}
+"""The native summary of each agent's `native_compaction` transcript, read off by hand.
+
+The shared corpus holds no natively compacted transcript — every fixture of it is
+`raw` or `intent-compaction` — so the one input whose summary reduction has to
+carry comes from `tests/native/`.
+"""
+
+NATIVE_VISIBLE = {
+    Agent.CLAUDE_CODE: ["c40", "u41", "a40", "t40"],
+    Agent.OPENCODE: ["msg_22c", "msg_23u"],
+    Agent.GEMINI_CLI: ["c40", "c41", "u71"],
+}
+"""What provenance normalisation leaves visible in each of those transcripts.
+
+Read off the fixtures by hand, like `EXPECTED_NOTES` — the point of the
+cross-stage tests below is that reducing the transcript does not change this
+set, so computing it from the reduced session would be the implementation
+agreeing with itself.
+"""
 
 EXPECTED_NOTES: dict[str, list[tuple[str, str, str, tuple[str, ...]]]] = {
     # No harness noise at all: nothing to reduce, and the transcript must come
@@ -491,6 +518,10 @@ def test_reduction_keeps_the_provenance_of_the_transcript(name):
         session.source,
         session.created_at,
     )
+    # The summary identifier is provenance too: it says which message the agent
+    # continued from, and a stage that reduces the transcript does not know
+    # better than the importer that read it.
+    assert reduced.session.native_summary_id == session.native_summary_id
 
 
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
@@ -864,3 +895,158 @@ def test_the_corpus_covers_both_reduction_reasons():
     reasons = {reason for notes in EXPECTED_NOTES.values() for _c, _m, reason, _r in notes}
 
     assert reasons == {str(reason) for reason in ReductionReason}
+
+
+# --- a transcript the agent compacted itself -------------------------------
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_reduction_keeps_the_native_summary_identified(agent):
+    # T2.6 made the summary's location a field of the document so that it
+    # survives the file between two CLI invocations (#41). A stage that rebuilds
+    # the session has to carry it: a reduced transcript that no longer says
+    # where the agent's context starts is refused by provenance normalisation,
+    # which is the refusal the field exists to remove.
+    session = import_transcript(agent, NATIVE.path(agent, "native_compaction")).session
+
+    reduced = reduce_session(session)
+
+    assert session.source is SessionSource.NATIVE_COMPACTION, "fixture precondition"
+    assert session.native_summary_id == NATIVE_SUMMARIES[agent], "fixture precondition"
+    assert reduced.session.native_summary_id == NATIVE_SUMMARIES[agent]
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_reduction_keeps_the_message_the_native_summary_identifier_names(agent):
+    # Carrying the identifier is only honest if the message it names is still
+    # there: the agent's summary block is the baseline the measurement (#36)
+    # compares ours against, and an identifier whose message reduction removed
+    # would be worse than an absent one — a document that validates and cannot
+    # be normalised.
+    session = import_transcript(agent, NATIVE.path(agent, "native_compaction")).session
+    summary_id = NATIVE_SUMMARIES[agent]
+    summary = next(message for message in session.messages if message.id == summary_id)
+
+    reduced = reduce_session(session)
+
+    kept = [message for message in reduced.session.messages if message.id == summary.id]
+    assert kept == [summary]
+    assert kept[0] is summary, "the summary block is carried by identity, not rewritten"
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_the_reduced_natively_compacted_transcript_is_still_normalisable(agent):
+    # The shape #41 composes: import, reduce, write the document, read it back,
+    # normalise it. Each step has to leave the next one something it can use.
+    session = import_transcript(agent, NATIVE.path(agent, "native_compaction")).session
+
+    reduced = reduce_session(session).session
+    reloaded = loads(Session, dumps(reduced))
+
+    assert reloaded.native_summary_id == NATIVE_SUMMARIES[agent]
+    context = visible_context(reloaded)
+    assert context.messages[0].id == NATIVE_SUMMARIES[agent]
+    assert list(context.message_ids) == NATIVE_VISIBLE[agent]
+    # The T2.6 property, restated over the reduced transcript: every message is
+    # either visible or hidden, exactly once.
+    accounted = list(context.message_ids) + list(context.hidden_ids)
+    assert sorted(accounted) == sorted(message.id for message in reloaded.messages)
+
+
+def test_the_native_summary_is_exempt_where_the_preamble_rule_does_not_reach():
+    # The preamble rule protects the summary block by its *position* — every
+    # message before the first real user turn. Two shapes the importers produce
+    # put the block after one: a transcript that opens with the user turn the
+    # compaction replaced (opencode's `native_compaction`), and one compacted
+    # twice, whose second block sits mid-transcript (`compacted_twice`). The
+    # document now names the block, so the exemption can name it too instead of
+    # approximating it — and only it: the reminder after it is harness noise
+    # like any other.
+    session = synthetic_session(
+        [
+            {"role": "user", "content": "Fix the exporter."},
+            {
+                "role": "system",
+                "content": "Summary of the conversation so far: the exporter was rewritten.",
+                "is_system_injected": True,
+            },
+            {"role": "user", "content": "Now add the CLI flag."},
+            {
+                "role": "system",
+                "content": "<system-reminder>Context left: 42%.</system-reminder>",
+                "is_system_injected": True,
+            },
+            {"role": "assistant", "content": "Done."},
+        ],
+        source="native-compaction",
+        native_summary_id="m01",
+    )
+
+    reduced = reduce_session(session)
+
+    assert [(note.message_id, str(note.reason)) for note in reduced.notes] == [
+        ("m03", "system-injected")
+    ]
+    assert [message.id for message in reduced.session.messages] == ["m00", "m01", "m02", "m04"]
+    assert reduced.session.messages[1] is session.messages[1]
+    assert reduced.session.native_summary_id == "m01"
+
+
+def test_the_native_summary_is_not_swallowed_as_a_commands_result():
+    # The second way reduction could lose the block: `/compact` is a command, and
+    # the summary the harness writes next is injected — so the answer rule would
+    # take the block as the command's result, keep its text under the command's
+    # id and remove the block. The identifier would then name a message that is
+    # gone, and the text the measurement compares would sit in a message that
+    # claims to be a slash command.
+    session = synthetic_session(
+        [
+            {"role": "user", "content": "Fix the exporter."},
+            {"role": "user", "content": "/compact", "is_command": True},
+            {
+                "role": "system",
+                "content": "Summary of the conversation so far: the exporter was rewritten.",
+                "is_system_injected": True,
+            },
+            {"role": "user", "content": "Now add the CLI flag."},
+        ],
+        source="native-compaction",
+        native_summary_id="m02",
+    )
+
+    reduced = reduce_session(session)
+
+    assert [(note.message_id, str(note.reason), note.result_from) for note in reduced.notes] == [
+        ("m01", "command", ())
+    ]
+    assert [message.id for message in reduced.session.messages] == ["m00", "m02", "m03"]
+    assert reduced.session.messages[1] is session.messages[2], "the block itself survives"
+    assert visible_context(reduced.session).messages[0].id == "m02"
+
+
+def test_reduction_carries_a_summary_identifier_it_cannot_resolve_unchanged():
+    # A transcript whose front was truncated can name a summary it no longer
+    # holds; the canonical schema accepts that on purpose (#3) and provenance
+    # normalisation is the stage that refuses it. Reduction neither repairs the
+    # reference nor clears it: the document comes out saying exactly what it
+    # said, and is refused for the same reason before and after.
+    session = synthetic_session(
+        [
+            {"role": "user", "content": "Fix the exporter."},
+            {
+                "role": "system",
+                "content": "<system-reminder>Context left: 42%.</system-reminder>",
+                "is_system_injected": True,
+            },
+        ],
+        source="native-compaction",
+        native_summary_id="c99",
+    )
+
+    reduced = reduce_session(session)
+
+    assert [note.message_id for note in reduced.notes] == ["m01"]
+    assert reduced.session.native_summary_id == "c99"
+    for candidate in (session, reduced.session):
+        with pytest.raises(TranscriptImportError, match="no message of it carries"):
+            visible_context(candidate)

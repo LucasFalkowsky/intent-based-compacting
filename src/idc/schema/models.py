@@ -22,9 +22,12 @@ Four conventions hold throughout and are enforced, not documented only:
   importer that builds a `Message` from a malformed transcript cannot surface a
   pydantic traceback at the CLI.
 
-What is *not* enforced: that every `ToolResult.call_id` has a matching
-`ToolCall` in the same session. Transcripts can be truncated at the front, and
-a result whose call was cut off is still data the measurement needs.
+What is *not* enforced: that a reference resolves inside the document that
+carries it — neither that every `ToolResult.call_id` has a matching `ToolCall`
+in the same session, nor that `Session.native_summary_id` names one of its
+messages. Transcripts can be truncated at the front, and what the cut removed is
+still data the measurement needs; the stage that has to resolve a reference is
+the one that refuses when it cannot.
 """
 
 from collections.abc import Iterable
@@ -237,6 +240,29 @@ class Session(CanonicalModel):
     holds a raw transcript, one the agent compacted natively, and one this tool
     compacted, so measurement can take a before and an after without knowing
     which agent produced either.
+
+    For the native-compaction condition the provenance alone is not enough:
+    where the agent's own summary sits is what separates the context the agent
+    still has from the history it threw away, so `native_summary_id` records it
+    and the document stays readable after a `dump`/`load` — one CLI command per
+    stage, with files in between, is what the pipeline is.
+
+    Two things about that identifier are deliberately **not** enforced:
+
+    - That it names a message of this session. It is a reference like
+      `ToolResult.call_id`, and referential completeness is not enforced for
+      those either: a transcript truncated at the front loses the summary record
+      before it loses anything else, and a document that still says *which*
+      message the agent continued from is more useful than one that dropped the
+      fact with it. `idc.importers.provenance` refuses such a session, because
+      it cannot locate the cut — the stage that needs the reference resolves it.
+    - That a `native-compaction` session names one at all. That is an obligation
+      on whoever produced the document, not a property of the document: the
+      importers are held to it by `ImportedSession` (see `idc.importers.base`),
+      and the one computation that cannot proceed without it refuses. Making it
+      a schema rule would mean a stage that rebuilds a session without carrying
+      the field turns a valid transcript into an unloadable one, and it would be
+      the single place this schema stops accepting incomplete data.
     """
 
     id: Identifier = Field(description="Session identifier, taken from the source transcript.")
@@ -248,6 +274,15 @@ class Session(CanonicalModel):
     source: SessionSource = Field(
         default=SessionSource.RAW,
         description="Whether and how this transcript was compacted before.",
+    )
+    native_summary_id: Identifier | None = Field(
+        default=None,
+        description=(
+            "`Message.id` of the summary the agent's own compaction wrote, and the "
+            "message its context now starts at; `null` unless `source` is "
+            "`native-compaction`. A transcript the agent compacted twice names the "
+            "last summary."
+        ),
     )
     created_at: AwareDatetime = Field(description="When the session started.")
     messages: list[Message] = Field(
@@ -263,6 +298,31 @@ class Session(CanonicalModel):
             (call.id for message in self.messages for call in message.tool_calls),
             "tool-call id across messages",
         )
+        return self
+
+    @model_validator(mode="after")
+    def _check_native_summary_agrees_with_the_provenance(self) -> Self:
+        """Reject a named native summary under any other provenance.
+
+        The two fields say the same thing about the same transcript — *the agent
+        compacted this and continued from that message* — so an identifier under
+        `raw` or `intent-compaction` is not incomplete data but two fields
+        contradicting each other, and no stage could decide which to believe.
+
+        The converse is deliberately **not** rejected: see the class docstring.
+        """
+        if (
+            self.native_summary_id is not None
+            and self.source is not SessionSource.NATIVE_COMPACTION
+        ):
+            raise _field_error(
+                type(self),
+                "native_summary_id",
+                self.native_summary_id,
+                f"native_summary_id names {self.native_summary_id!r} as the native "
+                f"summary, but source is {self.source.value!r} rather than "
+                "'native-compaction'",
+            )
         return self
 
 

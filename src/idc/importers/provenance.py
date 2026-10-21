@@ -16,6 +16,10 @@ context.message_ids                    # ('c40', 'u41', 'a40', 't40')
 context.session                        # a canonical Session holding only those
 ```
 
+A canonical `Session` read back from a file works just as well as the
+`ImportedSession` the importer returned: everything this function needs is in
+the document.
+
 **Two reasons hide a message, and nothing else does.**
 
 - `replaced-by-compaction` — it sits before the summary the agent's own
@@ -59,21 +63,23 @@ Known limitations, both deliberate:
   and keeps typing has opened a genuine intent, which T3.2 would then reduce
   away. The comparison is equality for that reason, which also means a notice
   spelling this repository has not seen stays unflagged.
-- **A bare `Session` whose `source` is `native-compaction` is refused.** Where
-  the summary sits is `ImportedSession.native_summary_id`, which the canonical
-  schema holds nowhere, and no content marker could find it for all three agents
-  (OpenCode's summary text is arbitrary). Guessing would silently count history
-  the agent dropped, so `visible_context` raises instead. Every other session —
-  `raw`, `intent-compaction`, or any `ImportedSession` — is accepted as it is. A
-  stage that has to normalise a *reloaded* `native-compaction` document needs
-  the summary to become a canonical field, which is a schema ticket of its own.
+- **A `native-compaction` session that does not locate its summary is refused,
+  not guessed at.** Where the summary sits is `Session.native_summary_id`, a
+  canonical field since T2.6, so a document written by one CLI command and read
+  by the next answers the question itself — an `ImportedSession` and the file it
+  was dumped to normalise identically, which is what the native-compaction
+  baseline needs to cross two invocations. Two cases remain refused, and both
+  are documents the canonical schema accepts on purpose:
 
-  An `ImportedSession` cannot arrive in the same state: the invariant
-  `source is native-compaction` ⟺ `native_summary_id is not None` is checked in
-  `ImportedSession.__post_init__` (see `idc.importers.base`), not here, so the
-  pair is refused where it is built and no caller can construct it. This
-  function is left with the one case that *is* constructible — a bare `Session`,
-  which has no identifier field to agree with its provenance.
+  - the provenance says `native-compaction` but `native_summary_id` is `null`;
+  - the identifier names no message of the session, e.g. because the transcript
+    was truncated at the front past its own summary.
+
+  Either way the cut-off point is unknown, and no content marker could recover
+  it for all three agents (OpenCode's summary text is arbitrary). Guessing would
+  silently count history the agent had already dropped — the exact failure this
+  tool is built to measure — so `visible_context` raises instead. Every other
+  session is accepted as it is.
 
 `toolUseResult.interrupted` is **not** read here either, and that is the second
 pointer #10 was asked about: a Claude Code tool run the user cancelled still
@@ -189,20 +195,21 @@ def visible_context(session: ImportedSession | Session) -> VisibleContext:
     flag normalisation sets.
 
     Args:
-        session: An `ImportedSession`, or a canonical `Session` on its own when
-            the agent never compacted it.
+        session: An `ImportedSession`, or a canonical `Session` on its own —
+            including one loaded back from a file, which carries its own
+            `native_summary_id`.
 
     Returns:
-        The visible messages as a canonical session, together with what was left
-        out and what was flagged.
+        The visible messages as a canonical session, carrying the provenance and
+        the summary identifier of the original, together with what was left out
+        and what was flagged.
 
     Raises:
         TranscriptImportError: If the session was compacted by the agent itself
-            but does not say which message the summary is — a bare `Session`
-            with `source = native-compaction`, or an `ImportedSession` whose
-            `native_summary_id` is not one of its messages. Both would mean
-            counting history the agent dropped, which is the error this function
-            exists to prevent.
+            but does not locate its summary — `native_summary_id` is `null`, or
+            it names no message of the session. Both would mean counting history
+            the agent dropped, which is the error this function exists to
+            prevent.
         SchemaValidationError: If the visible messages do not satisfy the
             canonical schema.
     """
@@ -226,6 +233,7 @@ def visible_context(session: ImportedSession | Session) -> VisibleContext:
             agent=imported.agent,
             model=imported.model,
             source=imported.source,
+            native_summary_id=summary_id,
             created_at=imported.created_at,
             messages=visible,
         ),
@@ -237,6 +245,10 @@ def visible_context(session: ImportedSession | Session) -> VisibleContext:
 def _unpack(session: ImportedSession | Session) -> tuple[Session, str | None]:
     """Return the canonical session and the identifier of its native summary.
 
+    Both arguments are read the same way: the identifier is a field of `Session`,
+    so an `ImportedSession` and the document it was dumped to answer identically
+    and a stage does not have to have done the import itself.
+
     Args:
         session: What the caller passed — an `ImportedSession` or a `Session`.
 
@@ -245,21 +257,21 @@ def _unpack(session: ImportedSession | Session) -> tuple[Session, str | None]:
         compacted the transcript.
 
     Raises:
-        TranscriptImportError: If a bare `Session` was compacted by the agent
-            itself, in which case nothing says where its summary is. The same
-            question does not arise for an `ImportedSession`: its provenance and
-            its `native_summary_id` are checked against each other when it is
-            constructed.
+        TranscriptImportError: If the session was compacted by the agent itself
+            but names no summary. The canonical schema accepts that document on
+            purpose (see `idc.schema.models`); it is this function that cannot
+            proceed, because nothing in it says where the agent's context
+            starts.
     """
-    if isinstance(session, ImportedSession):
-        return session.session, session.native_summary_id
-    if session.source is SessionSource.NATIVE_COMPACTION:
+    unpacked = session.session if isinstance(session, ImportedSession) else session
+    if unpacked.source is SessionSource.NATIVE_COMPACTION and unpacked.native_summary_id is None:
         raise TranscriptImportError(
-            f"session {session.id!r} was compacted by {session.agent.value} itself, "
-            "but a Session alone does not say which message the native summary is; "
-            "pass the ImportedSession the importer returned"
+            f"session {unpacked.id!r} was compacted by {unpacked.agent.value} itself, "
+            "but names no native summary; the document has to record the message the "
+            "agent continued from in native_summary_id, or the history it dropped "
+            "would be counted as context"
         )
-    return session, None
+    return unpacked, unpacked.native_summary_id
 
 
 def _summary_index(session: Session, summary_id: str | None) -> int | None:

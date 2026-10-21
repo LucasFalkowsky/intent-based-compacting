@@ -129,52 +129,49 @@ class ImportedSession:
         notes: One note per distinct problem, sorted by kind and detail so that
             importing the same file twice reports the same thing in the same
             order.
-        native_summary_id: `Message.id` of the summary the agent's own
-            compaction wrote, or `None` for a transcript it never compacted.
-            Where that summary sits is what separates the context the agent
-            still has from the history it threw away, and the canonical schema
-            holds it nowhere — `Session.source` says only *that* a transcript
-            was compacted. `idc.importers.provenance` reads it; a transcript
-            compacted twice names the **last** summary, because that is the one
-            the agent's context now starts at.
 
-    Invariant, checked on construction: `session.source` is `native-compaction`
-    exactly when `native_summary_id` is set. The two say the same thing about the
-    same transcript — *the agent compacted this and continued from that message*
-    — and either half alone is a transcript nothing can measure: provenance
-    without an identifier makes `idc.importers.provenance` count the history the
-    agent dropped as if the agent still had it, and an identifier without the
-    provenance makes it hide messages from a session that claims it was never
-    compacted. The check lives here rather than in `visible_context` because the
-    broken state should not be constructible at all, and it needs no canonical
-    field: `native_summary_id` is this dataclass's, not the schema's.
+    Invariant, checked on construction: a session whose `source` is
+    `native-compaction` names its summary. Provenance without an identifier is a
+    transcript nothing can measure — `idc.importers.provenance` would count the
+    history the agent dropped as if the agent still had it — and an importer that
+    read a summary record always knows which message it was, so producing the
+    half-stated form is a bug here rather than incomplete input. The converse is
+    not checked here because it cannot arise: `Session` itself rejects an
+    identifier under any other provenance (see `idc.schema.models`).
     """
 
     session: Session
     notes: tuple[ImportNote, ...] = ()
-    native_summary_id: str | None = None
+
+    @property
+    def native_summary_id(self) -> str | None:
+        """`Message.id` of the summary the agent's own compaction wrote.
+
+        Read off the canonical session rather than held a second time, so the
+        two cannot drift apart: the identifier is a field of `Session` since
+        T2.6, which is what lets a dumped transcript still say where the agent's
+        context starts. `None` for a transcript the agent never compacted; a
+        transcript it compacted twice names the **last** summary, because that
+        is the one its context now starts at.
+        """
+        return self.session.native_summary_id
 
     def __post_init__(self) -> None:
-        """Reject a session whose provenance and summary identifier disagree.
+        """Reject a compacted session that does not name its summary.
 
         Raises:
             TranscriptImportError: If the session was compacted by the agent
-                itself but names no summary, or names one without saying it was
-                compacted.
+                itself but names no summary.
         """
-        compacted = self.session.source is SessionSource.NATIVE_COMPACTION
-        if compacted and self.native_summary_id is None:
+        if (
+            self.session.source is SessionSource.NATIVE_COMPACTION
+            and self.session.native_summary_id is None
+        ):
             raise TranscriptImportError(
                 f"session {self.session.id!r} was compacted by "
                 f"{self.session.agent.value} itself, but names no native summary; "
                 "the message the agent continued from has to be recorded, or the "
                 "history it dropped would be counted as context"
-            )
-        if not compacted and self.native_summary_id is not None:
-            raise TranscriptImportError(
-                f"session {self.session.id!r} names {self.native_summary_id!r} as its "
-                f"native summary, but its provenance is {self.session.source.value!r} "
-                "rather than 'native-compaction'"
             )
 
     def notes_of(self, kind: str) -> tuple[ImportNote, ...]:
@@ -426,9 +423,10 @@ class SessionBuilder:
         the agent dropped everything before it and continued from the summary.
         The two facts that follow from it are therefore set here rather than in
         each importer: the session's provenance becomes `native-compaction`, and
-        the message is remembered as the session's `native_summary_id`, which is
-        what `idc.importers.provenance` needs and what the canonical schema has
-        no field for.
+        the message is recorded as the session's `native_summary_id`. Both are
+        canonical fields, so a dumped transcript still says where the agent's
+        context starts — which is what `idc.importers.provenance` reads, in this
+        process or two CLI invocations later.
 
         Args:
             message_id: Identifier of the summary message, from the transcript.
@@ -490,11 +488,11 @@ class SessionBuilder:
                 agent=self._agent,
                 model=self._model,
                 source=self._provenance,
+                native_summary_id=self._native_summary_id,
                 created_at=min(self._timestamps),
                 messages=self._messages,
             ),
             notes=self.notes(),
-            native_summary_id=self._native_summary_id,
         )
 
 

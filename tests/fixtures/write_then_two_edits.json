@@ -3,6 +3,7 @@
   "agent": "gemini-cli",
   "model": "gemini-2.5-pro",
   "source": "raw",
+  "native_summary_id": null,
   "created_at": "2026-09-08T09:10:00+02:00",
   "messages": [
     {
