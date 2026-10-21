@@ -20,7 +20,10 @@ is the whole block for a caller that has no model.
 `idc.compact.incremental` is the stage above the two: handed a whole run's
 chains, it writes a block for every chain this run opened or gave a new chunk
 to, and copies the block of every other chain byte for byte — so a chain that
-was summarized once is paid for once. `idc.compact.narrative` fills the
+was summarized once is paid for once. An extended chain's `Solution` section is
+the merge of its earlier block's and this run's writes — `idc.compact.merge`,
+last write winning per file, so a rewrite does not drop the files the chain
+already had. `idc.compact.narrative` fills the
 narrative sections and the `Intent` label from
 a model: the client is injected, the response is validated against the section
 headers, and the instruction is read from the versioned data file
@@ -50,6 +53,7 @@ from idc.compact.instruction import (
     instruction_digest,
     load_instruction,
 )
+from idc.compact.merge import merge_solution_bodies, merged_solution_section
 from idc.compact.narrative import (
     INTENT_MARKER,
     Narrative,
@@ -149,3 +153,12 @@ __all__ += [
 # review showed it escaping the stage's public entry point, where a caller could
 # not tell it from a built-in failure.
 __all__ += ["CarriedChainError"]
+
+# T6.4 (#29) — the merge an extended chain's rewrite goes through: the earlier
+# block's `Solution` section and this run's writes, last write winning per file.
+# Appended as a block of its own for the reason the comment above `__all__`
+# gives.
+__all__ += [
+    "merge_solution_bodies",
+    "merged_solution_section",
+]

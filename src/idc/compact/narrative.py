@@ -443,7 +443,13 @@ def rejected_section(narrative: Narrative) -> str:
     return _section(REJECTED_HEADER, narrative.rejected)
 
 
-def render_narrative_block(chain: Chain, resolution: Resolution, narrative: Narrative) -> str:
+def render_narrative_block(
+    chain: Chain,
+    resolution: Resolution,
+    narrative: Narrative,
+    *,
+    solution: str | None = None,
+) -> str:
     """Return the whole block of one chain, its narrative sections filled.
 
     Args:
@@ -452,6 +458,16 @@ def render_narrative_block(chain: Chain, resolution: Resolution, narrative: Narr
             are this written out, by `idc.compact.template` and untouched here.
         narrative: The validated response: the heading's label and the two
             narrative bodies.
+        solution: The whole `Solution` section, header included, to write
+            instead of the one `resolution` renders — what
+            `idc.compact.merged_solution_section` produces for a chain an
+            earlier run already summarized, whose earlier solution this run's
+            resolution does not state (T6.4). `None`, the default, renders it
+            from `resolution` alone, which is every chain this run opened. The
+            section is handed in rather than merged here because whether a chain
+            *is* extended is `idc.compact.incremental`'s decision and not this
+            module's: a carried-over chain is `compacted` too, and its block is
+            copied rather than written.
 
     Returns:
         The heading and the four sections in the order of `SECTION_HEADERS`,
@@ -461,19 +477,18 @@ def render_narrative_block(chain: Chain, resolution: Resolution, narrative: Narr
         heading carries the model's label; the chain's own provisional label is
         what it replaces.
 
-        A narrative whose two bodies are empty renders exactly what
-        `render_block` renders for that chain, which is what keeps the one
-        template in one place.
+        A narrative whose two bodies are empty renders, with no `solution`
+        handed in, exactly what `render_block` renders for that chain, which is
+        what keeps the one template in one place.
 
         Everything outside the model's three contributions is computed from the
-        two other arguments, so a chain, a resolution and a response render the
-        same bytes in every run.
+        arguments, so one set of them renders the same bytes in every run.
     """
     return (
         f"{chain_heading(chain, narrative.label)}\n"
         f"{decisions_section(narrative)}"
         f"{rejected_section(narrative)}"
-        f"{solution_section(resolution)}"
+        f"{solution_section(resolution) if solution is None else solution}"
         f"{verification_section(resolution)}"
     )
 
@@ -601,6 +616,7 @@ def compact_chain(
     client: NarrativeClient,
     *,
     user_messages: Iterable[str] = (),
+    solution: str | None = None,
 ) -> str:
     """Compact one chain into its block, with exactly one model call.
 
@@ -610,6 +626,11 @@ def compact_chain(
         client: The narrative backend to ask.
         user_messages: The user messages of the chain's chunks, in transcript
             order.
+        solution: The `Solution` section to write instead of the one
+            `resolution` renders; see `render_narrative_block`. The request the
+            client is asked with carries the resolution either way — the model
+            is asked about the chunks this run added, which is what it is being
+            paid for, and the merged section is the writer's own business.
 
     Returns:
         The whole Markdown block, as `render_narrative_block` writes it.
@@ -626,4 +647,6 @@ def compact_chain(
     later refactor cannot quietly double it.
     """
     request = NarrativeRequest.for_chain(chain, resolution, user_messages=user_messages)
-    return render_narrative_block(chain, resolution, as_narrative(client.write(request)))
+    return render_narrative_block(
+        chain, resolution, as_narrative(client.write(request)), solution=solution
+    )
