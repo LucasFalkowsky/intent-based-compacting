@@ -395,3 +395,88 @@ def test_a_registry_can_be_built_from_a_parsed_document_without_a_file():
 def test_a_document_that_is_not_a_mapping_is_rejected():
     with pytest.raises(ToolRegistryError, match="mapping"):
         ToolRegistry([("version", 1)])  # type: ignore[arg-type]
+
+
+# --- the argument keys of a tool ---------------------------------------------
+
+
+def test_the_packaged_file_declares_a_path_argument_key_for_every_write_tool():
+    registry = tool_registry()
+
+    for agent in registry.agents:
+        for name in registry.tool_names(agent):
+            if registry.category(agent, name) is not ToolCategory.WRITE:
+                continue
+            spec = registry.spec(agent, name)
+            assert spec is not None and spec.path_keys, f"{agent.value}/{name}"
+
+
+def test_the_packaged_file_declares_a_command_argument_key_for_every_exec_tool():
+    registry = tool_registry()
+
+    for agent in registry.agents:
+        for name in registry.tool_names(agent):
+            if registry.category(agent, name) is not ToolCategory.EXEC:
+                continue
+            spec = registry.spec(agent, name)
+            assert spec is not None and spec.command_keys, f"{agent.value}/{name}"
+
+
+def test_the_declared_path_keys_are_collected_across_the_agents():
+    # The resolver reads a call's file without knowing which agent produced it
+    # (a `ToolCall` names its tool, not its session), so the registry offers the
+    # union of the declarations as well as the per-tool list.
+    registry = tool_registry()
+
+    assert registry.file_path_keys == ("file_path", "notebook_path", "absolute_path", "filePath")
+    assert registry.command_keys == ("command",)
+    assert registry.spec(Agent.CLAUDE_CODE, "NotebookEdit").path_keys == ("notebook_path",)
+    assert registry.spec(Agent.GEMINI_CLI, "read_file").path_keys == ("absolute_path",)
+    assert registry.spec(Agent.OPENCODE, "write").path_keys == ("filePath",)
+
+
+def test_a_path_key_added_to_the_data_file_is_read_without_a_code_change(tmp_path):
+    text = MINIMAL_REGISTRY.replace(
+        'Read = { category = "read" }',
+        'Read = { category = "read", path_keys = ["sheet_path"] }',
+        1,
+    )
+
+    registry = load_tool_registry(write_registry(tmp_path, text))
+
+    assert registry.spec(Agent.CLAUDE_CODE, "Read").path_keys == ("sheet_path",)
+    assert "sheet_path" in registry.file_path_keys
+    assert "sheet_path" not in tool_registry().file_path_keys
+
+
+def test_a_write_tool_without_a_path_argument_key_is_rejected(tmp_path):
+    # The inconsistency this ticket removes: `NotebookEdit` was declared a write
+    # tool while no table held its `notebook_path`, so the notebook it wrote was
+    # missing from the solution without a single error.
+    text = MINIMAL_REGISTRY.replace(
+        'Read = { category = "read" }', 'Scribble = { category = "write" }', 1
+    )
+    path = write_registry(tmp_path, text)
+
+    with pytest.raises(ToolRegistryError, match="Scribble.*path_keys"):
+        load_tool_registry(path)
+
+
+def test_an_exec_tool_without_a_command_argument_key_is_rejected(tmp_path):
+    text = MINIMAL_REGISTRY.replace(
+        'Read = { category = "read" }', 'Teleport = { category = "exec" }', 1
+    )
+    path = write_registry(tmp_path, text)
+
+    with pytest.raises(ToolRegistryError, match="Teleport.*command_keys"):
+        load_tool_registry(path)
+
+
+def test_an_argument_key_that_holds_no_word_is_rejected(tmp_path):
+    text = MINIMAL_REGISTRY.replace(
+        'Read = { category = "read" }', 'Read = { category = "read", path_keys = ["  "] }', 1
+    )
+    path = write_registry(tmp_path, text)
+
+    with pytest.raises(ToolRegistryError, match=re.escape("agents.claude-code.tools.Read")):
+        load_tool_registry(path)

@@ -25,8 +25,10 @@ import pytest
 from fixture_corpus import CORPUS
 from fixture_corpus import FILE_PATH_KEYS as CORPUS_FILE_PATH_KEYS
 from fixture_corpus import file_of as corpus_file_of
+from fixture_corpus import tool_calls as corpus_tool_calls
 from idc.chunk import chunk_session
 from idc.classify import FakeAdapter, classify, gold_script
+from idc.importers import tool_registry
 from idc.resolve import (
     CONTENT_KEYS,
     FILE_PATH_KEYS,
@@ -138,6 +140,38 @@ def session_with_respelled_file(name: str, call_id: str, path: str) -> Session:
                         respelled += 1
     assert respelled == 1, f"{call_id} must name its file exactly once in {name}"
     return loads(Session, json.dumps(document))
+
+
+def session_with_notebook_edit(name: str, call_id: str, path: str) -> Session:
+    """Return a fixture with one write call rewritten into a `NotebookEdit` one.
+
+    Built like `session_with_renamed_argument`, and for the reason that one
+    needs: no corpus fixture records Claude Code's `NotebookEdit`, so the one
+    declared write tool whose file argument is spelled `notebook_path` is made
+    by rewriting a write call of the fixture's own document — tool name and
+    argument key together — and loading it through `loads`.
+    """
+    document = json.loads(CORPUS.text(name))
+    rewritten = 0
+    for message in document["messages"]:
+        for call in message.get("tool_calls", []):
+            if call["id"] == call_id:
+                call["name"] = "NotebookEdit"
+                for key in CORPUS_FILE_PATH_KEYS:
+                    call["args"].pop(key, None)
+                call["args"]["notebook_path"] = path
+                rewritten += 1
+    assert rewritten == 1, f"{call_id} must occur exactly once in {name}"
+    return loads(Session, json.dumps(document))
+
+
+WRITE_TOOLS = tuple(
+    (agent, name)
+    for agent in tool_registry().agents
+    for name in tool_registry().tool_names(agent)
+    if tool_registry().category(agent, name) is ToolCategory.WRITE
+)
+"""Every tool the registry declares as writing, discovered at collection time."""
 
 
 # --- the two acceptance criteria -------------------------------------------
@@ -350,13 +384,81 @@ def test_a_write_whose_file_argument_is_spelled_unknown_is_attributed_to_no_file
     assert ids(entries["/repo/src/text/slug.py"].edits) == ["c05", "c07"]
 
 
-def test_the_stage_and_the_corpus_agree_on_the_file_argument_spellings():
-    # One list exists twice: the stage reads a call's file with its own
-    # `FILE_PATH_KEYS`, and `tests/fixture_corpus.py` holds an independent copy
-    # so that no stage is its own oracle here. Nothing else compares them, so a
-    # spelling added on one side only would leave both sides agreeing with
-    # themselves and the oracle silently weaker.
-    assert FILE_PATH_KEYS == CORPUS_FILE_PATH_KEYS
+def test_the_registry_and_the_corpus_agree_on_the_file_argument_spellings():
+    # The stage no longer holds a list of its own: `FILE_PATH_KEYS` is the
+    # registry's declarations, while `tests/fixture_corpus.py` keeps an
+    # independent copy so that no stage is its own oracle here. The two are
+    # pinned against each other over the tools the corpus actually records —
+    # equality, not inclusion, so a spelling added to one of those tools without
+    # the corpus showing it fails here instead of leaving the oracle weaker.
+    # Beyond them the registry may declare more, which is what `notebook_path`
+    # is: a write tool no fixture records.
+    registry = tool_registry()
+    recorded = {
+        (session.agent, call.name)
+        for name in FIXTURE_NAMES
+        for session in (CORPUS.session(name),)
+        for call in corpus_tool_calls(session.messages)
+    }
+    declared = {
+        key
+        for agent, tool in recorded
+        if (spec := registry.spec(agent, tool)) is not None
+        for key in spec.path_keys
+    }
+
+    assert declared == set(CORPUS_FILE_PATH_KEYS)
+    assert set(CORPUS_FILE_PATH_KEYS) <= set(FILE_PATH_KEYS)
+    assert set(FILE_PATH_KEYS) - set(CORPUS_FILE_PATH_KEYS) == {"notebook_path"}
+
+
+@pytest.mark.parametrize(("agent", "name"), WRITE_TOOLS, ids=lambda item: str(item))
+def test_every_declared_write_tool_can_be_attributed_to_a_file(agent, name):
+    # Asserted over the registry rather than over a hand-written list, so a
+    # write tool cannot be added without the argument key that lets its file
+    # enter a solution.
+    spec = tool_registry().spec(agent, name)
+
+    assert spec is not None and spec.path_keys, f"{agent.value}/{name} names no path argument"
+    for key in spec.path_keys:
+        call = ToolCall(id="c01", name=name, category=ToolCategory.WRITE, args={key: "src/a.py"})
+        assert file_of(call) == "src/a.py", f"{agent.value}/{name} via {key}"
+
+
+def test_the_write_tools_of_the_registry_are_the_seven_of_the_three_agents():
+    # The table above may not empty out: an empty parametrization is a skip,
+    # not a pass.
+    assert len(WRITE_TOOLS) == 7
+    assert {name for _, name in WRITE_TOOLS} == {
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "replace",
+        "write_file",
+        "edit",
+        "write",
+    }
+
+
+def test_a_notebook_edited_through_notebook_edit_lands_in_the_solution():
+    # The regression test of this ticket. `NotebookEdit` is declared
+    # `category = "write"` and names its file under `notebook_path`; while that
+    # spelling was in no table, the call resolved to no file at all and the
+    # notebook was silently absent from the solution — the one declared write
+    # tool for which that held.
+    notebook = "/repo/notebooks/explore.ipynb"
+    session = session_with_notebook_edit(REWRITTEN, "c04", notebook)
+    chunks = chunk_session(session)
+    chain = Chain(id="C1", label="the one intent", chunk_ids=[chunk.id for chunk in chunks])
+    call = next(item for item in all_write_calls(session) if item.id == "c04")
+    entries = {entry.path: entry for entry in solution_files(session, chunks, chain)}
+
+    assert call.name == "NotebookEdit"
+    assert call.category is ToolCategory.WRITE
+    assert file_of(call) == notebook
+    assert notebook in entries, "the notebook the chain wrote is part of its solution"
+    assert entries[notebook].write is not None
+    assert entries[notebook].write.id == "c04"
 
 
 def test_a_write_whose_file_argument_holds_no_word_is_attributed_to_no_file():
