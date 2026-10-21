@@ -115,10 +115,14 @@ def message(message_id: str, role: Role = Role.USER, **extra) -> Message:
     return Message(id=message_id, role=role, **extra)
 
 
-def session(*messages: Message, source: SessionSource = SessionSource.RAW) -> Session:
+def session(
+    *messages: Message,
+    source: SessionSource = SessionSource.RAW,
+    agent: Agent = Agent.CLAUDE_CODE,
+) -> Session:
     return Session(
         id="sess-1",
-        agent=Agent.CLAUDE_CODE,
+        agent=agent,
         source=source,
         created_at=datetime(2026, 9, 10, 9, tzinfo=UTC),
         messages=list(messages),
@@ -291,6 +295,29 @@ def test_flagging_a_notice_changes_nothing_but_the_flag():
 
 def test_every_agent_has_an_entry_in_the_notice_markers():
     assert set(NOTICE_MARKERS) == set(Agent)
+
+
+def test_every_notice_marker_entry_is_a_tuple_of_whole_texts():
+    # `_is_harness_notice` asks `message.content in NOTICE_MARKERS[agent]`, and that
+    # `in` is an equality test only while the entry is a tuple of texts. A single
+    # dropped comma turns a one-element entry into a bare `str`, and the same `in`
+    # becomes substring matching — so the container's type is part of the contract.
+    assert all(isinstance(markers, tuple) for markers in NOTICE_MARKERS.values())
+    assert all(isinstance(marker, str) for markers in NOTICE_MARKERS.values() for marker in markers)
+
+
+@pytest.mark.parametrize("agent", list(Agent))
+def test_no_fragment_of_a_notice_marker_is_matched_on_its_own(agent):
+    # The behaviour the tuple protects, pinned without naming the container: only the
+    # whole notice text is a notice. A single character of a marker is a user turn a
+    # human typed — flagging it would hand T3.2 an intent boundary to reduce away.
+    for marker in NOTICE_MARKERS[agent]:
+        fragments = {marker[0], marker[-1], marker[1:], marker[:-1], marker[: len(marker) // 2]}
+        for fragment in sorted(fragments - {marker}):
+            context = visible_context(session(message("u1", content=fragment), agent=agent))
+
+            assert context.normalised_ids == (), fragment
+            assert context.messages[0].is_system_injected is False, fragment
 
 
 # --- a session the agent compacted more than once ---------------------------
