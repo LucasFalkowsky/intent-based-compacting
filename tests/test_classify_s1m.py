@@ -579,6 +579,81 @@ def test_the_same_scorer_classifies_a_transcript_the_same_way_twice(name):
 
 
 # ---------------------------------------------------------------------------
+# what a recorded run may be re-thresholded from, and what it may not
+# ---------------------------------------------------------------------------
+
+
+def test_a_recorded_new_confidence_does_not_invert_to_the_score_it_came_from():
+    # `1 - highest` is a *lossy* encoding: `1 - (1 - x) != x` for 32 of the 101
+    # two-decimal scores. A threshold sweep (#19) that reads a recorded
+    # `NEW`'s confidence instead of `S1MCall.scores` therefore answers `NEW`
+    # where re-running the backend answers `EXTEND` — which is why the module
+    # documents the sweep as exact only from the scores.
+    adapter = S1MAdapter(TableScorer({"C1": 0.161, "C2": 0.432}), threshold=0.516)
+
+    decision = adapter.decide(subject(), candidates("C1", "C2"))
+
+    assert decision.is_new
+    assert decision.confidence is not None
+    highest_re_derived = 1.0 - decision.confidence
+    # One ULP below the score that was actually seen: a sweep down to 0.432
+    # keeps answering `NEW` ...
+    assert highest_re_derived < 0.432
+    assert not highest_re_derived >= 0.432
+    # ... while the recorded scores say `EXTEND C2` at that threshold, exactly.
+    assert dict(adapter.calls[0].scores)["C2"] == 0.432
+
+
+def test_a_recorded_new_confidence_cannot_say_which_chain_would_have_been_extended():
+    # One number for `k` candidates: two runs whose *winner* differs record the
+    # same confidence, so the chain a lower threshold would have extended is not
+    # in the confidence at all. It is in `S1MCall.scores`, per candidate.
+    first = S1MAdapter(TableScorer({"C1": 0.4, "C2": 0.1}))
+    second = S1MAdapter(TableScorer({"C1": 0.1, "C2": 0.4}))
+
+    one = first.decide(subject(), candidates("C1", "C2"))
+    other = second.decide(subject(), candidates("C1", "C2"))
+
+    assert one == other
+    assert dict(first.calls[0].scores) != dict(second.calls[0].scores)
+
+
+def test_the_threshold_changes_which_questions_a_transcript_asks_at_all():
+    # The reason no recording supports a *whole-transcript* sweep: the candidate
+    # set is itself threshold-dependent. The same scorer on the same transcript
+    # asks two questions at 0.4 and three at 0.5 — and the third is a score the
+    # 0.4 run never obtained, so it cannot be re-thresholded from its record.
+    session = CORPUS.session("interleaved_intents")
+    chunks = chunk_session(session)
+    table = {("K2", "C1"): 0.45, ("K3", "C1"): 0.45, ("K3", "C2"): 0.9}
+    low, high = TableScorer(table), TableScorer(table)
+
+    one_chain = classify(session, chunks, S1MAdapter(low, threshold=0.4))
+    two_chains = classify(session, chunks, S1MAdapter(high, threshold=0.5))
+
+    assert [(chain.id, list(chain.chunk_ids)) for chain in one_chain] == [
+        ("C1", ["K1", "K2", "K3"]),
+    ]
+    assert [(chain.id, list(chain.chunk_ids)) for chain in two_chains] == [
+        ("C1", ["K1"]),
+        ("C2", ["K2", "K3"]),
+    ]
+    assert low.calls == [("K2", "C1"), ("K3", "C1")]
+    assert high.calls == [("K2", "C1"), ("K3", "C1"), ("K3", "C2")]
+    assert ("K3", "C2") not in low.calls
+
+
+def test_the_module_documents_the_limitation_instead_of_promising_a_sweep():
+    # The three tests above hold; the docstring is where #19 reads them from, so
+    # the convenient claim — "sweep the threshold over a recorded run instead of
+    # re-running the backend" — may not come back into it.
+    doc = importlib.import_module("idc.classify.s1m").__doc__ or ""
+
+    assert "sweep the threshold over a recorded run" not in doc
+    assert "S1MCall.scores" in doc
+
+
+# ---------------------------------------------------------------------------
 # no backend of its own
 # ---------------------------------------------------------------------------
 
