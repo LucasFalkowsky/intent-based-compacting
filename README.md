@@ -153,11 +153,15 @@ that is not that summary — Claude Code's `system` records, Gemini CLI's `info`
 lines (`harness-notice`). Injected text in the *user* role stays visible, because the model
 is sent it: a `<system-reminder>`, Gemini CLI's `<session_context>`, OpenCode's `synthetic`
 text. Normalisation changes exactly one thing on the way out — a harness-written notice in
-the user role, such as Claude Code's `[Request interrupted by user …]`, is returned marked
-`is_system_injected`, so that the flag means *the harness wrote this* for all three agents
-and the chunker does not read it as a user turn. Which message the agent's summary is comes
-from the importer (`ImportedSession.native_summary_id`); a `native-compaction` session
-handed over without it is refused rather than counted wrongly.
+the user role, Claude Code's `[Request interrupted by user for tool use]`, is returned
+marked `is_system_injected`, so that the flag means *the harness wrote this* for all three
+agents and the chunker does not read it as a user turn. Such a notice is recognised by its
+**whole text**, and only in a spelling this repository has actually observed: a user who
+pastes the notice and keeps typing has opened a real intent, and a prefix test or a guessed
+spelling would reduce that intent away. Which message the agent's summary is comes from the
+importer (`ImportedSession.native_summary_id`), and the two have to agree — a
+`native-compaction` session that names no summary, or a summary named by a session that was
+never natively compacted, is refused rather than counted wrongly.
 
 `python -c` is not the interface: the `import` command is wired up in T10.1.
 
