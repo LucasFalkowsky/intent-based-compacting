@@ -285,6 +285,23 @@ def test_gold_chains_rejects_a_blank_transcript_name():
         GoldChains.from_mapping("  ", {"K1": "C1"})
 
 
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: GoldChains(transcript="a_fixture", labels=(("K1", "C1"),)),
+        lambda: GoldChains.from_mapping("a_fixture", {"K1": "C1"}),
+    ],
+    ids=["constructor", "from_mapping"],
+)
+def test_a_gold_labelling_built_in_code_has_to_declare_its_chunking(build):
+    # A chunk id is a position, so a labelling means nothing without the
+    # chunking it was written against. A document cannot omit it (`chunking` is
+    # in `REQUIRED_KEYS`); neither may a labelling built in code, or it claims
+    # user boundaries without anybody saying so.
+    with pytest.raises(TypeError, match="chunking"):
+        build()
+
+
 def test_gold_chains_rejects_a_blank_chunking():
     with pytest.raises(GoldLabellingError, match="chunking"):
         GoldChains.from_mapping("a_fixture", {"K1": "C1"}, chunking="  ")
