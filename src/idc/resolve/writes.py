@@ -26,8 +26,9 @@ Three things are deliberately *not* decided here:
   the arguments and the output verbatim (the parent's criterion, #20). What the
   compactor writes out of them is T6's question.
 - **What the file now contains** is not reconstructed: the entries are the write
-  *calls*, which is the edit-sequence representation T5.4 (#24) may later replay
-  into final content.
+  *calls*, which is the edit-sequence representation. `idc.resolve.replay`
+  (T5.4, #24) replays an entry into the file's content where the transcript
+  states a base to replay onto, and leaves it as this edit sequence otherwise.
 - **An edit that another edit overwrote** is not detected. Two edits to the same
   region are two kept edits here, because telling them apart needs the file's
   content and this stage has no filesystem. *This* non-detection only ever

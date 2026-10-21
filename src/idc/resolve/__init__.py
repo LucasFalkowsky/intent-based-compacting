@@ -46,7 +46,9 @@ calls and reads what a single call did (which file, whole write or patch),
 `idc.resolve.writes` applies the last-write-per-file rule to them,
 `idc.resolve.verification` keeps the run that proves the chain,
 `idc.resolve.resolution` partitions the chain into that solution and the path
-that led to it, and `idc.resolve.errors` holds the refusals.
+that led to it, `idc.resolve.replay` replays a file's kept edits into the
+content it holds afterwards where the transcript states a base to replay onto,
+and `idc.resolve.errors` holds the refusals.
 
 **Known limitation — an edit made outside a tool call is not detected.** The
 stage sees tool calls, so a file changed by a shell command (`sed -i`, a patch
@@ -76,6 +78,13 @@ from idc.resolve.calls import (
     write_kind,
 )
 from idc.resolve.errors import ForeignChunkError, ResolveError, UnknownChunkError
+from idc.resolve.replay import (
+    FileReplay,
+    ReplayStatus,
+    rendered_extent,
+    replay_file,
+    replay_files,
+)
 from idc.resolve.resolution import Resolution, path_call_ids, resolve, solution_call_ids
 from idc.resolve.verification import (
     SolutionVerification,
@@ -133,4 +142,16 @@ __all__ += [
     "path_call_ids",
     "resolve",
     "solution_call_ids",
+]
+
+# T5.4 (#24) — the edit replay, appended as a block of its own for the reason
+# the comment above gives. It is offered beside `resolve` and not inside
+# `Resolution`: the ticket is `optional`, and a consumer that wants a file's
+# content after the chain asks for it.
+__all__ += [
+    "FileReplay",
+    "ReplayStatus",
+    "rendered_extent",
+    "replay_file",
+    "replay_files",
 ]

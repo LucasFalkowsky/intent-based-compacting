@@ -6,7 +6,10 @@ are the three answers it aggregates; `chain_chunks`,
 `chain_calls` and `LocatedCall` are the chain walk T5.2 (#22) asks for the
 `exec` calls with and T5.3 (#23) for the path, and `file_of`, `write_kind`,
 `content_of`, `command_of` and the four key tuples are the argument-shape
-knowledge that must not be restated per sub-ticket. *What* they compute is
+knowledge that must not be restated per sub-ticket; `replay_files`,
+`replay_file`, `rendered_extent`, `FileReplay` and `ReplayStatus` are T5.4's
+(#24) optional edit replay, offered beside `resolve` rather than inside
+`Resolution`. *What* they compute is
 covered through `solution_files` in `tests/test_resolve_writes.py` and through
 `solution_verification` in `tests/test_resolve_verification.py`; what is pinned
 here is only that they stay reachable from the package, so a refactor cannot
@@ -28,8 +31,10 @@ from idc.resolve import (
     CONTENT_KEYS,
     FILE_PATH_KEYS,
     REPLACEMENT_KEYS,
+    FileReplay,
     ForeignChunkError,
     LocatedCall,
+    ReplayStatus,
     Resolution,
     ResolveError,
     SolutionFile,
@@ -45,6 +50,9 @@ from idc.resolve import (
     exec_calls,
     file_of,
     path_call_ids,
+    rendered_extent,
+    replay_file,
+    replay_files,
     resolve,
     solution_call_ids,
     solution_files,
@@ -59,8 +67,10 @@ EXPECTED_EXPORTS = {
     "CONTENT_KEYS",
     "FILE_PATH_KEYS",
     "REPLACEMENT_KEYS",
+    "FileReplay",
     "ForeignChunkError",
     "LocatedCall",
+    "ReplayStatus",
     "ResolveError",
     "Resolution",
     "SolutionFile",
@@ -76,6 +86,9 @@ EXPECTED_EXPORTS = {
     "exec_calls",
     "file_of",
     "path_call_ids",
+    "rendered_extent",
+    "replay_file",
+    "replay_files",
     "resolve",
     "solution_call_ids",
     "solution_files",
@@ -84,11 +97,12 @@ EXPECTED_EXPORTS = {
     "write_calls",
     "write_kind",
 }
-"""The documented export surface of the stage after T5.1, T5.2 and T5.3.
+"""The documented export surface of the stage after T5.1 to T5.4.
 
-T5.2 (#22) added the eight verification names and T5.3 (#23) the four names of
-the partition and the entry point; everything an earlier sub-ticket pinned
-stays pinned, so a sub-ticket can only ever extend this set."""
+T5.2 (#22) added the eight verification names, T5.3 (#23) the four names of the
+partition and the entry point, and T5.4 (#24) the five names of the edit
+replay; everything an earlier sub-ticket pinned stays pinned, so a sub-ticket
+can only ever extend this set."""
 
 CALLABLE_EXPORTS = (
     chain_calls,
@@ -98,6 +112,9 @@ CALLABLE_EXPORTS = (
     exec_calls,
     file_of,
     path_call_ids,
+    rendered_extent,
+    replay_file,
+    replay_files,
     resolve,
     solution_call_ids,
     solution_files,
@@ -109,8 +126,10 @@ CALLABLE_EXPORTS = (
 """Every exported name that is a function, imported from the package by name."""
 
 TYPE_EXPORTS = (
+    FileReplay,
     ForeignChunkError,
     LocatedCall,
+    ReplayStatus,
     ResolveError,
     Resolution,
     SolutionFile,
@@ -197,6 +216,31 @@ def test_the_stage_documents_that_an_edit_outside_a_tool_call_is_not_detected():
 
     assert "sed" in documentation
     assert "not detected" in documentation
+
+
+def test_the_replay_statuses_are_the_reasons_a_file_does_or_does_not_replay():
+    # One member per answer the replay can give (#24), and the reasons are not
+    # folded together: "the read began past line 1" is proven partial while
+    # "nothing states the read's extent" is not, and a consumer that reports
+    # why a file was left as its edit sequence needs the two apart.
+    assert [status.value for status in ReplayStatus] == [
+        "replayed",
+        "no-base",
+        "partial-read",
+        "unproven-read",
+        "anchor-not-found",
+        "anchor-ambiguous",
+    ]
+
+
+def test_the_fields_of_a_file_replay_are_the_content_and_where_it_came_from():
+    assert [field.name for field in dataclasses.fields(FileReplay)] == [
+        "path",
+        "content",
+        "status",
+        "base_call_id",
+        "replayed_call_ids",
+    ]
 
 
 def test_the_three_fields_of_a_resolution_are_what_the_stage_resolves():
