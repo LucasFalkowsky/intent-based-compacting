@@ -152,7 +152,7 @@ def write_kind(call: ToolCall) -> WriteKind | None:
     patching (#3), and the tool registry declares that category and not more —
     so the distinction the last-write-per-file rule needs is taken from the
     arguments the agent sent: a call that carries the whole content wrote the
-    file, a call that carries an old/new pair patched it.
+    file, a call that names the text it replaces patched it.
 
     Args:
         call: Any tool call, of any category.
