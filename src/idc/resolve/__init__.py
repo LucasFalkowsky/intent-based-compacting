@@ -65,6 +65,13 @@ from idc.resolve.calls import (
 from idc.resolve.errors import ForeignChunkError, ResolveError, UnknownChunkError
 from idc.resolve.writes import SolutionFile, solution_files, write_calls
 
+# T5.1 (#21) opened this surface; the sibling sub-tickets of T5 append a block
+# of their own at the end of this file rather than editing the sorted literal
+# below. Two sub-tickets of one parent have already collided in a package
+# `__init__.py` here (see the comment at the end of `idc.classify.__init__`),
+# and each block being self-contained is the whole resolution: T5.2 (#22) adds
+# the verification names, T5.3 (#23) the path classification, T5.4 (#24) the
+# edit replay.
 __all__ = [
     "CONTENT_KEYS",
     "FILE_PATH_KEYS",
@@ -83,10 +90,3 @@ __all__ = [
     "write_calls",
     "write_kind",
 ]
-
-# T5.1 (#21) opened this surface; the sibling sub-tickets of T5 append a block
-# of their own rather than editing the sorted literal above. Two sub-tickets of
-# one parent have already collided in a package `__init__.py` here (see the
-# comment at the end of `idc.classify.__init__`), and each block being
-# self-contained is the whole resolution: T5.2 (#22) adds the verification
-# names, T5.3 (#23) the path classification, T5.4 (#24) the edit replay.

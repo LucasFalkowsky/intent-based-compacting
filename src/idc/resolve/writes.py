@@ -30,15 +30,22 @@ Three things are deliberately *not* decided here:
   into final content.
 - **An edit that another edit overwrote** is not detected. Two edits to the same
   region are two kept edits here, because telling them apart needs the file's
-  content and this stage has no filesystem. The rule only ever keeps too much,
-  never too little.
+  content and this stage has no filesystem. *This* non-detection only ever
+  keeps too much, never too little — unlike the non-detections `idc.resolve`'s
+  own docstring records, where a file is missing from the solution entirely.
 
 A write the agent saw fail (`ToolResult.is_error`) is reported as `failed` and is
 neither accepted nor superseded: it changed nothing, so it can be neither the
-file's last write nor the overwriting of an earlier one. Without that, the
-refused edit in `tests/fixtures/rewritten_after_failed_edit.json` would be the
-last write-category call for its file and would present an empty change as the
-solution.
+file's last write nor the overwriting of an earlier one. The corpus holds one
+such write — the refused edit in
+`tests/fixtures/rewritten_after_failed_edit.json` — and there the rule decides
+only which tuple it lands in, not the solution: a successful rewrite follows it,
+so without the rule it would count as superseded instead and `kept` would be
+`['c04']` either way. The outcome the rule exists for needs a failed write that
+is its file's *last* write, where reading it as the accepted one would present
+an empty change as the solution; no transcript of the corpus has that shape, so
+what is pinned by a test is the entry such a file produces (an empty `kept`,
+built on the value object) and the tuple the refused edit lands in.
 """
 
 from collections.abc import Sequence

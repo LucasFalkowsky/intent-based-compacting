@@ -61,7 +61,9 @@ solution, rather than attributing it to the wrong file.
 This knowledge belongs in the registry's data file next to the tool categories,
 which is where a new spelling should be addable without touching Python. It is
 written here because the registry is `idc.importers`' and extending it is not
-this ticket's scope; the decision is recorded on #21.
+this ticket's scope — the decision to read the argument shapes in this stage
+(which file, whole write or patch) instead of extending the registry is the one
+recorded on #21.
 """
 
 CONTENT_KEYS = ("content",)
@@ -139,6 +141,14 @@ def content_of(call: ToolCall) -> str | None:
         The text under the first key of `CONTENT_KEYS` that holds a string, for
         a call that is a `WriteKind.FULL` write; `None` for an edit, for a
         non-write call, and for a full write whose content argument is missing.
+
+    No production code calls this yet — T5.4 (#24), the edit replay, is the
+    stage that would, and it is `optional`. It is public anyway because
+    `CONTENT_KEYS` is: exporting the keys without the one lookup that applies
+    them is an invitation to re-implement that lookup per caller, which is the
+    duplication the two copies of `FILE_PATH_KEYS` already cost this stage. It
+    is also what makes `write_kind`'s `FULL` checkable from outside — the test
+    that asserts a full write is exactly a write carrying whole content.
     """
     if write_kind(call) is not WriteKind.FULL:
         return None
@@ -165,13 +175,21 @@ def write_kind(call: ToolCall) -> WriteKind | None:
         `None` for a call that is not of category `write`, `WriteKind.FULL` for
         one that carries the whole content and no replacement key, and
         `WriteKind.EDIT` for everything else — a replacement key, a shape this
-        build does not know (Claude Code's `NotebookEdit`, a patch tool), or a
-        call carrying both.
+        build does not know (a patch tool), or a call carrying both.
 
         `EDIT` is the default on purpose: reading an edit as a full write would
         drop the write it patched from the solution and lose content, while
         reading a full write as an edit only keeps a superseded write that the
-        summary does not need. The lossless direction is the one to fall into.
+        summary does not need. Of those two the lossless one is the direction to
+        fall into.
+
+        The default only reaches calls that get as far as `solution_files`,
+        and one declared write tool never does: Claude Code's `NotebookEdit`
+        names its file under `notebook_path`, which is not in `FILE_PATH_KEYS`,
+        so `file_of` returns `None` and the notebook is in no file's solution.
+        Of the seven tools `tool_registry.toml` declares `category = "write"`
+        it is the only one whose file can never enter a solution — a gap of
+        this build, not an illustration of the default being safe.
     """
     if call.category is not ToolCategory.WRITE:
         return None
