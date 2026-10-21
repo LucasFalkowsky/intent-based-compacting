@@ -22,6 +22,8 @@ No test here calls a model, and none reads a transcript of this machine.
 
 from collections.abc import Callable
 
+import idc.compact.merge as merge_module
+import idc.parse.blocks as parse_blocks_module
 from fixture_corpus import CORPUS
 from idc.chunk import chunk_session
 from idc.compact import (
@@ -462,3 +464,86 @@ def test_the_same_inputs_write_the_same_bytes() -> None:
 def _unexpected(chain: Chain) -> Resolution:
     """A resolver that fails: handed to runs in which no chain may be resolved."""
     raise AssertionError(f"chain {chain.id!r} was resolved, and it has nothing to resolve")
+
+
+# --- the wiring, which the unit tests above cannot reach ------------------------
+
+
+def test_the_stage_rewrites_from_the_merged_section_and_not_the_resolution() -> None:
+    """The rewrite path uses the merge — the half that fails silently without a test.
+
+    Every discriminating test above calls `merged_solution_section` directly, and
+    the one that goes through the stage uses the fixture's own old section, which
+    names only the file the new chunk rewrites — so the stage-level criterion is
+    satisfied by rendering the new resolution alone, which is what the previous
+    ticket did. A review removed the merge from the rewrite path and the whole
+    suite stayed green.
+
+    This test puts a file in the old section that the new chunk never touches, so
+    `solution=None` on the rewrite path drops it and the assertion fails.
+    """
+    session = CORPUS.session(SEEDED)
+    chunks = chunk_session(session)
+    (extended,) = parse_chains(old_block(KEPT_BULLET))
+    chains = [
+        Chain(
+            id=extended.id,
+            label=extended.label,
+            chunk_ids=[*extended.chunk_ids, *(chunk.id for chunk in chunks)],
+            compacted=True,
+            compacted_text=extended.compacted_text,
+        )
+    ]
+    client = FakeNarrativeClient([narrative("Give the rate limiter a Retry-After header")])
+
+    written = compact_incrementally(
+        chains,
+        resolution_of=lambda chain: resolve_chain(session, chunks, chain),
+        client=client,
+    )
+
+    rewritten = {chain.id: str(chain.compacted_text) for chain in parse_chains(written)}[EXTENDED]
+    solution = parse_blocks(rewritten)[0].body(SOLUTION_HEADER)
+    assert KEPT_BULLET in solution, "the old section's untouched file was dropped by the rewrite"
+    assert f"- `{ADDED}`\n" in solution
+    assert solution.index("src/billing/export.py") < solution.index(ADDED)
+
+
+def test_the_fence_rule_is_the_one_the_reader_applies() -> None:
+    """The copied fence pattern is compared to the reader's, not merely to itself.
+
+    `idc.compact.merge` re-spells the fence scan because `idc.parse`'s is private.
+    A behavioural pin catches a change to *this* module's copy, but a review showed
+    that changing the **reader's** pattern leaves every test here green — so the
+    two can drift apart in the direction that matters. Comparing the patterns is
+    blunt and is the point: it fails the moment either side is edited alone.
+    """
+    assert merge_module._FENCE_LINE.pattern == parse_blocks_module._FENCE_LINE.pattern
+    assert merge_module._LINE_ENDING.pattern == parse_blocks_module._LINE_ENDING.pattern
+
+
+def test_a_path_named_twice_on_the_old_side_is_overwritten_as_one_file() -> None:
+    """Last write wins per *file*, so both old bullets go, not just the first.
+
+    The writer renders one bullet per kept write, so a hand-edited block can name
+    one file twice. When the new resolution rewrites that file, **every** old
+    bullet for it is replaced — the merge is per path, not per bullet. A docstring
+    once promised that a side's repeated bullets are all kept, which is true only
+    while the file is not overwritten.
+    """
+    twice = f"- `{OVERWRITTEN}`\n```\nfirst\n```\n- `{OVERWRITTEN}`\n```\nsecond\n```\n"
+
+    merged = merged_solution_section(extended_chain(old_block(twice)), new_resolution())
+
+    assert "first" not in merged
+    assert "second" not in merged
+    assert merged.count(f"- `{OVERWRITTEN}`") == 1
+
+
+def test_a_path_named_twice_and_not_overwritten_keeps_both_bullets() -> None:
+    """The other half of the same rule: untouched repeats are kept as they stand."""
+    twice = KEPT_BULLET + KEPT_BULLET
+
+    merged = merged_solution_section(extended_chain(old_block(twice)), new_resolution())
+
+    assert merged.count("- `src/billing/export.py`") == 2

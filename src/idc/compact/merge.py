@@ -272,10 +272,14 @@ def merge_solution_bodies(old: str, new: str) -> str:
         order. `EMPTY_SECTION` when neither side names a file, so the section is
         never blank.
 
-        A path is compared as the string it is spelled with, and a file named by
-        more than one bullet on a side keeps all of them: the writer renders one
-        bullet per kept write, and a file written and then corrected states both
-        calls.
+        A path is compared as the string it is spelled with. The overlay is
+        per **path**, not per bullet: the writer renders one bullet per kept
+        write, so a file written and then corrected states both calls, and a
+        hand-edited block can name one file twice — when `new` rewrites such a
+        file, **every** old bullet for it goes, and when `new` does not name it,
+        all of them are kept where they stand. The sentence here once promised
+        that a side's repeated bullets are all kept, which is true only of the
+        file nothing overwrote; a review disproved it.
     """
     old_segments = _segments(old)
     new_segments = _segments(new)
