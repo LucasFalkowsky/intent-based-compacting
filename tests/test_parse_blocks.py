@@ -31,6 +31,7 @@ from idc.compact import EMPTY_SECTION, SECTION_HEADERS, chain_heading
 from idc.parse import (
     BLOCK_SEPARATOR,
     HEADING_PATTERN,
+    HEADING_SHAPE,
     PLACEHOLDER_CHUNK_PREFIX,
     DuplicateChainError,
     MalformedHeadingError,
@@ -64,6 +65,18 @@ it is the case that tells a fence-aware splitter from a line-prefix one.
 
 PROSE_FIXTURE = "already_compacted_block"
 """The fixture whose first message holds a hand-written block with prose."""
+
+STRUCTURAL_INDENTS = (0, 1, 2, 3)
+"""Every indentation at which a line is still structure, written out on purpose.
+
+CommonMark reads a heading, a section header and a code fence that carries up to
+three leading spaces as that thing, and a line indented by four as an indented
+code block. The numbers are literals here rather than imported from the parser:
+a table taken from the thing under test would agree with it by construction.
+"""
+
+CONTENT_INDENT = 4
+"""The first indentation at which a line is content and no longer structure."""
 
 REFUSALS = (
     DuplicateChainError,
@@ -483,6 +496,174 @@ def test_the_refusal_table_is_the_packages_own():
 
     assert REFUSALS
     assert {refusal.__name__ for refusal in REFUSALS} | {"ParseError"} == exported
+
+
+# --- indentation: what is structure and what is content -------------------------
+
+
+@pytest.mark.parametrize("closing", ["````", "`````"])
+def test_a_long_closing_fence_closes_a_short_one(closing):
+    # The rule is "at least as long", not "exactly as long": `UnterminatedFenceError`
+    # promises a line of *at least* N backticks closes a fence, and nothing used to
+    # hold the parser to the longer half of that promise.
+    fenced = f"- `notes.md`\n```\nline a\n{closing}"
+    text = built(bodies={SECTION_HEADERS[2]: fenced})
+
+    block = parse_blocks(text)[0]
+
+    assert [section.header for section in block.sections] == list(SECTION_HEADERS)
+    assert block.body(SECTION_HEADERS[2]) == f"{fenced}\n"
+    assert block.body(SECTION_HEADERS[3]) == f"{EMPTY_SECTION}\n"
+
+
+@pytest.mark.parametrize("spaces", STRUCTURAL_INDENTS)
+def test_a_chain_heading_indented_like_structure_opens_a_block(spaces):
+    indent = " " * spaces
+    text = join_blocks([built(chain_id="C1"), f"{indent}{built(chain_id='C2')}"])
+
+    blocks = parse_blocks(text)
+
+    assert [block.chain_id for block in blocks] == ["C1", "C2"]
+    assert blocks[1].text.startswith(f"{indent}## [C2]")
+
+
+def test_a_chain_heading_indented_like_content_stays_in_its_section():
+    indent = " " * CONTENT_INDENT
+    swallowed = f"{EMPTY_SECTION}\n{indent}## [C2] Intent: indented out of structure"
+    text = built(bodies={SECTION_HEADERS[3]: swallowed})
+
+    blocks = parse_blocks(text)
+
+    # Four spaces make an indented code block, so the line is content — but it is
+    # content of the section it stands in, and the block still holds it verbatim.
+    # Nothing is dropped, which is the half that used to be missing.
+    assert [block.chain_id for block in blocks] == ["C1"]
+    assert blocks[0].body(SECTION_HEADERS[3]) == f"{swallowed}\n"
+    assert blocks[0].text == text
+
+
+@pytest.mark.parametrize("spaces", STRUCTURAL_INDENTS)
+def test_a_section_header_indented_like_structure_is_a_section_header(spaces):
+    header = SECTION_HEADERS[2]
+    text = built().replace(f"\n{header}\n", f"\n{' ' * spaces}{header}\n")
+
+    block = parse_blocks(text)[0]
+
+    assert [section.header for section in block.sections] == list(SECTION_HEADERS)
+    assert block.body(header) == f"{EMPTY_SECTION}\n"
+    assert block.text == text
+
+
+def test_a_section_header_indented_like_content_leaves_its_section_missing():
+    header = SECTION_HEADERS[2]
+    text = built().replace(f"\n{header}\n", f"\n{' ' * CONTENT_INDENT}{header}\n")
+
+    with pytest.raises(MissingSectionError) as caught:
+        parse_blocks(text)
+
+    assert caught.value.header == header
+    assert caught.value.present == (SECTION_HEADERS[0], SECTION_HEADERS[1], SECTION_HEADERS[3])
+
+
+@pytest.mark.parametrize("spaces", STRUCTURAL_INDENTS)
+def test_an_opening_fence_indented_like_structure_opens_one(spaces):
+    indent = " " * spaces
+    fenced = f"- `notes.md`\n{indent}```\n{SECTION_HEADERS[1]}\n{indent}```"
+    text = built(bodies={SECTION_HEADERS[2]: fenced})
+
+    block = parse_blocks(text)[0]
+
+    assert [section.header for section in block.sections] == list(SECTION_HEADERS)
+    assert block.body(SECTION_HEADERS[2]) == f"{fenced}\n"
+
+
+def test_an_opening_fence_indented_like_content_opens_none():
+    indent = " " * CONTENT_INDENT
+    notes = "### Notes"
+    fenced = f"- `notes.md`\n{indent}```\n{notes}\n{indent}```"
+    text = built(bodies={SECTION_HEADERS[2]: fenced})
+
+    block = parse_blocks(text)[0]
+
+    # Not a fence, so what it tried to hide is structure: the header inside it
+    # opens a section of its own. The block is still accepted, because all four
+    # written sections are there, and its bytes are untouched.
+    assert [section.header for section in block.sections] == [
+        *SECTION_HEADERS[:3],
+        notes,
+        SECTION_HEADERS[3],
+    ]
+    assert block.text == text
+
+
+@pytest.mark.parametrize("spaces", STRUCTURAL_INDENTS)
+def test_a_closing_fence_indented_like_structure_closes_the_fence(spaces):
+    fenced = f"- `notes.md`\n```\nline a\n{' ' * spaces}```"
+    text = built(bodies={SECTION_HEADERS[2]: fenced})
+
+    block = parse_blocks(text)[0]
+
+    assert block.body(SECTION_HEADERS[2]) == f"{fenced}\n"
+    assert block.body(SECTION_HEADERS[3]) == f"{EMPTY_SECTION}\n"
+
+
+def test_a_closing_fence_indented_like_content_leaves_the_fence_open():
+    fenced = f"- `notes.md`\n```\nline a\n{' ' * CONTENT_INDENT}```"
+    text = built(bodies={SECTION_HEADERS[2]: fenced})
+
+    with pytest.raises(UnterminatedFenceError) as caught:
+        parse_blocks(text)
+
+    assert caught.value.line == 8
+    assert caught.value.fence == "```"
+    assert f"at most {STRUCTURAL_INDENTS[-1]} space(s)" in str(caught.value)
+
+
+def test_a_section_cannot_be_escaped_through_an_indented_closing_fence():
+    # The escape a review demonstrated: with any indentation closing a fence, the
+    # four-space run below ended the fence, the `### Verification` inside the
+    # Solution body became a second Verification section, `body()` returned
+    # `- ESCAPED` for it, and the block's real Verification was shadowed — with
+    # nothing raised. The fence is now genuinely open to the end of the block, so
+    # the block is refused instead of being read with its sections rearranged.
+    indent = " " * CONTENT_INDENT
+    escape = f"- `x.py`\n```\nline a\n{indent}```\n{SECTION_HEADERS[3]}\n- ESCAPED"
+    text = built(bodies={SECTION_HEADERS[2]: escape})
+
+    with pytest.raises(UnterminatedFenceError) as caught:
+        parse_blocks(text)
+
+    assert caught.value.line == 8
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "## [c1] Intent: a lower-case id",
+        "## [C0] Intent: chains are numbered from one",
+        "## [chain-1] Intent: wrong id shape",
+    ],
+)
+@pytest.mark.parametrize("spaces", STRUCTURAL_INDENTS)
+def test_a_malformed_heading_indented_like_structure_is_never_swallowed(spaces, malformed):
+    line = f"{' ' * spaces}{malformed}"
+    text = join_blocks([built(chain_id="C1"), f"{line}\n"])
+
+    with pytest.raises(MalformedHeadingError) as caught:
+        parse_blocks(text)
+
+    assert caught.value.line == 11
+    assert caught.value.text == line
+
+
+def test_the_heading_shape_the_messages_state_is_the_one_the_writer_renders():
+    # `HEADING_SHAPE` is prose in two refusals, so no round trip touches it; its
+    # two placeholders filled in have to give back exactly what the writer emits.
+    label = "Keep the error prose and the writer on one heading"
+    rendered = chain_heading(Chain(id="C1", label=label, chunk_ids=["K1"]))
+
+    assert HEADING_SHAPE.replace("C<n>", "C1").replace("<label>", label) == rendered
+    assert HEADING_PATTERN.match(HEADING_SHAPE) is None
 
 
 # --- what a caller built wrongly -----------------------------------------------
