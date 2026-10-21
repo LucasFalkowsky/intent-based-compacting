@@ -289,7 +289,18 @@ def tool_calls(messages: Iterable[Message]) -> list[ToolCall]:
 
 
 def file_of(call: ToolCall) -> str | None:
-    """Return the file a call works on, or `None` if its arguments name none."""
+    """Return the file a call works on, or `None` if its arguments name none.
+
+    The `value.strip()` guard is the one reading deliberately **aligned** with
+    the stage rather than derived independently, and it is aligned on purpose:
+    an argument holding no word must name nothing, because the stage was fixed
+    in T5.1 (#21) to stop a blank path reaching `SolutionFile` and raising a
+    plain `ValueError` outside the `ResolveError` family. An oracle that kept
+    returning the blank string would have endorsed exactly the defect that fix
+    removed. No corpus fixture carries a blank path or command argument, so over
+    the corpus this is a no-op; it bites only on a synthetically rewritten
+    document, which is where the escape was found.
+    """
     for key in FILE_PATH_KEYS:
         value = call.args.get(key)
         if isinstance(value, str) and value.strip():

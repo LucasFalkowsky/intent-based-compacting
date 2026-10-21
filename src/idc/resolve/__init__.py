@@ -18,9 +18,12 @@ resolution.verification                     # the proof half, or None
 resolution.path_call_ids                    # everything else, by id
 ```
 
-`resolve` is the stage's entry point and asks the three questions below once
-each; `solution_files`, `solution_verification` and `path_call_ids` stay public
-for a caller that wants one of the three answers on its own.
+`resolve` is the stage's entry point and asks all three questions below, so a
+caller does not have to; `solution_files`, `solution_verification` and
+`path_call_ids` stay public for one that wants a single answer on its own. It
+does **not** ask each exactly once — `path_call_ids` needs the solution ids to
+subtract them, so `solution_files` and `solution_verification` each run twice
+per call. `resolve`'s own docstring states the count and a test pins it.
 
 Everything here is computed by code, never inferred by a model: the stage reads
 `Session`, `Chunk` and `Chain` and nothing else — no git, no filesystem, no
