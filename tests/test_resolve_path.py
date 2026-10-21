@@ -373,7 +373,8 @@ def test_an_overlapping_chunk_list_over_a_write_resolves_to_the_same_ids():
     assert [entry.path for entry in resolution.solution_files] == [
         entry.path for entry in expected.solution_files
     ]
-    assert resolution.verification is None and expected.verification is None
+    assert resolution.verification is None
+    assert expected.verification is None
 
 
 def test_the_partition_claims_no_refusal_outside_the_stages_own_family():

@@ -267,19 +267,33 @@ def verification_runs(
         order. Failing runs are included — which of them is kept is
         `solution_verification`'s question, not this one's.
 
+        **A call two chunks both cover is one run.** The stage is handed its
+        chunks rather than chunking itself, so an overlapping list can locate
+        the same `exec` call twice (`chunk_session` produces no such list); a
+        run is a call, so the second sighting is the same run and is dropped
+        here — the de-duplication `idc.resolve.resolution` does for the ids of
+        the partition, one layer down. Kept because without it the doubly
+        located run reaches `SolutionVerification` as the kept *and* a
+        discarded run, which that object refuses with a plain `ValueError`
+        (#79).
+
     Raises:
         ResolveError: If the chain and the chunks or the chunks and the session
             do not fit together; see `idc.resolve.errors`.
     """
     registry = tool_registry()
     runs: list[VerificationRun] = []
+    seen: set[str] = set()
     for located in exec_calls(session, chunks, chain):
+        if located.id in seen:
+            continue
         command = command_of(located.call)
         if command is None:
             continue
         match = registry.match_verification(command)
         if match is None:
             continue
+        seen.add(located.id)
         runs.append(VerificationRun(call=located, match=match))
     return tuple(runs)
 

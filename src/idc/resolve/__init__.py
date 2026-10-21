@@ -37,7 +37,9 @@ Two properties hold throughout:
   chain naming a chunk nobody offered, a chunk reaching past the transcript —
   the stage refuses with a `ResolveError` instead of resolving to fewer writes
   than the chain made. `idc.resolve.errors` draws the line between those
-  refusals and a value object a caller built wrongly.
+  refusals and a value object a caller built wrongly. An *overlapping* chunk
+  list is not one of those disagreements: the chunker produces none, but a
+  handed one resolves, with a call both chunks cover counted once (#79).
 
 The modules are one question each: `idc.resolve.calls` locates a chain's tool
 calls and reads what a single call did (which file, whole write or patch),
