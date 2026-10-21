@@ -15,7 +15,18 @@ from idc.importers import (
     import_transcript,
     visible_context,
 )
-from idc.schema import Agent, Message, Role, Session, SessionSource, dumps, loads
+from idc.schema import (
+    Agent,
+    Message,
+    Role,
+    Session,
+    SessionSource,
+    ToolCall,
+    ToolCategory,
+    ToolResult,
+    dumps,
+    loads,
+)
 from native_transcripts import NATIVE
 
 RAW_FIXTURES = {
@@ -250,6 +261,32 @@ def test_a_notice_marker_is_the_whole_text_the_transcript_records():
     notice = result.session.messages[-1]
 
     assert notice.content in NOTICE_MARKERS[Agent.CLAUDE_CODE]
+
+
+def test_flagging_a_notice_changes_nothing_but_the_flag():
+    # Driven by the model's own field list rather than by a hand-written one, so
+    # that normalisation cannot quietly reset a field to its default.
+    notice = Message(
+        id="u1",
+        role=Role.USER,
+        content=NOTICE_MARKERS[Agent.CLAUDE_CODE][0],
+        timestamp=datetime(2026, 9, 12, 8, 0, 7, tzinfo=UTC),
+        is_command=True,
+        tool_calls=[
+            ToolCall(id="t1", name="Edit", category=ToolCategory.WRITE, args={"p": "a.py"})
+        ],
+        tool_result=ToolResult(call_id="t0", output="done", exit_code=0),
+    )
+
+    normalised = visible_context(session(notice)).messages[0]
+
+    differing = {
+        name for name in Message.model_fields if getattr(normalised, name) != getattr(notice, name)
+    }
+
+    assert differing == {"is_system_injected"}
+    assert normalised.is_system_injected is True
+    assert notice.is_system_injected is False
 
 
 def test_every_agent_has_an_entry_in_the_notice_markers():
