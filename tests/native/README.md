@@ -120,7 +120,11 @@ never content). The `*.jsonl` fixtures and three markers — `<state_snapshot>`,
 sessions, which all predate the installed version; they are taken from the installed Gemini
 CLI 0.46.0 itself (`packages/core/src/services/chatRecordingService.ts`,
 `context/chatCompressionService.ts`, the compression prompt, `getEnvironmentContext`, and
-`docs/reference/tools.md`) and the fixture that carries each one says so below.
+`docs/reference/tools.md`). The fixture that carries `<state_snapshot>` or
+`<session_context>` says so below; the shell tool's `Exit Code:` line is carried by **no**
+fixture here — the one `run_shell_command` call in this directory never returns a result
+(`interrupted_turn.jsonl`) — so that line is pinned by the importer's own tests, which build
+the result they need inline.
 
 - `golden_session.json` — the full-coverage session in the surveyed shape: a prompt with
   `displayContent`, a model turn with `thoughts`, `tokens` and a completed `read_file`
