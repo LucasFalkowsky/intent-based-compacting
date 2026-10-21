@@ -44,8 +44,9 @@ Four decisions are the store's own:
   A **seeded** chain arrives with such a real label, and that label is also
   what its candidate offers as its last user message (#35): its chunks are not
   ranges over this transcript, so there is no turn to read, and the label is the
-  only thing the chain has to say what it is about. The first chunk this run
-  appends to it replaces the label with that chunk's turn.
+  only thing the chain has to say what it is about. The first appended chunk
+  that *carries a user turn* replaces it; a chunk of subagent work carries none
+  and leaves the label standing.
 
 The store copies no message: a `Chunk` is a half-open range over
 `Session.messages`, and the store only reads through those ranges — which is why
@@ -198,7 +199,8 @@ class _OpenChain:
         compacted_text: That summary block, or `None`.
         last_user_message: Content of the last user turn seen in this chain —
             or, for a seeded chain, its label, which stands in for the turn its
-            carried-over chunks cannot offer until this run appends one (#35).
+            carried-over chunks cannot offer and stands until a chunk with a
+            user turn is appended (#35).
         last_start_index: Where this chain's last chunk starts, or `-1` when the
             chain was seeded and its chunks are not ranges over this transcript.
         seeded: Whether the chain was carried over from an earlier run. Only
@@ -252,8 +254,8 @@ class ChainStore:
             instead of being summarized a second time. They keep their ids,
             their labels and their summary text, and new chains are numbered
             past the highest of them. Each one's label is also what its
-            candidate offers as its last user message, until this run appends a
-            chunk to it. They have to arrive in the order they
+            candidate offers as its last user message, until a chunk carrying a
+            user turn is appended to it. They have to arrive in the order they
             were opened, which is the order the summary block holds them in;
             the numbers need not be contiguous.
 
@@ -483,8 +485,9 @@ class ChainStore:
         # chunk can be *read* here; `-1` leaves the order check open for the
         # first chunk this run appends, and the chain's label stands in for the
         # turn it does not have (#35). The label is not a guess: the compactor
-        # wrote it into the block T8 parses, and `_claim` replaces it as soon as
-        # a chunk of this run arrives.
+        # wrote it into the block T8 parses, and `_claim` replaces it with the
+        # first appended chunk that carries a user turn — a chunk of subagent
+        # work carries none, and the label stays.
         self._chains[chain.id] = _OpenChain(
             id=chain.id,
             label=chain.label,

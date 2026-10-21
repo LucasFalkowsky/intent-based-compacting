@@ -154,20 +154,21 @@ class ChainCandidate:
     it here. Its candidate carries the chain's **label** as that message
     instead (#35) — the real label the compactor wrote as the block's Intent
     heading (T6), not a truncation of a turn, and the only thing such a chain
-    has to say what it is about. The first chunk this run appends to it replaces
-    the label with that chunk's own turn.
+    has to say what it is about. The first chunk appended to it that carries a
+    user turn replaces the label with that turn; a chunk of subagent work
+    carries none, and the label stays.
 
     Attributes:
         id: The chain's stable id, `C<n>`.
-        label: The chain's label: provisional, cut from the chain's first user
-            message, for a chain this run opened (see
+        label: The chain's label: provisional, derived from the user message of
+            the chunk that opened it, for a chain this run opened (see
             `idc.classify.store.provisional_label`); the compactor's own for a
             chain parsed out of a summary block.
         last_user_message: Content of the last real user turn seen in the chain,
-            verbatim — or that chain's label, for a carried-over chain this run
-            has not appended a chunk to yet. Empty when no chunk of the chain
-            carried a user turn, which is the case for a chain of subagent work,
-            and when the turn itself carried no text.
+            verbatim — or that chain's label, for a carried-over chain no chunk
+            with a user turn has been appended to yet. Empty when no chunk of
+            the chain carried a user turn, which is the case for a chain of
+            subagent work, and when the turn itself carried no text.
     """
 
     id: str
