@@ -345,8 +345,13 @@ def test_a_store_is_seeded_with_the_chains_of_an_earlier_run():
 
     store = ChainStore(session, [carried])
 
+    # The candidate's last user message is the chain's *label*, not the empty
+    # string it used to be (T8.2, #35): a seeded chain's chunk ids are positions
+    # in the earlier run's transcript, so there is no turn here to read, and the
+    # label — written into the block by the compactor — is the only thing the
+    # chain has to say what it is about.
     assert store.candidates() == [
-        ChainCandidate(id="C1", label="rate limiter", last_user_message="")
+        ChainCandidate(id="C1", label="rate limiter", last_user_message="rate limiter")
     ]
     assert store.chains() == [carried]
     assert store.chain_of("K8") == "C1"
