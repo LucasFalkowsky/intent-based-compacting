@@ -279,6 +279,33 @@ def test_a_read_that_followed_the_first_edit_is_not_a_base():
     assert replay.status is ReplayStatus.PARTIAL_READ
 
 
+def test_the_later_of_two_candidate_reads_is_the_one_examined():
+    # `replay_file` examines the *last* successful read before the first kept
+    # write, and with only one candidate per file in the corpus nothing pinned
+    # the "last". Retargeting `c01` at the file `c02` already reads gives two
+    # candidates, so the selection among them is asserted rather than assumed:
+    # `[-1]` reports `c02`, and taking `[0]` instead reports `c01`.
+    #
+    # Residual, stated rather than implied: both candidates sit in the *same*
+    # message, so this pins the selection but not the `message_index` ordering
+    # it sorts by. No corpus fixture holds two successful reads of one file in
+    # different messages, and building one would mean inserting a call into a
+    # message rather than rewriting an existing one — see the pointer on #24.
+    session = with_argument(TWO_READS, "c01", "file_path", "src/rates/sampler.py")
+    chunks = chunk_session(session)
+    chains = classify(session, chunks, FakeAdapter(gold_script(CORPUS.gold(TWO_READS))))
+    first = next(chain for chain in chains if chain.id == "C1")
+
+    replay = replays(session, chunks, first)["src/rates/sampler.py"]
+
+    assert replay.base_call_id == "c02", (
+        "the later of the two candidate reads is examined, not the earlier"
+    )
+    assert replay.status is ReplayStatus.PARTIAL_READ, (
+        "c02's gutter begins past line 1, so the fallback names its reason"
+    )
+
+
 def test_a_read_the_agent_saw_fail_is_no_base():
     document = json.loads(CORPUS.text(ONLY_EDITED))
     marked = 0
