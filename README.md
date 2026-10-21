@@ -180,16 +180,23 @@ longer holds.
 
 ## Tool registry
 
-What a tool call does to the workspace, and which commands count as a verification run,
-are **data, not code**: `src/idc/importers/tool_registry.toml` holds one tool table per
-agent and the list of verification patterns. Adding a tool or a pattern is a change to
-that file alone.
+What a tool call does to the workspace, which argument names the file or the command it
+works on, and which commands count as a verification run, are **data, not code**:
+`src/idc/importers/tool_registry.toml` holds one tool table per agent and the list of
+verification patterns. Adding a tool or a pattern is a change to that file alone.
+
+A tool entry declares its argument keys next to its category — `path_keys` for the file,
+`command_keys` for the command line — and the file is rejected on load when a `write`
+tool declares no path key or an `exec` tool no command key. That is what keeps the
+resolver from quietly attributing a declared write to no file at all.
 
 ```python
 from idc.importers import tool_registry
 
 registry = tool_registry()
 registry.category("claude-code", "Edit")  # ToolCategory.WRITE
+registry.spec("claude-code", "NotebookEdit").path_keys  # ("notebook_path",)
+registry.file_path_keys  # every declared file-argument spelling, across the agents
 registry.category("opencode", "Read")  # ToolCategory.OTHER — OpenCode spells it `read`
 registry.knows("claude-code", "SomeMcpTool")  # False — resolves to `other`, importers log it
 registry.is_verification("uv run pytest -q")  # True

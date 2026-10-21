@@ -72,6 +72,7 @@ EXPECTED_CHUNKS: dict[str, list[tuple[int, int, str]]] = {
     "system_injected_message": [(0, 11, "user")],
     "failed_then_passing_command": [(0, 14, "user")],
     "write_then_two_edits": [(0, 18, "user")],
+    "rewritten_after_failed_edit": [(0, 10, "user")],
     "already_compacted_block": [(0, 12, "user")],
     # The one fixture with a subagent call: `Task` (c01) is issued by m02 at
     # index 1 and answered by m08 at index 7, so the subagent's span is the
@@ -388,7 +389,7 @@ def test_is_latest_marks_the_last_chunk_that_is_not_subagent_work(name):
     # Stated as an identity against an independently computed expectation, so
     # that it compares something on every fixture. The earlier spelling,
     # `all(... for chunk in chunks[chunks.index(latest) + 1 :])`, iterated an
-    # empty slice for all nine, because no corpus transcript ends in a subagent
+    # empty slice for all ten, because no corpus transcript ends in a subagent
     # span; that shape is pinned synthetically by
     # `test_a_span_at_the_end_of_the_transcript_does_not_become_the_latest_chunk`.
     last_of_the_main_agent = next(

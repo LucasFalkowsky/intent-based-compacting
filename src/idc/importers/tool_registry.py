@@ -264,6 +264,28 @@ def _validated_flags(flags: tuple[str, ...]) -> tuple[str, ...]:
     return flags
 
 
+def _validated_argument_keys(keys: tuple[str, ...]) -> tuple[str, ...]:
+    """Reject an argument key that no agent could send under that name.
+
+    Args:
+        keys: The entries of a `path_keys` or `command_keys` list.
+
+    Returns:
+        The entries unchanged.
+
+    Raises:
+        ValueError: If an entry holds no word. `file_of` and `command_of` look
+            an argument up under the key verbatim, so a key that is blank or
+            carries surrounding space matches nothing and would declare a tool
+            attributable while leaving it exactly as unattributable as an
+            undeclared one — the silent gap this data is here to close.
+    """
+    for key in keys:
+        if key != key.strip() or not key:
+            raise ValueError(f"argument key {key!r} is no argument name")
+    return keys
+
+
 def _tokens(segment: str) -> tuple[str, ...]:
     r"""Split one command segment into tokens the way a POSIX shell would.
 
@@ -301,12 +323,33 @@ class ToolSpec(_RegistryModel):
             category: a delegating call itself neither reads nor writes. Read
             strictly, because pydantic's lax mode would take `subagent = "yes"`
             for `True` while the rest of this file refuses to guess at a typo.
+        path_keys: The argument keys under which the tool names the file it
+            works on, in the order they are tried. Declared for a tool whose
+            arguments name one file — every `write` tool, which is required
+            (T5.5), and the read tools that name a single file. A tool whose
+            arguments name no single file (a glob, a search, a fetch) declares
+            none, and a key is only listed once the agent was observed to send
+            it, the evidence rule of the data file.
+        command_keys: The same for the command line an `exec` tool runs;
+            required of a tool whose category is `exec`.
     """
 
     category: ToolCategory = Field(description="What a call to this tool does to the workspace.")
     subagent: bool = Field(
         default=False, strict=True, description="Whether the tool spawns a subagent."
     )
+    path_keys: tuple[str, ...] = Field(
+        default=(), description="Argument keys under which the tool names its file."
+    )
+    command_keys: tuple[str, ...] = Field(
+        default=(), description="Argument keys under which the tool names its command."
+    )
+
+    @field_validator("path_keys", "command_keys")
+    @classmethod
+    def _check_argument_keys(cls, keys: tuple[str, ...]) -> tuple[str, ...]:
+        """Reject an entry that is no argument name, with the error on its field."""
+        return _validated_argument_keys(keys)
 
 
 class VerificationPattern(_RegistryModel):
@@ -346,6 +389,25 @@ class _AgentTools(_RegistryModel):
         """Reject an empty tool name, which no agent can ever report."""
         if any(not name.strip() for name in self.tools):
             raise ValueError("a tool name must not be empty")
+        return self
+
+    @model_validator(mode="after")
+    def _require_argument_keys(self) -> Self:
+        """Reject a tool whose category needs an argument key and declares none.
+
+        A `write` tool has to say where its file is named and an `exec` tool
+        where its command is: the resolver reads both off the arguments, and a
+        tool missing from those lists resolves to *no* file and *no* command
+        while still being a declared write or exec call — which is how
+        `NotebookEdit` came to write notebooks that appeared in no solution
+        (T5.5, #75). Declaring the keys next to the category makes that state
+        unexpressible instead of silent.
+        """
+        for name, spec in self.tools.items():
+            if spec.category is ToolCategory.WRITE and not spec.path_keys:
+                raise ValueError(f"write tool {name!r} declares no path_keys")
+            if spec.category is ToolCategory.EXEC and not spec.command_keys:
+                raise ValueError(f"exec tool {name!r} declares no command_keys")
         return self
 
 
@@ -455,6 +517,8 @@ class ToolRegistry:
         )
         self._non_running_flags = frozenset(data.non_running_flags)
         self._patterns = self._normalized_patterns(data.verification_patterns)
+        self._file_path_keys = self._collected_keys("path_keys")
+        self._command_keys = self._collected_keys("command_keys")
 
     def _normalized_patterns(
         self, patterns: tuple[VerificationPattern, ...]
@@ -489,6 +553,29 @@ class ToolRegistry:
             seen[tokens] = pattern.id
             normalized.append((pattern, tokens))
         return tuple(normalized)
+
+    def _collected_keys(self, field: str) -> tuple[str, ...]:
+        """Collect one argument-key declaration across every declared tool.
+
+        Args:
+            field: `"path_keys"` or `"command_keys"`.
+
+        Returns:
+            Every key the data file declares under that field, each one once,
+            with the agents in schema order and an agent's tools by name — an
+            order that is the data file's content and not its layout, so moving
+            a line in the file cannot change it. The order is what a caller
+            trying one key after another sees, which is why it is fixed here
+            rather than left to a set.
+        """
+        collected: list[str] = []
+        for agent in self.agents:
+            for name in self.tool_names(agent):
+                spec = self._tools[agent][name]
+                for key in getattr(spec, field):
+                    if key not in collected:
+                        collected.append(key)
+        return tuple(collected)
 
     @property
     def _origin(self) -> str:
@@ -601,6 +688,29 @@ class ToolRegistry:
     def subagent_tools(self, agent: Agent | str) -> tuple[str, ...]:
         """Return the agent's delegating tools, sorted — the input of T3.3."""
         return tuple(name for name in self.tool_names(agent) if self.is_subagent_tool(agent, name))
+
+    @property
+    def file_path_keys(self) -> tuple[str, ...]:
+        """Every argument key a declared tool names its file under, each once.
+
+        The per-tool declaration is `spec(agent, name).path_keys`; this is the
+        union over all agents, because a `ToolCall` names its tool but not the
+        session it came from (#3), so the resolver reads a call's file without
+        knowing which agent produced it. A key declared for one agent therefore
+        also resolves for another — the three spellings are distinct enough
+        that no agent sends a second agent's key with a different meaning, and
+        the alternative would be to thread the agent through every call site.
+        """
+        return self._file_path_keys
+
+    @property
+    def command_keys(self) -> tuple[str, ...]:
+        """Every argument key a declared `exec` tool names its command under.
+
+        The union of the `command_keys` declarations, read the way
+        `file_path_keys` is read and for the same reason.
+        """
+        return self._command_keys
 
     @property
     def verification_patterns(self) -> tuple[VerificationPattern, ...]:

@@ -17,7 +17,7 @@ following `tests/test_chunk_subagents.py`:
   `C1…Ck` in the order they were opened, their chunk ids stay in transcript
   order, the same script yields the same result twice, and the chains are a
   valid canonical `CompactedBlock`. A builder appears for a fixture only where
-  it writes a script no other builder wrote — seven of the nine fixtures hold a
+  it writes a script no other builder wrote — eight of the ten fixtures hold a
   single chunk, so crossing the corpus with the builders ran the same case three
   times.
 - **The loud failures**, driven through the loop rather than against the store:
@@ -85,6 +85,12 @@ EXPECTED_CHAINS: dict[str, dict[str, object]] = {
             ("C2", ["K2"], "Unrelated: rename the config key `retry_limit` to…"),
         ],
     },
+    # A write, a patch the file refused and a second write of the same file:
+    # one intent, and which write is the solution is T5's question.
+    "rewritten_after_failed_edit": {
+        "script": [NEW],
+        "chains": [("C1", ["K1"], "`docs/install.md` still tells people to use pip and a…")],
+    },
     # One intent, one chunk, one chain: the minimal case.
     "single_intent": {
         "script": [NEW],
@@ -150,7 +156,7 @@ SCRIPT_BUILDERS = (all_new, all_one, alternating)
 def script_cases() -> list[tuple[str, str, list[object]]]:
     """Return every fixture-and-script pair that classifies the corpus anew.
 
-    Seven of the nine fixtures hold a single chunk, so all three builders write
+    Eight of the ten fixtures hold a single chunk, so all three builders write
     `[NEW]` for them, and `alternating` collapses onto `all_new` for a two-chunk
     one. Crossing the corpus with the builders therefore ran the same script
     under three ids — 75 cases over the five invariants below that pinned

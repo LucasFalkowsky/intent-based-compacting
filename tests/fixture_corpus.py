@@ -232,6 +232,56 @@ written as a tuple because the lookup tolerates several spellings, the way
 `FILE_PATH_KEYS` has to; it is not a place for prospective ones.
 """
 
+REPLACEMENT_PAIRS = (("old_string", "new_string"), ("oldString", "newString"))
+"""The argument key *pairs* an edit names the text it replaces with.
+
+Claude Code's `Edit` and Gemini CLI's `replace` send `old_string`/`new_string`,
+OpenCode's `edit` sends `oldString`/`newString`, and both spellings occur in the
+corpus. Written as pairs because replaying an edit needs both halves at once —
+which half of which pair is a different question from "does this call patch at
+all", and that one is answered by the flat list in `idc.resolve`.
+
+Hand-written here so that no test takes the resolver's own grouping as its
+oracle; `tests/test_resolve_replay.py` pins the flattened pairs against
+`idc.resolve.REPLACEMENT_KEYS`.
+"""
+
+FINAL_SLUG_PATH = "/repo/src/text/slug.py"
+"""The file of `write_then_two_edits` that is written whole and then corrected twice."""
+
+FINAL_SLUG_CONTENT = (
+    '"""Turn arbitrary text into a URL slug."""\n'
+    "\n"
+    "import re\n"
+    "import unicodedata\n"
+    "\n"
+    '_PUNCTUATION = re.compile(r"[^a-z0-9\\s-]")\n'
+    '_WHITESPACE = re.compile(r"[\\s-]+")\n'
+    "\n"
+    "\n"
+    "def slugify(raw: str) -> str:\n"
+    '    """Return `raw` as a lowercase, hyphen-separated slug."""\n'
+    "    for umlaut, replacement in _GERMAN.items():\n"
+    "        raw = raw.replace(umlaut, replacement)\n"
+    '    folded = unicodedata.normalize("NFKD", raw)\n'
+    '    folded = folded.encode("ascii", "ignore").decode()\n'
+    '    stripped = _PUNCTUATION.sub(" ", folded.lower())\n'
+    '    return _WHITESPACE.sub("-", stripped).strip("-")\n'
+)
+"""What `FINAL_SLUG_PATH` holds at the end of the `write_then_two_edits` chain.
+
+Replayed **by hand** from the fixture's own document: the `content` argument of
+the `write_file` call `c03`, with the `old_string`/`new_string` of `c05` and of
+`c07` applied in that order. Nothing derives it — it is the oracle the replay
+(T5.4, #24) is checked against, so it must not come from the code under test.
+
+Written as a concatenation of single lines rather than as one triple-quoted
+block because the file it describes is Python and opens with a docstring of its
+own. The fixture's narrative is a corrective one and the text is the agent's:
+the `_GERMAN` table the replayed loop reads is never defined in the transcript,
+which is a property of the recorded path and not a mistake here.
+"""
+
 
 def tool_calls(messages: Iterable[Message]) -> list[ToolCall]:
     """Return every tool call of `messages`, in transcript order."""
@@ -239,10 +289,21 @@ def tool_calls(messages: Iterable[Message]) -> list[ToolCall]:
 
 
 def file_of(call: ToolCall) -> str | None:
-    """Return the file a call works on, or `None` if its arguments name none."""
+    """Return the file a call works on, or `None` if its arguments name none.
+
+    The `value.strip()` guard is the one reading deliberately **aligned** with
+    the stage rather than derived independently, and it is aligned on purpose:
+    an argument holding no word must name nothing, because the stage was fixed
+    in T5.1 (#21) to stop a blank path reaching `SolutionFile` and raising a
+    plain `ValueError` outside the `ResolveError` family. An oracle that kept
+    returning the blank string would have endorsed exactly the defect that fix
+    removed. No corpus fixture carries a blank path or command argument, so over
+    the corpus this is a no-op; it bites only on a synthetically rewritten
+    document, which is where the escape was found.
+    """
     for key in FILE_PATH_KEYS:
         value = call.args.get(key)
-        if isinstance(value, str):
+        if isinstance(value, str) and value.strip():
             return value
     return None
 
@@ -251,7 +312,7 @@ def command_of(call: ToolCall) -> str | None:
     """Return the command a call runs, or `None` if its arguments name none."""
     for key in COMMAND_KEYS:
         value = call.args.get(key)
-        if isinstance(value, str):
+        if isinstance(value, str) and value.strip():
             return value
     return None
 
