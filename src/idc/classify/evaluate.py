@@ -386,7 +386,18 @@ class RunSource:
         Returns:
             The source, naming the directory — the one thing that says which
             backend's decisions these were.
+
+        Raises:
+            ValueError: If the argument holds no word. `__post_init__` cannot
+                catch it, because the prefix already does: an empty directory
+                reads "recorded run ." — `Path("")` renders as the current
+                directory — and names nobody. The argument is checked before
+                `Path` normalizes it away; a directory that is spelled `"."`
+                passes, since that is a directory a caller can mean and
+                `Path("")` is no longer distinguishable from it.
         """
+        if not str(directory).strip():
+            raise ValueError("a recorded run source names the directory the decisions came from")
         return cls(
             label=f"recorded run {Path(directory)}",
             detail="decisions recorded from a real backend, replayed through the fake adapter",
@@ -403,7 +414,14 @@ class RunSource:
         Returns:
             The source; what a study script that runs an adapter itself passes
             to `evaluate_cases`.
+
+        Raises:
+            ValueError: If the name holds no word. `__post_init__` cannot catch
+                it, because the prefix already does: the label reads "adapter "
+                and names nobody.
         """
+        if not name.strip():
+            raise ValueError("an adapter run source names the adapter the decisions came from")
         return cls(label=f"adapter {name}", detail="run over the labelled transcripts")
 
 

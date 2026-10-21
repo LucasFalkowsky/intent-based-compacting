@@ -91,16 +91,16 @@ def main(argv: list[str] | None = None) -> int:
         on stdout.
     """
     arguments = build_parser().parse_args(argv)
-    source = (
-        RunSource.baseline()
-        if arguments.decisions is None
-        else RunSource.recorded(arguments.decisions)
-    )
     try:
+        source = (
+            RunSource.baseline()
+            if arguments.decisions is None
+            else RunSource.recorded(arguments.decisions)
+        )
         result = evaluate_cases(
             load_cases(arguments.gold, arguments.transcripts, arguments.decisions), source
         )
-    except (ClassifyError, SchemaValidationError, OSError) as error:
+    except (ClassifyError, SchemaValidationError, OSError, ValueError) as error:
         print(f"idc: {error}", file=sys.stderr)
         return EXIT_INPUT_ERROR
     print(format_report(result))
