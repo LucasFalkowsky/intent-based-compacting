@@ -108,9 +108,11 @@ a command. These two answer *which of two shapes* a write call has, and the
 shapes are not per tool but per call — `write_kind` reads both lists on every
 write call and falls back to `EDIT` for a shape it does not know, which is the
 lossless reading. There is no declaration a registry could require of a write
-tool here, and three of the seven write tools (`NotebookEdit`, `replace`,
-`edit`) are not corpus-recorded with a content argument at all, so declaring one
-per tool would be the invented data the evidence rule refuses.
+tool here, and **four** of the seven write tools are not corpus-recorded with a
+content argument: `NotebookEdit` and `write` have no recorded call at all, and
+`replace` and `edit` are recorded only with replacement keys. Declaring a
+content key per tool would therefore be the invented data the evidence rule
+refuses — for four of seven it would rest on nothing.
 """
 
 REPLACEMENT_KEYS = ("old_string", "new_string", "oldString", "newString")
