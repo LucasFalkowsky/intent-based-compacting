@@ -435,6 +435,10 @@ def test_the_imported_session_reads_its_summary_identifier_off_the_session():
     assert result.native_summary_id == result.session.native_summary_id == "c40"
     with pytest.raises(TypeError):
         ImportedSession(session=result.session, native_summary_id="c40")
+    # Pinned on assignment too, not only on construction: the property is the
+    # single home of the fact, so nothing may give it a second value later.
+    with pytest.raises((TypeError, AttributeError)):
+        result.native_summary_id = "c99"
 
 
 def test_the_importers_build_sessions_that_satisfy_the_invariant():

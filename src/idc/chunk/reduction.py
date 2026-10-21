@@ -29,8 +29,12 @@ canonical fields alone — no model call, no agent-specific markup (that lives i
   agent's native one, which the measurement compares against. The block a
   natively compacted session names in `Session.native_summary_id` is exempt
   wherever it sits, which is not always the preamble: dropping it would leave
-  the reduced document naming a message it no longer holds. And a chunk is
-  never emptied: a `Chunk` spans at least one message, and losing one would
+  the reduced document naming a message it no longer holds. The preamble rule
+  therefore no longer carries that guarantee on its own, and it does not extend
+  to a *superseded* block: in a session compacted twice, the first summary is
+  neither named nor in the preamble and is reduced away — correctly, since it is
+  history the agent dropped and the visible context hides it either way. And a
+  chunk is never emptied: a `Chunk` spans at least one message, and losing one would
   change the chunk count.
 
 A `Chunk` is a half-open range over `Session.messages` and copies no message,
