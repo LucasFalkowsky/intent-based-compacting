@@ -704,13 +704,22 @@ def test_the_classifier_offers_the_candidates_the_prompt_then_names(corpus):
 
 
 def imports_in(source: str) -> set[str]:
-    """Return the top-level module names a source text imports."""
+    """Return the top-level module names a source text imports.
+
+    All three import shapes, including the one that is easy to miss: in a
+    **bare** relative import (`from . import x`) the module is `None` and the
+    imported name sits on the alias, so a walker that only read `node.module`
+    would see nothing there at all.
+    """
     imported: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             imported.update(alias.name.split(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                imported.add(node.module.split(".")[0])
+            elif node.level > 0:
+                imported.update(alias.name.split(".")[0] for alias in node.names)
     return imported
 
 
