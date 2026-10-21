@@ -18,13 +18,15 @@ Around them, two things are tested the way the ticket requires them to be:
 """
 
 import json
+import subprocess
+import sys
 
 import pytest
-from idc.classify.evaluate import EXIT_INPUT_ERROR, main
 
 from fixture_corpus import CORPUS, FIXTURES_DIR, GOLD_DIR
 from idc.chunk import chunk_session
 from idc.classify import (
+    EXIT_INPUT_ERROR,
     NEW,
     Agreement,
     CorpusAgreement,
@@ -48,6 +50,7 @@ from idc.classify import (
     predicted_labels,
     rand_index,
 )
+from idc.classify.__main__ import main
 
 FIXTURE_NAMES = CORPUS.names()
 """Every fixture of the shared corpus, discovered at collection time."""
@@ -386,9 +389,9 @@ def test_the_command_scores_a_recorded_run(tmp_path, capsys):
     status = main([str(GOLD_DIR), str(FIXTURES_DIR), "--decisions", str(decisions_dir)])
 
     out = capsys.readouterr().out
-    # 10 of 11 chunks and 3 of 4 chunk pairs, worked out by hand.
+    # 11 of the corpus' 12 chunks and 3 of its 4 chunk pairs, by hand.
     assert status == 0
-    assert "accuracy 0.909, rand index 0.750" in out
+    assert "accuracy 0.917, rand index 0.750" in out
     assert "interleaved_intents K3: C3 / C1" in out
 
 
@@ -454,3 +457,19 @@ def test_load_decisions_rejects_an_unknown_key(tmp_path):
 
     with pytest.raises(DecisionRecordError, match="chains"):
         load_decisions(path)
+
+
+def test_the_entry_point_runs_the_command_without_a_runpy_warning():
+    # `python -m idc.classify` and not `python -m idc.classify.evaluate`: the
+    # package imports the harness, so running that module directly would import
+    # it twice and runpy would say so on stderr of every evaluation.
+    result = subprocess.run(
+        [sys.executable, "-m", "idc.classify", str(GOLD_DIR), str(FIXTURES_DIR)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "accuracy 1.000, rand index 1.000" in result.stdout
+    assert result.stderr == ""

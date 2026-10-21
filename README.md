@@ -106,6 +106,20 @@ make run ARGS="compact --agent opencode --in session.jsonl --out compacted.jsonl
 `make run` forwards `ARGS` to `python -m idc`. The command surface itself is implemented in
 ticket T10.1; until then the entry point exits with code 2 and says so.
 
+The classifier evaluation harness is a development utility outside that surface,
+next to `make schema`:
+
+```
+python -m idc.classify tests/fixtures/gold tests/fixtures
+python -m idc.classify GOLD_DIR TRANSCRIPT_DIR --decisions RUN_DIR
+```
+
+It reports how far a classifier run agrees with the gold chain labels of
+`tests/fixtures/gold/` — per-chunk accuracy and chain-level Rand index, per transcript and
+over the corpus. Without `--decisions` it runs the gold baseline, which scores 1.000 by
+construction; with it, the recorded decisions of a real run are replayed and scored. No
+invocation calls a model: the real backends take their model as an injected dependency.
+
 ## Layout
 
 ```

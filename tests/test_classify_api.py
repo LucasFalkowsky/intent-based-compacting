@@ -19,11 +19,15 @@ import pytest
 
 from idc.classify import (
     CHAIN_ID_PREFIX,
+    CHUNKINGS,
     DEFAULT_CONTINUATION_THRESHOLD,
     DEFAULT_MAX_ATTEMPTS,
+    EXIT_INPUT_ERROR,
+    GOLD_CHUNKING,
     NEW,
     PROVISIONAL_LABEL_MAX_LENGTH,
     AdapterContractError,
+    Agreement,
     Assignment,
     BlankChainLabelError,
     ChainAlreadySeededError,
@@ -36,11 +40,18 @@ from idc.classify import (
     Classification,
     ClassifyError,
     ContinuationScorer,
+    CorpusAgreement,
     Decision,
     DecisionLike,
+    DecisionRecordError,
+    Disagreement,
+    EvaluationCase,
     FakeAdapter,
     FakeCall,
     ForeignChunkError,
+    GoldChains,
+    GoldCoverageError,
+    GoldLabellingError,
     IntentAdapter,
     LlmAdapter,
     LlmCall,
@@ -52,14 +63,27 @@ from idc.classify import (
     ScriptExhaustedError,
     UnknownChainError,
     UnreadableAnswerError,
+    agreement,
     as_decision,
     build_prompt,
     chain_id,
     chunk_user_message,
+    chunks_for,
     classify,
     classify_chunks,
+    evaluate_adapter,
+    evaluate_cases,
+    format_report,
+    gold_script,
     is_chain_id,
+    load_cases,
+    load_decisions,
+    load_gold,
+    load_gold_directory,
+    per_chunk_accuracy,
+    predicted_labels,
     provisional_label,
+    rand_index,
 )
 
 EXPECTED_EXPORTS = {
@@ -219,6 +243,74 @@ EXPECTED_EXPORTS |= S1M_EXPORTS
 TYPE_EXPORTS += (ContinuationScorer, S1MAdapter, S1MCall, ScorerContractError)
 ERROR_EXPORTS += (ScorerContractError,)
 VALUE_EXPORTS["DEFAULT_CONTINUATION_THRESHOLD"] = DEFAULT_CONTINUATION_THRESHOLD
+
+
+# --- T4.4 (#19) — the evaluation harness, appended as a block of its own ----
+#
+# Kept out of the sorted literals above for the reason the S1M block is: a
+# ticket that extends this surface edits only its own block, so two branches
+# doing it at once do not collide.
+
+HARNESS_EXPORTS = {
+    "CHUNKINGS",
+    "EXIT_INPUT_ERROR",
+    "GOLD_CHUNKING",
+    "Agreement",
+    "CorpusAgreement",
+    "DecisionRecordError",
+    "Disagreement",
+    "EvaluationCase",
+    "GoldChains",
+    "GoldCoverageError",
+    "GoldLabellingError",
+    "agreement",
+    "chunks_for",
+    "evaluate_adapter",
+    "evaluate_cases",
+    "format_report",
+    "gold_script",
+    "load_cases",
+    "load_decisions",
+    "load_gold",
+    "load_gold_directory",
+    "per_chunk_accuracy",
+    "predicted_labels",
+    "rand_index",
+}
+"""What T4.4 adds: the gold labelling and its loaders, the two metrics, the
+per-transcript and corpus-wide agreement, the report, and the three failures a
+hand-written evaluation input can cause."""
+
+EXPECTED_EXPORTS |= HARNESS_EXPORTS
+CALLABLE_EXPORTS += (
+    agreement,
+    chunks_for,
+    evaluate_adapter,
+    evaluate_cases,
+    format_report,
+    gold_script,
+    load_cases,
+    load_decisions,
+    load_gold,
+    load_gold_directory,
+    per_chunk_accuracy,
+    predicted_labels,
+    rand_index,
+)
+TYPE_EXPORTS += (
+    Agreement,
+    CorpusAgreement,
+    DecisionRecordError,
+    Disagreement,
+    EvaluationCase,
+    GoldChains,
+    GoldCoverageError,
+    GoldLabellingError,
+)
+ERROR_EXPORTS += (DecisionRecordError, GoldCoverageError, GoldLabellingError)
+VALUE_EXPORTS["CHUNKINGS"] = CHUNKINGS
+VALUE_EXPORTS["EXIT_INPUT_ERROR"] = EXIT_INPUT_ERROR
+VALUE_EXPORTS["GOLD_CHUNKING"] = GOLD_CHUNKING
 
 
 def test_the_documented_promise_names_the_carve_outs_it_rests_on():
