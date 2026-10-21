@@ -538,6 +538,9 @@ def test_the_package_exports_the_compaction_stage_and_nothing_more():
         "is_carried_over",
         "transcript_chain",
         "transcript_chunk_ids",
+        # T6.4 (#29): the merge an extended chain's rewrite goes through.
+        "merge_solution_bodies",
+        "merged_solution_section",
     }
     for name in idc.compact.__all__:
         assert hasattr(idc.compact, name)
