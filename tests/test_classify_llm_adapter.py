@@ -703,9 +703,8 @@ def test_the_classifier_offers_the_candidates_the_prompt_then_names(corpus):
     assert "[C2]" in client.prompts[2]
 
 
-def module_imports() -> set[str]:
-    """Return the top-level modules `idc.classify.llm` imports."""
-    source = Path(llm_module.__file__).read_text(encoding="utf-8")
+def imports_in(source: str) -> set[str]:
+    """Return the top-level module names a source text imports."""
     imported: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
@@ -713,6 +712,11 @@ def module_imports() -> set[str]:
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module.split(".")[0])
     return imported
+
+
+def module_imports() -> set[str]:
+    """Return the top-level modules `idc.classify.llm` imports."""
+    return imports_in(Path(llm_module.__file__).read_text(encoding="utf-8"))
 
 
 def test_the_backend_imports_nothing_that_could_reach_the_network():
