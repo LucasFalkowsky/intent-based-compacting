@@ -68,10 +68,18 @@ rather than guessed at, which is the decision `UnknownModelError` records.
 class ModelFamily(StrEnum):
     """The model families this build can place a transcript's model in.
 
-    Exactly the families the three supported agents' models fall into, and no
-    speculative ones: a family that nothing can produce a transcript for would
-    be a tokenizer slot no run could fill, and an unknown model is refused
-    loudly instead of being absorbed by a catch-all member.
+    The two the shared fixture corpus records, and no speculative ones: a
+    family nothing in the repository can produce a transcript for would be a
+    tokenizer slot no test could fill, and an unknown model is refused loudly
+    instead of being absorbed by a catch-all member. Adding one is adding a
+    member here and registering a tokenizer for it.
+
+    This is therefore **not** a claim about what the three supported agents can
+    be configured with — OpenCode in particular can be pointed at another
+    provider's model, and the corpus happens to record it with a `claude` one.
+    Such a transcript raises `UnknownModelError` until its family is added,
+    which is the intended outcome: a refusal naming the model, rather than a
+    number counted with whichever tokenizer was nearest.
     """
 
     CLAUDE = "claude"
@@ -185,9 +193,7 @@ class TokenizerRegistry:
         tokenizer = self._tokenizers.get(family)
         if tokenizer is None:
             raise NoTokenizerError(
-                family.value,
-                str(model),
-                tuple(known.value for known in self.families),
+                family.value, model, tuple(known.value for known in self.families)
             )
         return tokenizer
 

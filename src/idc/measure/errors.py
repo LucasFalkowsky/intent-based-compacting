@@ -103,11 +103,14 @@ class NoTokenizerError(MeasureError):
 
     Attributes:
         family: Value of the model family that has no tokenizer.
-        model: The model name that resolved to it.
+        model: The model name that resolved to it, as the document recorded it.
+            Typed `str | None` because `Session.model` is, and never `None` in
+            practice: a session that records no model is refused by
+            `UnknownModelError` before a tokenizer is looked for.
         registered: The families that do have one, in registration order.
     """
 
-    def __init__(self, family: str, model: str, registered: Sequence[str]) -> None:
+    def __init__(self, family: str, model: str | None, registered: Sequence[str]) -> None:
         """Build the error from the family, the model and what is registered.
 
         Args:
