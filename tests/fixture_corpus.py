@@ -242,7 +242,7 @@ def file_of(call: ToolCall) -> str | None:
     """Return the file a call works on, or `None` if its arguments name none."""
     for key in FILE_PATH_KEYS:
         value = call.args.get(key)
-        if isinstance(value, str):
+        if isinstance(value, str) and value.strip():
             return value
     return None
 
@@ -251,7 +251,7 @@ def command_of(call: ToolCall) -> str | None:
     """Return the command a call runs, or `None` if its arguments name none."""
     for key in COMMAND_KEYS:
         value = call.args.get(key)
-        if isinstance(value, str):
+        if isinstance(value, str) and value.strip():
             return value
     return None
 
