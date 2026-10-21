@@ -306,6 +306,26 @@ def test_a_chain_whose_every_run_failed_records_the_last_failing_one():
     )
 
 
+def test_a_run_the_agent_saw_fail_did_not_pass_however_it_exited():
+    # `exit_code` and `is_error` are independent fields (#3), so a result that
+    # exited 0 and that the agent nevertheless saw as a failure is possible —
+    # and must not become a proof. No corpus transcript holds that combination,
+    # which is why it is built here; dropping the `is_error` half of the rule
+    # passes every other test of this module.
+    session = session_with_result(FAILED_THEN_PASSING, "c06", exit_code=0, is_error=True)
+    session, chunks, chains = session_chains(session, FAILED_THEN_PASSING)
+    (chain,) = chains
+    runs = verification_runs(session, chunks, chain)
+
+    verification = solution_verification(session, chunks, chain)
+
+    assert [run.exit_code for run in runs] == [1, 0]
+    assert [run.passed for run in runs] == [False, False]
+    assert verification is not None
+    assert verification.status is VerificationStatus.FAILED
+    assert verification.run.id == "c06"
+
+
 def test_a_run_whose_exit_code_the_transcript_does_not_hold_did_not_pass():
     # A tool that reports no exit status leaves `exit_code` null (#3). Reading
     # that as a pass would make a chain claim a verification it cannot show, so
