@@ -62,8 +62,8 @@ non_running_flags = [
 # `Bash`, `Edit`, `Grep`, `Read` and `Task` are recorded in the fixture corpus
 # (`tests/fixtures/*.json`). `Glob`, `Write`, `NotebookEdit`, `WebFetch` and
 # `WebSearch` are the remaining tools of the agent's own tool set. The entries
-# under "observed in real transcripts" below were added by T2.2 from sessions in
-# `~/.claude/projects/*/*.jsonl` — the only tool names that turned up there and
+# under "observed in real transcripts" below were added by T2.2 as tool names
+# observed in recorded Claude Code sessions — the only ones that turned up and
 # were not declared yet.
 #
 # A tool whose category is `other` is declared all the same once a transcript
