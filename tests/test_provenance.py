@@ -232,6 +232,26 @@ def test_a_user_turn_that_only_resembles_a_notice_is_left_alone():
     assert context.messages[0].is_system_injected is False
 
 
+def test_a_user_turn_that_starts_with_a_notice_and_keeps_typing_is_left_alone():
+    # The notice is matched as a whole text, not as a prefix: a user who pastes it
+    # and keeps typing has opened a genuine intent, and flagging it would let T3.2
+    # reduce that intent away.
+    typed = message("u1", content="[Request interrupted by user] was printed by my script, explain")
+
+    context = visible_context(session(typed))
+
+    assert context.normalised_ids == ()
+    assert context.messages[0].is_system_injected is False
+
+
+def test_a_notice_marker_is_the_whole_text_the_transcript_records():
+    result = import_transcript(Agent.CLAUDE_CODE, NATIVE.path("claude-code", "interrupted_turn"))
+
+    notice = result.session.messages[-1]
+
+    assert notice.content in NOTICE_MARKERS[Agent.CLAUDE_CODE]
+
+
 def test_every_agent_has_an_entry_in_the_notice_markers():
     assert set(NOTICE_MARKERS) == set(Agent)
 
