@@ -1,7 +1,7 @@
 {
   "transcript": "two_sequential_intents",
   "chunking": "user-boundaries",
-  "note": "Two unrelated turns over disjoint file sets: the second documents the option in README.md and shares nothing with the first, so it opens C2 instead of extending C1.",
+  "note": "Two intents the user separates in the request itself: the second turn is \"Now document the new option in README.md, nothing else.\", a closed follow-up request rather than a continuation of the implementation it refers to, so K2 opens C2.",
   "chains": {
     "K1": "C1",
     "K2": "C2"

@@ -66,7 +66,8 @@ GOLD_LABELS: dict[str, dict[str, str]] = {
     "subagent_result": {"K1": "C1"},
     # Nor is an injected message in the user role a turn.
     "system_injected_message": {"K1": "C1"},
-    # Two unrelated turns over disjoint file sets.
+    # The second turn asks for something else ("Now document the new option in
+    # README.md, nothing else."), so it opens a chain of its own.
     "two_sequential_intents": {"K1": "C1", "K2": "C2"},
     # A file written and twice corrected within one turn stays one intent.
     "write_then_two_edits": {"K1": "C1"},

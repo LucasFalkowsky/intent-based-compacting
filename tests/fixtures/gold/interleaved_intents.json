@@ -1,7 +1,7 @@
 {
   "transcript": "interleaved_intents",
   "chunking": "user-boundaries",
-  "note": "The discriminating case: the turns pursue A, B, A. The third turn returns to the sampler intent of the first and re-edits its file, so K3 extends C1 instead of opening a third chain. The middle turn shares no file with either neighbour and is C2.",
+  "note": "The discriminating case: the turns pursue A, B, A, and the user says where each one starts. The second opens \"Unrelated:\" and asks for a config-key rename, so K2 opens C2. The third opens \"Back to the sampler:\" and restates the complaint of the first — \"The seeding fixed the test, not the bug.\" — so K3 extends C1 instead of opening a third chain.",
   "chains": {
     "K1": "C1",
     "K2": "C2",

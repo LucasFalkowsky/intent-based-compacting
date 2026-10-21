@@ -1,7 +1,7 @@
 {
   "transcript": "already_compacted_block",
   "chunking": "user-boundaries",
-  "note": "One new turn behind the summary block of an earlier run. The block's own chains C1 and C2 are not labelled here: seeding a run with chains parsed out of a block is T8 (#33), and these labels are the ones an unseeded run has to produce. Once a run is seeded, the gold for this transcript reads K1 -> C2, because the turn rewrites a file of C2's solution.",
+  "note": "One new turn behind the summary block of an earlier run. The block's own chains C1 and C2 are not labelled here: seeding a run with chains parsed out of a block is T8 (#33), and these labels are the ones an unseeded run has to produce. Once a run is seeded, the gold for this transcript reads K1 -> C2, because the turn names the intent it continues: it opens \"The rate limiter from before\", which is the intent of the block's C2.",
   "chains": {
     "K1": "C1"
   }
