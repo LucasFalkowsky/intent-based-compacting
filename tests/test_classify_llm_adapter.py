@@ -117,6 +117,23 @@ Answer with one JSON object and nothing else, in exactly this shape:
  "label": "<a short label for the new intent, only when the decision is NEW>"}"""
 """The same prompt for the first chunk of a transcript, where nothing is open."""
 
+DIGITS_OVER_THE_LIMIT = "1" * 6000
+"""An integer literal longer than CPython's `sys.int_max_str_digits` (4300).
+
+`json.loads` refuses such a literal with a **plain `ValueError`** and not a
+`JSONDecodeError`, so a reader that caught only the latter let it out — and a
+repetition loop writing one digit too many is a real failure mode of a model,
+not a contrived one.
+"""
+
+NESTED_DEEPER_THAN_IT_PARSES = "[" * 200_000
+"""An answer of nothing but open brackets.
+
+CPython's `json` puts no limit on nesting, so this exhausts the parser's stack
+and raises a `RecursionError` — which is no `ValueError` at all and so needs its
+own arm in the reader.
+"""
+
 UNREADABLE_ANSWERS = (
     pytest.param("not json at all", "not JSON", id="prose"),
     pytest.param("", "not JSON", id="empty"),
@@ -134,6 +151,13 @@ UNREADABLE_ANSWERS = (
     pytest.param('{"decision": "chain one"}', "neither", id="prose-decision"),
     pytest.param('{"decision": "NEW", "label": 5}', "and not a string", id="numeric-label"),
     pytest.param(None, "and not a string", id="no-string-at-all"),
+    pytest.param(DIGITS_OVER_THE_LIMIT, "not readable as JSON", id="digits-over-the-limit"),
+    pytest.param(
+        '{"decision": ' + DIGITS_OVER_THE_LIMIT + "}",
+        "not readable as JSON",
+        id="a-decision-of-digits-over-the-limit",
+    ),
+    pytest.param(NESTED_DEEPER_THAN_IT_PARSES, "not readable as JSON", id="nested-too-deeply"),
 )
 """Every answer the adapter must refuse to read, with a fragment of its reason.
 
@@ -394,6 +418,28 @@ def test_an_invalid_json_answer_is_retried_and_the_second_answer_is_used():
     assert client.prompts[0] == EXPECTED_PROMPT
     assert "could not be read" in client.prompts[1]
     assert "not JSON" in client.prompts[1]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        pytest.param(DIGITS_OVER_THE_LIMIT, id="digits-over-the-limit"),
+        pytest.param(NESTED_DEEPER_THAN_IT_PARSES, id="nested-too-deeply"),
+    ],
+)
+def test_a_degenerate_answer_is_retried_like_any_other_unreadable_answer(answer):
+    # Deliberate, and the reason it is a test: a degenerate answer is
+    # *unreadable*, and unreadable is exactly what the retry is for. Such an
+    # answer may well repeat, but then it costs the one extra call the bound
+    # allows and ends in `UnreadableAnswerError` like every other refusal —
+    # whereas a special case would split one documented rule into two for no
+    # gain the study can measure.
+    client = StubClient(answer, '{"decision": "C1"}')
+    adapter = LlmAdapter(client)
+
+    assert adapter.decide(SUBJECT, CANDIDATES) == Decision.extend("C1")
+    assert len(client.prompts) == 2
+    assert "could not be read" in client.prompts[1]
 
 
 def test_the_retried_call_keeps_both_answers_in_its_record():
