@@ -314,6 +314,10 @@ def _read_fallback(entry: SolutionFile, reads: Sequence[LocatedCall]) -> FileRep
             base_call_id=None,
             replayed_call_ids=(),
         )
+    # Sorted rather than simply taking the last candidate: `reads` is
+    # documented to be in transcript order, but `replay_file` is public and the
+    # position a read sits at is the only thing that decides which one is
+    # examined.
     read = sorted(candidates, key=lambda located: located.message_index)[-1]
     extent = rendered_extent(read.result.output) if read.result is not None else None
     partial = extent is not None and extent[0] > 1
@@ -322,6 +326,22 @@ def _read_fallback(entry: SolutionFile, reads: Sequence[LocatedCall]) -> FileRep
         content=None,
         status=ReplayStatus.PARTIAL_READ if partial else ReplayStatus.UNPROVEN_READ,
         base_call_id=read.id,
+        replayed_call_ids=(),
+    )
+
+
+def _unplaceable(entry: SolutionFile, base_call_id: str, status: ReplayStatus) -> FileReplay:
+    """Return the fallback for a base whose edits could not all be placed.
+
+    The edits applied before the one that could not be placed are dropped with
+    it: a file replayed up to its third of four edits is not the file, and
+    handing it out as content would state a text the chain never left behind.
+    """
+    return FileReplay(
+        path=entry.path,
+        content=None,
+        status=status,
+        base_call_id=base_call_id,
         replayed_call_ids=(),
     )
 
@@ -367,22 +387,6 @@ def replay_file(entry: SolutionFile, reads: Sequence[LocatedCall] = ()) -> FileR
         status=ReplayStatus.REPLAYED,
         base_call_id=base_call_id,
         replayed_call_ids=tuple(replayed),
-    )
-
-
-def _unplaceable(entry: SolutionFile, base_call_id: str, status: ReplayStatus) -> FileReplay:
-    """Return the fallback for a base whose edits could not all be placed.
-
-    The edits applied before the one that could not be placed are dropped with
-    it: a file replayed up to its third of four edits is not the file, and
-    handing it out as content would state a text the chain never left behind.
-    """
-    return FileReplay(
-        path=entry.path,
-        content=None,
-        status=status,
-        base_call_id=base_call_id,
-        replayed_call_ids=(),
     )
 
 
