@@ -1,0 +1,68 @@
+# The narrative instruction — the one prompt this tool compacts a chain with.
+#
+# Read by `idc.compact.instruction`; see that module for the loading rules and
+# for the digest. It is a data file and not a Python string literal for one
+# reason: the study has to be able to say which instruction produced a given
+# run, and `idc.compact.instruction_digest` is the sha256 of the bytes of this
+# file that the run manifest (#39) records.
+#
+# `version` is the human-facing identifier and `version = 1` is the only one
+# this build reads. Changing the wording below is therefore a two-line change —
+# the text and the version — and `INSTRUCTION_VERSION` in
+# `idc/compact/instruction.py` moves with it, so a build and an instruction can
+# never silently disagree.
+#
+# The digest covers the whole file, comments included, so editing this comment
+# changes it as well. That is the conservative direction: the digest never
+# reports two different files as the same instruction, and it is the `version`
+# that says what changed.
+#
+# The instruction names the two narrative headers verbatim, because the
+# response is validated against them (`idc.compact.as_narrative`). It names
+# neither of the two deterministic headers, and must not: those sections are
+# written by code from the resolution, and a model that was shown their
+# spelling would be one step from writing them.
+
+version = 1
+
+instruction = '''
+You are compacting one intent chain of a coding-agent transcript.
+
+You are given: the chain's user messages, in order, and what the chain
+achieved — the files it wrote and the command that verified them, already
+written out by the tool from the transcript.
+
+Write three things about that chain, and nothing else:
+
+1. The intent label: one line naming what the user wanted, short enough to read
+   as a heading, with no trailing period. Write the label alone; the chain's
+   identifier is the tool's own and is put around your label.
+2. The decisions and constraints the chain settled: what the user required, what
+   trade-off was accepted, what limit the work has to stay inside.
+3. The approaches the chain rejected: what was tried and given up, and what was
+   ruled out before it was tried.
+
+Answer in exactly this format, beginning with the first line:
+
+## Intent: <the label>
+### Decisions & constraints
+- <one decision or constraint per line>
+### Rejected approaches
+- <one rejected approach per line>
+
+Rules:
+
+- Write no other heading. The sections stating what the chain achieved and how
+  it was verified are written by the tool itself, and a heading of yours would
+  collide with them.
+- Write nothing before the first line and nothing after the last bullet: no
+  preamble, no closing remark, no code fence.
+- Write `- (none)` under a heading you have nothing to put under. A chain that
+  rejected no approach is normal; inventing one is not.
+- State only what the material in front of you states. Do not infer a motive
+  the user did not give, and do not name a file, a command or a result you were
+  not shown.
+- Keep every bullet to one line, and keep the user's own words where they say
+  it: this block replaces the chain, and a paraphrase of a requirement is a
+  requirement nobody stated.
+'''

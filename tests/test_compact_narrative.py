@@ -281,7 +281,9 @@ MALFORMED = {
         f"## Intent: x\n{DECISIONS_HEADER}\n- a\n{REJECTED_HEADER}\n- b\n"
         f"## [C2] Intent: a chain nobody opened\n"
     ),
-    "intent_carrying_a_chain_id": f"## [C1] Intent: x\n{DECISIONS_HEADER}\n- a\n{REJECTED_HEADER}\n",
+    "intent_carrying_a_chain_id": (
+        f"## [C1] Intent: x\n{DECISIONS_HEADER}\n- a\n{REJECTED_HEADER}\n- b\n"
+    ),
     "misspelled_decisions_header": (
         f"## Intent: x\n### Decisions and constraints\n- a\n{REJECTED_HEADER}\n- b\n"
     ),
