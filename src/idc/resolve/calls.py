@@ -139,6 +139,29 @@ class WriteKind(StrEnum):
     EDIT = "edit"
 
 
+def _argument_of(call: ToolCall, keys: Sequence[str]) -> str | None:
+    """Return the first of `keys` the call answers with a word, or `None`.
+
+    Args:
+        call: Any tool call, of any category.
+        keys: The argument keys to try, in order.
+
+    Returns:
+        The value verbatim, for the first key that holds a string with a word
+        in it. `None` covers three cases, and folding them together is what
+        both callers document: no such key, a key spelled in a way this build
+        has never seen, and a key whose value holds no word. The last one is
+        why the value is tested with `strip()` and returned unstripped — a
+        blank argument names nothing, while a path that *does* name something
+        is the agent's own spelling and is never rewritten here.
+    """
+    for key in keys:
+        value = call.args.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 def file_of(call: ToolCall) -> str | None:
     """Return the file a call works on, or `None` if its arguments name none.
 
@@ -157,11 +180,7 @@ def file_of(call: ToolCall) -> str | None:
         nothing names — a `SolutionFile` refuses that, and a transcript must
         not be able to trigger a refusal outside `idc.resolve.errors`.
     """
-    for key in FILE_PATH_KEYS:
-        value = call.args.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return None
+    return _argument_of(call, FILE_PATH_KEYS)
 
 
 def command_of(call: ToolCall) -> str | None:
@@ -184,11 +203,7 @@ def command_of(call: ToolCall) -> str | None:
         same reason: a blank command line is no command, and matching it
         against the patterns could only ever produce a run nothing ran.
     """
-    for key in COMMAND_KEYS:
-        value = call.args.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return None
+    return _argument_of(call, COMMAND_KEYS)
 
 
 def _replaces_a_part(call: ToolCall) -> bool:
