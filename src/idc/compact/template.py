@@ -38,6 +38,8 @@ writes the agent saw fail, and the discarded verification runs are what the
 chain tried, and the block states what it achieved.
 """
 
+import re
+
 from idc.resolve import (
     REPLACEMENT_KEYS,
     LocatedCall,
@@ -99,9 +101,11 @@ NO_CONTENT_NOTE = "no content recorded"
 
 Reachable: `idc.resolve.write_kind` falls back to `EDIT` for a write shape it
 does not know, and a call of that shape answers neither `CONTENT_KEYS` nor the
-replacement keys — `NotebookEdit`'s `new_source` is the recorded example. The
-file was written and saying so with an empty fence would claim the agent sent
-an empty file.
+replacement keys. `NotebookEdit` is the declared write tool whose patch
+arguments are spelled differently (`new_source`), and `idc.resolve.replay`
+records that no corpus fixture holds a call of it — so this branch rests on the
+registry declaring the tool, not on a recorded call. The file was written, and
+saying so with an empty fence would claim the agent sent an empty file.
 """
 
 NO_RESULT_NOTE = "no result recorded"
@@ -115,8 +119,10 @@ would read as a command that printed nothing.
 UNKNOWN_EXIT_NOTE = "exit unknown"
 """What a verification bullet says in place of an exit code the result lacks.
 
-`ToolResult.exit_code` is `null` whenever the tool reports none, which the
-corpus holds for a failed call, so this is not a hypothetical branch.
+`ToolResult.exit_code` is `null` whenever the tool reports none. The corpus
+holds one result of that shape — a failed write, not a failed run — so for a
+verification the branch rests on the field being optional rather than on a
+recorded run, and the phrase is what keeps the bullet from reading as `exit 0`.
 """
 
 ERROR_NOTE = "error"
@@ -143,6 +149,9 @@ The opening fence grows past this when the text it encloses holds a longer run
 of backticks of its own; see `_fence`.
 """
 
+_BACKTICKS = re.compile("`+")
+"""Every run of backticks in a text — what the opening fence has to outgrow."""
+
 _REPLACEMENT_TEXT_KEYS = REPLACEMENT_KEYS[1::2]
 """The second half of each pair of `REPLACEMENT_KEYS`: the text an edit inserts.
 
@@ -168,21 +177,21 @@ def _fence(text: str) -> str:
 
         The fence is `_MIN_FENCE` backticks, or one more than the longest run of
         backticks in `text` when that run is as long or longer. A write whose
-        content is itself Markdown with a fenced block in it is the case: three
-        backticks inside a three-backtick fence would close the block early and
-        the rest of the file would be read as the block's sections. A text whose
-        line merely *looks* like a header needs nothing — inside a fence a `###`
-        is text, which is what the fence is for.
+        content is itself Markdown with a fenced block in it is the case: the
+        content's own three backticks would close a three-backtick fence, and
+        what follows them would then be read as the block's own text rather
+        than as the file's. `tests/test_compact_template.py` constructs that
+        both ways round, with the long fence and with a short one, rather than
+        asserting the rule. A text whose line merely *looks* like a
+        header needs nothing — inside a fence a `###` is text, which is what the
+        fence is for.
 
         A `text` that does not end in a newline gets one, so the closing fence
         is never glued to its last line; an empty `text` yields the two fence
         lines and nothing between them, which is what a command that printed
         nothing produced.
     """
-    longest = run = 0
-    for character in text:
-        run = run + 1 if character == "`" else 0
-        longest = max(longest, run)
+    longest = max((len(run) for run in _BACKTICKS.findall(text)), default=0)
     ticks = "`" * max(_MIN_FENCE, longest + 1)
     tail = "" if not text or text.endswith("\n") else "\n"
     return f"{ticks}\n{text}{tail}{ticks}\n"

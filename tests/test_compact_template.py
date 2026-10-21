@@ -357,18 +357,31 @@ def test_a_kept_write_whose_arguments_hold_no_text_says_so_without_a_fence():
 def test_content_carrying_a_fence_and_a_header_is_enclosed_in_a_longer_fence():
     chain, resolution = only(ONE_CHAIN)
     path = resolution.solution_files[0].path
-    content = "### Solution\n```\nnot a section\n```\n"
+    content = "### Solution\n```\nfrom x import y\n```\n"
     resolution = with_write_args(resolution, 0, {"file_path": path, "content": content})
 
     block = render_block(chain, resolution)
 
     assert f"- `{path}`\n````\n{content}````\n" in block
     assert fenced_texts(solution_section(resolution)) == [content]
-    # The header line inside the content is content, not a fifth section.
+    # No line of the content is read as the block's own text, and the header
+    # inside it adds no fifth section — the list below would hold it twice.
+    assert "from x import y" not in outside_fences(block)
     assert [line for line in outside_fences(block) if line.startswith("#")] == [
         chain_heading(chain),
         *SECTION_HEADERS,
     ]
+
+
+def test_a_three_backtick_fence_would_be_closed_by_the_content_it_encloses():
+    # The counterfactual the renderer's fence rule rests on, constructed rather
+    # than asserted: enclosed in the shortest fence, the same content closes the
+    # block at its own fence and the line behind it becomes the block's text.
+    content = "### Solution\n```\nfrom x import y\n```\n"
+
+    short = f"{SOLUTION_HEADER}\n- `a.md`\n```\n{content}```\n"
+
+    assert "from x import y" in outside_fences(short)
 
 
 def test_content_without_a_closing_newline_keeps_the_closing_fence_on_its_own_line():
