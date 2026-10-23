@@ -119,6 +119,17 @@ def summary_block_text(session: Session) -> str | None:
         the *agent* wrote (`native-compaction`) returns `None` too: it is prose
         in the agent's own shape and holds no chain to recover.
 
+    **Everything after the marker is returned verbatim, the final line
+    terminator included.** Rebuilding the text from `splitlines()` would drop
+    it, and that one byte is load-bearing: the summary's last block is the last
+    chain of the earlier run, and `idc.parse.split_blocks` hands a block on
+    with the terminator it has. When the next run carries that chain over and
+    opens a chain of its own after it, `idc.parse.join_blocks` is handed a
+    block that does not end in a newline in a position where the next block
+    would be glued to its last line, and refuses — so the whole run exits
+    `EXIT_INPUT_ERROR` instead of writing a summary. That is the failure
+    `tests/test_cli_second_run.py` was written against.
+
     Only a *leading* marker is stripped, because that is where every writer in
     `idc.render` puts it (`tests/rendered/README.md` states as much, and
     `idc.importers.summary_provenance` reads the file back on that basis).
@@ -134,10 +145,10 @@ def summary_block_text(session: Session) -> str | None:
         return None
     for message in session.messages:
         if message.id == session.native_summary_id:
-            lines = message.content.splitlines()
+            lines = message.content.splitlines(keepends=True)
             while lines and lines[0].strip() in ("", INTENT_SUMMARY_MARKER):
                 lines.pop(0)
-            return "\n".join(lines)
+            return "".join(lines)
     return None
 
 

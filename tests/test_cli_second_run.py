@@ -398,7 +398,7 @@ def run_again(
 @pytest.fixture
 def second(produced: Produced, tmp_path: Path) -> SecondRun:
     """Run the pipeline a second time, on the first run's output plus two new chunks."""
-    source = second_run_input(tmp_path / f"{FIXTURE}_second_run.jsonl", produced.output_path)
+    source = second_run_input(tmp_path / "continued_session.jsonl", produced.output_path)
     output = tmp_path / "compacted_again.jsonl"
     clock = FakeClock([SECOND_STARTED, SECOND_FINISHED])
     status, adapter, client = run_again(
