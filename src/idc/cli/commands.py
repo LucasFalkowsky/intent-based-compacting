@@ -309,6 +309,46 @@ def manifest_path(config: Config, output: Path) -> Path:
     return Path(str(output) + MANIFEST_SUFFIX)
 
 
+def _reserved_manifest_path(config: Config, output: Path) -> Path:
+    """Return the run's manifest path, refusing one no file can be written at.
+
+    Called before the compacted transcript is written, so that the two failures
+    a stat can see are reported while nothing is on disk yet.
+
+    What is checked is exactly two things: that the destination is not an
+    existing directory, and that the directory it would be written into exists.
+    The first is what `manifest = ""` resolves to — `Path("")` is `Path(".")` —
+    and the second is what a `--manifest` into an unmade directory is. Anything
+    only an attempted write can discover (no permission, a full disk) still
+    fails where `dump_manifest` runs, and that is named in `run_command`.
+
+    Args:
+        config: The run's configuration.
+        output: The path the transcript is about to be written to, from which
+            the default manifest path is derived.
+
+    Returns:
+        The manifest path, to be handed to `dump_manifest` unchanged.
+
+    Raises:
+        IsADirectoryError: If the destination is an existing directory.
+        FileNotFoundError: If its parent directory does not exist, or is not a
+            directory.
+    """
+    destination = manifest_path(config, output)
+    if destination.is_dir():
+        raise IsADirectoryError(
+            f"the run manifest cannot be written to {str(destination)!r}: it is a directory"
+        )
+    parent = destination.parent
+    if not parent.is_dir():
+        raise FileNotFoundError(
+            f"the run manifest cannot be written to {str(destination)!r}: "
+            f"{str(parent)!r} is not a directory"
+        )
+    return destination
+
+
 def import_command(config: Config, runtime: Runtime) -> int:
     """Read an agent transcript into a canonical session document.
 
@@ -457,12 +497,22 @@ def run_command(config: Config, runtime: Runtime) -> int:
     """Import, chunk, classify, compact, render and measure in one pass.
 
     The study's command. The adapter and the narrative backend are resolved
-    before any work starts, and the tokenizer is picked right after the import,
-    so the refusals that do not depend on the output — no backend injected, no
-    tokenizer for the transcript's model family — are reported before a file is
-    created. A failure after that point leaves the compacted transcript without
-    a manifest, and never a partial transcript: `idc.render.write_transcript`
-    writes the whole file in one `write_text`.
+    before any work starts, the manifest's destination is checked next and the
+    tokenizer is picked right after the import, so the refusals that do not
+    depend on what the run computes — no backend injected, a manifest path that
+    is a directory or sits in one that does not exist, no tokenizer for the
+    transcript's model family — are all reported before a file is created.
+
+    That ordering is what "a manifest is written for every compaction run"
+    needs to hold on the failing path too: a manifest destination `Path.is_dir`
+    can already refuse would otherwise be found *after* the transcript was
+    written, leaving a compacted transcript on disk with no provenance beside
+    it. What a stat cannot see — no permission, a full disk — still fails at
+    `dump_manifest` and still leaves that gap; `_reserved_manifest_path` says
+    which half it covers.
+
+    A failure never leaves a *partial* transcript either way:
+    `idc.render.write_transcript` writes the whole file in one `write_text`.
 
     Args:
         config: Needs `agent`, `paths.transcript` and `paths.output`; honours
@@ -476,9 +526,12 @@ def run_command(config: Config, runtime: Runtime) -> int:
     Raises:
         BackendUnavailableError: If the adapter or the narrative backend was
             not injected.
+        OSError: If the manifest's destination is a directory or its own
+            directory does not exist — both before anything is written.
     """
     adapter = runtime.require_adapter(config.adapter)
     runtime.require_narrative_client()
+    destination = _reserved_manifest_path(config, Path(config.paths.output))
     previous = (
         None
         if config.paths.previous_manifest is None
@@ -507,7 +560,7 @@ def run_command(config: Config, runtime: Runtime) -> int:
             metrics=metrics,
             previous=previous,
         ),
-        manifest_path(config, output),
+        destination,
     )
     print(f"{len(block.chains)} chain(s) -> {output}")
     print(metrics)
