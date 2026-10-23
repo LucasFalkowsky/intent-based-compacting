@@ -129,9 +129,17 @@ def test_the_default_manifest_suffix_is_the_documented_one():
 
     `README.md`, `--manifest`'s help text and `manifest_path`'s docstring all
     name `.manifest.json`, so the suffix is a contract and not an internal
-    detail. Every other test here derives the path from `MANIFEST_SUFFIX`,
-    which keeps those tests about what they assert — and leaves the constant
-    free to change under all of them, which is what this one stops.
+    detail.
+
+    The constant **and** the written path are pinned: this test names the
+    literal at the constant, and `test_run_writes_a_manifest_next_to_its_
+    output_by_default` names it at the file the run actually writes, so
+    changing `MANIFEST_SUFFIX` reddens the two of them together. An earlier
+    version of this docstring claimed every other test derives its path from
+    the constant and that this one alone stops it from changing underneath
+    them — written before the test below stopped deriving, and false once it
+    did. The remaining tests do derive, which keeps them about what they
+    assert.
     """
     assert MANIFEST_SUFFIX == ".manifest.json"
 
@@ -471,6 +479,40 @@ def test_a_manifest_in_a_directory_that_does_not_exist_is_refused_before_the_out
     assert status == EXIT_INPUT_ERROR
     assert not output.exists()
     assert "absent" in capsys.readouterr().err
+
+
+def test_a_manifest_symlink_into_an_absent_directory_is_refused_before_the_output(tmp_path, capsys):
+    """A symlink is checked where it points, not where it sits.
+
+    The one member of "only a write can discover it" that needs no privilege
+    and no full disk: `<link> -> <absent>/run.json` has
+    `destination.is_dir()` false and `destination.parent.is_dir()` true, so
+    both stats passed and the run failed at `dump_manifest` with the compacted
+    transcript already written — the exact defect the pre-check exists to
+    close, reached by a different door.
+    """
+    output = tmp_path / "compacted.jsonl"
+    link = tmp_path / "manifest.json"
+    link.symlink_to(tmp_path / "absent" / "run.json")
+
+    status = main(
+        [
+            "run",
+            "--agent",
+            AGENT.value,
+            "--in",
+            transcript(),
+            "--out",
+            str(output),
+            "--manifest",
+            str(link),
+        ],
+        runtime=runtime(),
+    )
+
+    assert status == EXIT_INPUT_ERROR
+    assert not output.exists()
+    assert "is not a directory" in capsys.readouterr().err
 
 
 def test_no_output_is_left_behind_when_the_adapter_is_missing(tmp_path):

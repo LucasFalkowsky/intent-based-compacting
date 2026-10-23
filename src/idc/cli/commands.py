@@ -318,9 +318,20 @@ def _checked_manifest_path(config: Config, output: Path) -> Path:
     What is checked is exactly two things: that the destination is not an
     existing directory, and that the directory it would be written into exists.
     The first is what `manifest = ""` resolves to — `Path("")` is `Path(".")` —
-    and the second is what a `--manifest` into an unmade directory is. Anything
-    only an attempted write can discover (no permission, a full disk) still
-    fails where `dump_manifest` runs, and that is named in `run_command`.
+    and the second is what a `--manifest` into an unmade directory is.
+
+    **A symlink is checked where it points, not where it sits.** A review found
+    the one member of "only a write can discover it" that needs no privilege
+    and no full disk: `<link> -> <absent>/run.json` has `is_dir()` false and a
+    parent that exists, so both stats passed and the run failed at
+    `dump_manifest` with the transcript already on disk — the very defect this
+    function exists to prevent, reached by a different door. The destination is
+    therefore resolved before its parent is stated. A link to a *directory*
+    needs no special case: `is_dir()` follows it already.
+
+    What is left needs an attempted write to discover: no permission on the
+    destination's directory, or a full disk. That is named in `run_command`,
+    and it is the whole remainder — not an open-ended list.
 
     Args:
         config: The run's configuration.
@@ -328,19 +339,26 @@ def _checked_manifest_path(config: Config, output: Path) -> Path:
             the default manifest path is derived.
 
     Returns:
-        The manifest path, to be handed to `dump_manifest` unchanged.
+        The manifest path **as it was given**, to be handed to `dump_manifest`
+        unchanged — the resolution is for the check, not for the write, so the
+        diagnostic names the path the caller typed.
 
     Raises:
         IsADirectoryError: If the destination is an existing directory.
-        FileNotFoundError: If its parent directory does not exist, or is not a
-            directory.
+        FileNotFoundError: If the directory it resolves into does not exist, or
+            is not a directory.
+        OSError: From the stats themselves, for a path the filesystem will not
+            answer about at all — a path past `NAME_MAX` raises
+            `ENAMETOOLONG` out of `is_dir()`. It precedes the write like the
+            other two, so it opens no provenance gap, and `run_command`
+            documents `OSError` as a whole.
     """
     destination = manifest_path(config, output)
     if destination.is_dir():
         raise IsADirectoryError(
             f"the run manifest cannot be written to {str(destination)!r}: it is a directory"
         )
-    parent = destination.parent
+    parent = (destination.resolve() if destination.is_symlink() else destination).parent
     if not parent.is_dir():
         raise FileNotFoundError(
             f"the run manifest cannot be written to {str(destination)!r}: "
@@ -500,16 +518,19 @@ def run_command(config: Config, runtime: Runtime) -> int:
     before any work starts, the manifest's destination is checked next and the
     tokenizer is picked right after the import, so the refusals that do not
     depend on what the run computes — no backend injected, a manifest path that
-    is a directory or sits in one that does not exist, no tokenizer for the
-    transcript's model family — are all reported before a file is created.
+    is a directory or resolves into one that does not exist, no tokenizer for
+    the transcript's model family — are all reported before a file is created.
 
     That ordering is what "a manifest is written for every compaction run"
     needs to hold on the failing path too: a manifest destination `Path.is_dir`
     can already refuse would otherwise be found *after* the transcript was
     written, leaving a compacted transcript on disk with no provenance beside
-    it. What a stat cannot see — no permission, a full disk — still fails at
-    `dump_manifest` and still leaves that gap; `_checked_manifest_path` says
-    which half it covers.
+    it. What a stat cannot see — no permission on the destination's directory,
+    or a full disk — still fails at `dump_manifest` and still leaves that gap.
+    A review found that list once stated too little: a manifest path that is a
+    **dangling symlink** needs no privilege and no full disk and passed both
+    stats, so `_checked_manifest_path` now resolves the destination before
+    stating its parent, and says which half it covers.
 
     A failure never leaves a *partial* transcript either way:
     `idc.render.write_transcript` writes the whole file in one `write_text`.

@@ -180,13 +180,17 @@ def test_a_missing_compacted_transcript_is_a_usage_error_naming_the_option(capsy
 def test_the_path_keys_are_exactly_the_fields_of_paths():
     """The `[paths]` merge table against the model it merges into.
 
-    Both halves are asserted on purpose. The equality with `Paths.model_fields`
-    is what a sixth path cannot slip past, and it holds by construction today —
-    stating it is what makes replacing the derivation with a hand-written list
-    a red test rather than a silent return to the drift. The literal spells out
-    the five the module documents, so adding a path is a failure here and an
-    author who has to look at this line is an author who has to give the new
-    path a flag.
+    Both halves are asserted on purpose, and **not** for the reason an earlier
+    version of this docstring gave. It claimed that stating the equality is
+    what makes replacing the derivation with a hand-written list a red test;
+    a review disproved that — put the five-element literal back in place of
+    `tuple(Paths.model_fields)` and this module is still green, because what a
+    sixth path cannot slip past is the *literal* assertion below, which is
+    equally red either way.
+
+    What the derivation is actually worth is that a new field joins the merge
+    **automatically**, so the only thing left to do by hand is give it a flag —
+    and the literal is what forces an author to come here and notice that.
     """
     assert tuple(Paths.model_fields) == PATH_KEYS
     assert PATH_KEYS == ("transcript", "output", "compacted", "manifest", "previous_manifest")
