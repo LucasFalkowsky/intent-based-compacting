@@ -61,6 +61,7 @@ __all__ = [
     "COMMAND_NAMES",
     "DIAGNOSTIC_ERRORS",
     "PROGRAM",
+    "SETTING_KEYS",
     "Command",
     "build_parser",
     "configuration",
@@ -208,6 +209,20 @@ COMMANDS: tuple[Command, ...] = (
 A command is registered here and nowhere else, the way `idc.importers.IMPORTERS`
 holds the importers: adding one is an entry here plus its body in
 `idc.cli.commands`.
+"""
+
+SETTING_KEYS = tuple(name for name in Config.model_fields if name != "paths")
+"""The settings `configuration` merges from the command line, one per `Config` field.
+
+Derived from the model for the reason `idc.cli.config.PATH_KEYS` is: a setting
+`Config` gained and a hand-written list did not would never reach the merge,
+and the suite would stay green while the flag did nothing.
+
+`paths` is the one field left out, because it is merged key by key below and
+goes into the override document under its own name. `models` and `options` stay
+in — neither has a flag, so `getattr(arguments, key, None)` skips them, and
+leaving them in is what keeps this tuple the model's fields rather than a
+hand-picked subset of them.
 """
 
 COMMAND_NAMES = tuple(command.name for command in COMMANDS)
@@ -363,7 +378,7 @@ def configuration(arguments: argparse.Namespace) -> Config:
     )
     overrides: dict[str, Any] = {
         key: getattr(arguments, key)
-        for key in ("agent", "target", "adapter", "reduce")
+        for key in SETTING_KEYS
         if getattr(arguments, key, None) is not None
     }
     paths = {

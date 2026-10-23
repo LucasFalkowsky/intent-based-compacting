@@ -10,6 +10,13 @@ One command per pipeline stage plus `run`, parsed with the standard library's
 - **Precedence.** A switch on the command line wins over the config file, and
   the config file wins over the built-in default. `--reduce/--no-reduce` is the
   one tri-state switch, so it is the one that shows the middle case.
+- **The two tables the merge runs through.** Every flag below is pinned one by
+  one, which says nothing about a *new* field: `configuration` iterates
+  `SETTING_KEYS` and `PATH_KEYS`, so a setting or a path the models gain and
+  those tuples do not would never be merged, with every one of those per-flag
+  tests still green. Both tuples are therefore asserted against the models
+  themselves, the way `CLAUDE.md` requires of a list that can drift from its
+  source.
 
 `main` is called in-process and returns an exit status; it never raises
 `SystemExit`, including for `--help` and for a usage error, which is what makes
@@ -23,6 +30,10 @@ from idc.cli import (
     EXIT_INPUT_ERROR,
     EXIT_OK,
     EXIT_USAGE_ERROR,
+    PATH_KEYS,
+    SETTING_KEYS,
+    Config,
+    Paths,
     build_parser,
     configuration,
     main,
@@ -164,6 +175,33 @@ def test_a_missing_target_agent_is_a_usage_error_naming_the_option(capsys):
 def test_a_missing_compacted_transcript_is_a_usage_error_naming_the_option(capsys):
     assert main(["measure", "--agent", "opencode", "--in", "a.jsonl"]) == EXIT_USAGE_ERROR
     assert "--compacted" in capsys.readouterr().err
+
+
+def test_the_path_keys_are_exactly_the_fields_of_paths():
+    """The `[paths]` merge table against the model it merges into.
+
+    Both halves are asserted on purpose. The equality with `Paths.model_fields`
+    is what a sixth path cannot slip past, and it holds by construction today —
+    stating it is what makes replacing the derivation with a hand-written list
+    a red test rather than a silent return to the drift. The literal spells out
+    the five the module documents, so adding a path is a failure here and an
+    author who has to look at this line is an author who has to give the new
+    path a flag.
+    """
+    assert tuple(Paths.model_fields) == PATH_KEYS
+    assert PATH_KEYS == ("transcript", "output", "compacted", "manifest", "previous_manifest")
+
+
+def test_the_setting_keys_are_every_config_field_except_the_paths():
+    """The same assertion for the settings, and for the same failure.
+
+    `paths` is the one field `configuration` merges under its own name instead
+    of through this tuple, so it is the one exclusion; `models` and `options`
+    stay in and are skipped at the `getattr`, because neither has a flag.
+    """
+    assert tuple(name for name in Config.model_fields if name != "paths") == SETTING_KEYS
+    assert SETTING_KEYS == ("agent", "target", "adapter", "reduce", "models", "options")
+    assert "paths" not in SETTING_KEYS
 
 
 def test_the_config_file_supplies_the_agent_and_the_paths(tmp_path):

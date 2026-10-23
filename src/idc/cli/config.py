@@ -88,9 +88,6 @@ through `idc.cli.Runtime`, which takes the adapter *object*.
 DEFAULT_ADAPTER = "llm"
 """The adapter a configuration asks for when it names none: the study's primary."""
 
-PATH_KEYS = ("transcript", "output", "compacted", "manifest", "previous_manifest")
-"""The keys of `[paths]`, in the order the documentation above lists them."""
-
 
 def _located(exc: ValidationError) -> list[tuple[str, str]]:
     """Return one `(dotted location, message)` pair per problem pydantic found.
@@ -180,6 +177,21 @@ class Paths(_ConfigModel):
     compacted: str | None = None
     manifest: str | None = None
     previous_manifest: str | None = None
+
+
+PATH_KEYS = tuple(Paths.model_fields)
+"""The keys of `[paths]`, in the order `Paths` declares them.
+
+Derived from the model and not written out, because `idc.cli.main.configuration`
+merges `[paths]` from the command line key by key *through this tuple*: a field
+`Paths` gained and a hand-written list did not would never be merged from its
+flag, and every existing test would stay green while it silently did nothing.
+That is the shape `CLAUDE.md` names after `PENDING_IMPORTERS`, and deriving the
+tuple is the version of it that cannot drift at all.
+
+The order is the declaration order, which pydantic preserves and which is the
+order the module docstring above lists the five paths in.
+"""
 
 
 class Config(_ConfigModel):
