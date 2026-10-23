@@ -175,7 +175,8 @@ class ContextCount:
             what a reader resolves a tokenizer *from* — **not** a record of
             which tokenizer was actually used: the tokenizer is injected and is
             never checked against this field, so the two can disagree. See the
-            module docstring.
+            module docstring. What the count *was* produced with is recorded one
+            level up, by `idc.measure.manifest.TokenizerIdentity`.
         tokens: The whole visible context.
         per_message: One entry per visible message, in transcript order.
         hidden_ids: Identifiers of the messages that are in the file and not in

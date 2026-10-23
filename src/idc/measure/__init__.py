@@ -1,8 +1,8 @@
-"""Token measurement before and after compaction.
+"""What a run measured, and what makes those numbers mean something.
 
 Measurement is deterministic: the numbers reported by the study are computed
-from the transcripts alone, never estimated by a model. Three decisions carry
-the stage, and each is stated where it is implemented:
+from the transcripts alone, never estimated by a model. Six decisions carry the
+stage, and each is stated where it is implemented:
 
 - **What is counted** — `idc.measure.tokens`: a message's `content`, every tool
   call's name and its arguments as JSON, and its tool result's output, over the
@@ -20,13 +20,44 @@ the stage, and each is stated where it is implemented:
 - **What is reported** — `idc.measure.compression`: `saved_fraction =
   (before - after) / before`, with a zero baseline refused, a context that grew
   reported as a negative fraction, and neither clamped.
+- **What else the transcript says about the work** —
+  `idc.measure.statistics`: the exploration rate, the writes per file, the
+  lines they added and the exit-code histogram, over the same visible context
+  the token counts are over. A write whose added lines the transcript does not
+  state is reported as uncounted rather than given a guess.
+- **What one call answers** — `idc.measure.metrics`: `measure(before, after,
+  tokenizer)` assembles the four above for one pair of transcripts and computes
+  nothing of its own. One tokenizer counts both sides, the tool statistics are
+  the *before* session's, and an exploration rate with no tool call behind it
+  is `None` instead of a refusal.
+- **What makes a number attributable** — `idc.measure.manifest`: the run
+  manifest, with the digests of the input and output bytes, the configuration,
+  the compaction instruction's digest and version, the **tokenizer's identity**
+  (a count does not carry it), the metrics, the run's two instants — injected
+  through `idc.measure.clock`, never read from a clock inside the stage — and
+  the predecessor run's output digest, so two runs chain. It is its own
+  artifact, read back only through `load_manifest`/`loads_manifest`.
 
 ```python
-from idc.measure import CompressionRate, FakeTokenizer, count_context
+from idc.measure import FakeTokenizer, RunConfig, RunTimer, SystemClock
+from idc.measure import build_manifest, dump_manifest, measure
 
-before = count_context(session, FakeTokenizer())
-after = count_context(compacted, FakeTokenizer())
-CompressionRate.between(before, after).saved_fraction
+timer = RunTimer(SystemClock())
+timer.start()
+...                                        # the pipeline
+metrics = measure(session, compacted, FakeTokenizer())
+metrics.saved_fraction                     # what the study reports
+dump_manifest(
+    build_manifest(
+        window=timer.finish(),
+        input_path=source,
+        output_path=target,
+        config=RunConfig(agent=session.agent, adapter="s1m"),
+        tokenizer_name="FakeTokenizer",
+        metrics=metrics,
+    ),
+    target.with_suffix(".manifest.json"),
+)
 ```
 """
 
@@ -54,10 +85,14 @@ from idc.measure.tokens import (
     message_parts,
 )
 
-# One self-contained block, and the sub-tickets of T9 (#36) **append** to it
-# with `__all__ += [...]` of their own rather than editing this one: two
+# One self-contained block, and the sub-tickets of T9 (#36) **extend** it with
+# `__all__ = [*__all__, ...]` of their own rather than editing this one: two
 # sub-tickets of one parent once collided in a package `__init__.py` because
-# both rewrote the single list.
+# both rewrote the single list. The splice form, not `__all__ += [...]`: ruff
+# permits an import after a dunder *assignment* but not after an augmented
+# one, so a block ending in `+=` would make the next block's imports E402 and
+# charge it the suppressions. `tests/test_measure_api.py` pins that each splice
+# keeps the names before it.
 __all__ = [
     "FAMILY_SEPARATOR",
     "CompressionRate",
@@ -79,7 +114,7 @@ __all__ = [
 ]
 
 # T9.2 (#38) — exploration rate, write counts and the exit-code histogram.
-# Appended as its own block, with its own imports and its own `__all__ +=`,
+# Its own block, with its own imports and its own `__all__ = [*__all__, ...]`,
 # the way the comment above asks: nothing here edits the list T9.1 wrote.
 #
 # `idc.measure.statistics` carries this part's decisions in its docstring —
@@ -100,11 +135,75 @@ from idc.measure.statistics import (
     tool_statistics,
 )
 
-__all__ += [
+__all__ = [
+    *__all__,
     "ExitCodeCount",
     "FileEdits",
     "NoToolCallsError",
     "ToolStatistics",
     "lines_added_of",
     "tool_statistics",
+]
+
+# T9.3 (#39) — the metrics aggregate and the run manifest. Its own block with
+# its own imports and its own `__all__ = [*__all__, ...]`, as the comment above
+# the first block asks.
+#
+# The two modules carry this part's decisions in their docstrings.
+# `idc.measure.metrics`: one injected tokenizer counts both sides of a run, the
+# tool statistics are the *before* session's because the after session's
+# history is this tool's own summary block, and an exploration rate with no
+# tool call behind it is `None` rather than a refusal. `idc.measure.manifest`:
+# a digest is sha256 over a file's bytes (the same function the instruction
+# digest is), the tokenizer is named by the caller because a count carries no
+# backend identity, a predecessor run is identified by its *output* digest so
+# that two manifests chain, and the document is read back only through
+# `loads_manifest` / `load_manifest`, which raise `ManifestError`.
+# `idc.measure.clock` holds the one seam measurement cannot compute: the two
+# instants of a run, injected, never read from a clock inside the stage.
+from idc.measure.clock import Clock, RunTimer, RunWindow, SystemClock
+from idc.measure.errors import ManifestError
+from idc.measure.fake import FakeClock
+from idc.measure.manifest import (
+    MANIFEST_VERSION,
+    FileDigest,
+    InstructionIdentity,
+    MetricsRecord,
+    RunConfig,
+    RunManifest,
+    TokenizerIdentity,
+    build_manifest,
+    digest_bytes,
+    digest_file,
+    dump_manifest,
+    dumps_manifest,
+    load_manifest,
+    loads_manifest,
+)
+from idc.measure.metrics import Metrics, measure
+
+__all__ = [
+    *__all__,
+    "MANIFEST_VERSION",
+    "Clock",
+    "FakeClock",
+    "FileDigest",
+    "InstructionIdentity",
+    "ManifestError",
+    "Metrics",
+    "MetricsRecord",
+    "RunConfig",
+    "RunManifest",
+    "RunTimer",
+    "RunWindow",
+    "SystemClock",
+    "TokenizerIdentity",
+    "build_manifest",
+    "digest_bytes",
+    "digest_file",
+    "dump_manifest",
+    "dumps_manifest",
+    "load_manifest",
+    "loads_manifest",
+    "measure",
 ]

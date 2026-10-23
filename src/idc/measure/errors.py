@@ -1,10 +1,12 @@
 """The failures of the measurement stage, as one catchable family.
 
-Measurement is handed two kinds of input from outside its own code: a
+Measurement is handed three kinds of input from outside its own code: a
 **transcript** — whose `model` field says which tokenizer the numbers have to be
 produced with, and whose tool calls are what the exploration rate is a rate of —
-and a pair of **token counts** that a previous stage produced. Everything that
-can go wrong with either is a `MeasureError`, so a caller (and
+a pair of **token counts** that a previous stage produced, and the **files** a
+run manifest records: the transcript that went in, the one that came out, and a
+manifest document handed back to be read. Everything that can go wrong with any
+of them is a `MeasureError`, so a caller (and
 T10's CLI) catches the whole stage with one `except`, and each subclass carries
 the values its message is built from — the shape `idc.classify.errors`,
 `idc.resolve.errors`, `idc.compact.errors` and `idc.parse.errors` established.
@@ -17,9 +19,13 @@ The line between the family and a plain `ValueError` is drawn here the way
   CLI user — "this transcript cannot be measured, and here is what to do" — not
   tracebacks.
 - A value only a caller's own code can produce is **not**. A negative token
-  count is the one case: nothing in this stage counts below zero, so a negative
+  count is one case: nothing in this stage counts below zero, so a negative
   `before` or `after` is a programming error and raises a plain `ValueError`
-  that is deliberately *not* a `MeasureError`.
+  that is deliberately *not* a `MeasureError`. A manifest a caller builds or
+  mutates wrongly, and a run window whose finish precedes its start, are the
+  others; `idc.measure.manifest` translates pydantic's own error into a plain
+  `ValueError` on that path and into `ManifestError` on the load path, so the
+  two sides of the line stay apart while no pydantic traceback escapes either.
 
 `EmptyBaselineError` and `NoToolCallsError` are both, and deliberately overlap
 rather than split —
@@ -43,6 +49,7 @@ from collections.abc import Sequence
 
 __all__ = [
     "EmptyBaselineError",
+    "ManifestError",
     "MeasureError",
     "NoTokenizerError",
     "NoToolCallsError",
@@ -197,3 +204,52 @@ class NoToolCallsError(MeasureError, ValueError):
             f"the visible context of {session_id!r} holds no tool call, so no exploration "
             f"rate is defined for it; its other statistics are reported as they stand"
         )
+
+
+class ManifestError(MeasureError):
+    """A run manifest could not be read, or a file it records could not be hashed.
+
+    The manifest is the one artifact of this stage that is written to disk and
+    read back, so it is handed two things from outside its own code: the
+    **files** it records the digests of, and a **document** a later run or a
+    reader hands back. Both are in the family for the reason this module's
+    docstring gives — "this file is not there" and "this manifest declares a
+    version I cannot read" are diagnostics for the CLI user.
+
+    What is deliberately **not** here: a manifest a caller's own code builds
+    wrongly. `idc.measure.manifest` translates pydantic's `ValidationError`
+    into a plain `ValueError` for construction and assignment, and into this
+    error only on the load path, which is the same line
+    `EmptyBaselineError`'s neighbours are drawn along. Either way pydantic's
+    own error never escapes the module.
+
+    Attributes:
+        source: The file the document or the digest came from, or `None` when a
+            manifest was read from text with no source named.
+        errors: One `(location, message)` pair per problem, with the location
+            given as a dotted field path such as `input_file.sha256`. Empty for
+            a failure that is not about a field — an unreadable file, or text
+            that is not JSON.
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        source: str | None = None,
+        errors: Sequence[tuple[str, str]] = (),
+    ) -> None:
+        """Build the error and render its message.
+
+        Args:
+            reason: Summary line, e.g. `2 problems` or `not valid JSON`.
+            source: Where the document or the file came from, named in the
+                message when given.
+            errors: The located problems, listed one per line after the summary.
+        """
+        self.source = source
+        self.errors = tuple(errors)
+        origin = f" from {source}" if source else ""
+        lines = [f"invalid run manifest{origin}: {reason}"]
+        lines += [f"  {location}: {message}" for location, message in self.errors]
+        super().__init__("\n".join(lines))

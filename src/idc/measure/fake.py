@@ -1,4 +1,12 @@
-"""The fake tokenizer: one token per word, so no test calls a real one.
+"""The fakes of the measurement stage: a tokenizer and a clock, both scripted.
+
+Measurement computes everything it reports from the transcript — except two
+things it cannot: how many tokens a piece of text is, and when the run
+happened. Both are injected seams, and both have their fake here:
+`FakeTokenizer` for `idc.measure.tokenizers.Tokenizer` and `FakeClock` for
+`idc.measure.clock.Clock`. Neither is a test helper on the side; they are the
+only implementations the suite uses, which is what makes the suite
+deterministic.
 
 Every measurement test in this repository counts with this tokenizer. That is
 not a convenience, it is the condition under which the suite can exist at all:
@@ -32,9 +40,29 @@ Two properties make it usable as an oracle:
 It holds no script: its answer is fixed by the rule above, which is the one
 thing T9.1 (#37) requires of it. A test that needs a specific number arranges
 the text, not the tokenizer.
+
+`FakeClock` is the other half, and it *does* hold a script, because there is no
+rule that could fix what time it is:
+
+```python
+from idc.measure import FakeClock, RunTimer
+
+clock = FakeClock([START, END])
+timer = RunTimer(clock)
+timer.start()
+window = timer.finish()  # exactly START .. END
+clock.calls              # every instant it answered, in order
+```
+
+It plays its instants in order and refuses to answer past the end of its
+script, so a test's window is what the test wrote down and never a consequence
+of how often the code under test asked the clock.
 """
 
-__all__ = ["FakeTokenizer"]
+from collections.abc import Iterable
+from datetime import datetime
+
+__all__ = ["FakeClock", "FakeTokenizer"]
 
 
 class FakeTokenizer:
@@ -74,3 +102,80 @@ class FakeTokenizer:
         """
         self._calls.append(text)
         return len(text.split())
+
+
+class FakeClock:
+    """A `Clock` that plays scripted instants and records what it answered.
+
+    The counterpart of `FakeTokenizer` for the one value measurement cannot
+    compute from a transcript: `CLAUDE.md` forbids a clock in a test, so a test
+    that needs a run's two instants writes them down. Built like
+    `idc.compact.fake.FakeNarrativeClient` — a script consumed eagerly and a
+    call record — so a test can pin which instants a `RunTimer` took and in
+    what order, not only that a manifest ended up with two.
+
+    Args:
+        instants: The instants to play, in order. Consumed eagerly, so an
+            iterator works and a later change to a mutable list cannot change
+            what the clock will answer.
+
+    Raises:
+        ValueError: If an entry is not an aware `datetime`. A naive instant
+            cannot be compared with one from another machine and is refused by
+            `RunWindow` anyway, so a script holding one is a test-authoring
+            mistake, caught where the script was written. A plain `ValueError`
+            and not a `MeasureError`: see `idc.measure.errors` for the line.
+    """
+
+    def __init__(self, instants: Iterable[datetime]) -> None:
+        """Build the clock from its script, checking that every entry is aware."""
+        entries = tuple(instants)
+        for position, entry in enumerate(entries):
+            if not isinstance(entry, datetime) or entry.utcoffset() is None:
+                raise ValueError(
+                    f"a scripted instant is an aware datetime; entry {position} is {entry!r}"
+                )
+        self._script = entries
+        self._calls: list[datetime] = []
+
+    def __repr__(self) -> str:
+        """Return a representation naming how long the script is and what is left."""
+        return (
+            f"{type(self).__name__}(script={len(self._script)} instant(s), "
+            f"remaining={self.remaining})"
+        )
+
+    @property
+    def script(self) -> tuple[datetime, ...]:
+        """Return the script, in order."""
+        return self._script
+
+    @property
+    def calls(self) -> tuple[datetime, ...]:
+        """Return every instant the clock answered, in order."""
+        return tuple(self._calls)
+
+    @property
+    def remaining(self) -> int:
+        """Return how many scripted instants have not been played yet."""
+        return len(self._script) - len(self._calls)
+
+    def now(self) -> datetime:
+        """Return the next scripted instant, recording that it was asked for.
+
+        Returns:
+            The next instant of the script.
+
+        Raises:
+            ValueError: If the script holds no further instant. A clock that
+                guessed one would make a test's window depend on how often the
+                code under test happened to ask.
+        """
+        if not self.remaining:
+            raise ValueError(
+                f"the clock script holds {len(self._script)} instant(s) and all of them have "
+                f"been played; script one more"
+            )
+        instant = self._script[len(self._calls)]
+        self._calls.append(instant)
+        return instant

@@ -111,7 +111,9 @@ __all__ = [
 # how `idc.resolve.__init__` carries its four tickets' worth of them.
 #
 # `instruction_digest` is exposed for T9.3's run manifest (#39), which is its
-# one consumer and does not exist yet: nothing on this branch wires it up.
+# one consumer: `idc.measure.manifest.build_manifest` records it together with
+# `INSTRUCTION_VERSION`, so a run's numbers are attributable to the exact
+# prompt that produced them.
 __all__ += [
     "INSTRUCTION_PATH",
     "INSTRUCTION_VERSION",
