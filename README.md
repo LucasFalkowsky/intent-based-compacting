@@ -19,9 +19,11 @@ network at test time.
 | `compact` | `idc.compact` | render new or extended chains into Markdown blocks |
 | `render` | `idc.render` | emit the summary in the target agent's native tags |
 | `measure` | `idc.measure` | count tokens before and after, report what the session's tool calls were, and record the run in a manifest |
+| `run` | `idc.cli` | the seven above in one pass, writing the compacted transcript and the run manifest |
 
 `idc.schema` holds the canonical schema that is the contract between all stages, and
-`idc.cli` the command surface.
+`idc.cli` the command surface — one command per row of that table, with files in
+between, plus `run`. See "Commands" below.
 
 ## Canonical schema
 
@@ -179,7 +181,7 @@ names is exempt from the chunker's noise reduction — the agent's summary block
 injected message, so reducing it away would leave the document naming a message it no
 longer holds.
 
-`python -c` is not the interface: the `import` command is wired up in T10.1.
+`python -c` is not the interface; `idc import` is. See "Commands" below.
 
 ## Tool registry
 
@@ -272,14 +274,71 @@ format. Those live in `tests/native/<agent>/` and are resolved by agent and name
 that agent show; the values are invented, so no fixture is a recording of a real session.
 `tests/native/README.md` states what each one holds.
 
-## Run
+## Commands
 
 ```
-make run ARGS="compact --agent opencode --in session.jsonl --out compacted.jsonl"
+make run ARGS="run --agent opencode --in session.jsonl --out compacted.jsonl"
 ```
 
-`make run` forwards `ARGS` to `python -m idc`. The command surface itself is implemented in
-ticket T10.1; until then the entry point exits with code 2 and says so.
+`make run` forwards `ARGS` to `python -m idc`. There is one command per pipeline stage
+and `run` for the whole pipeline in one pass:
+
+```
+idc import   --agent claude-code --in session.jsonl --out session.json
+idc chunk    --in session.json    --out chunked.json
+idc classify --in chunked.json    --out classified.json
+idc resolve  --in classified.json
+idc compact  --in classified.json --out compacted.json --target claude-code
+idc render   --in compacted.json  --out compacted.jsonl
+idc measure  --agent claude-code --in session.jsonl --compacted compacted.jsonl
+idc run      --agent claude-code --in session.jsonl --out compacted.jsonl
+```
+
+`import` writes a canonical `Session` document and `render` writes a transcript in the
+target agent's own format; the four commands in between exchange a JSON envelope holding
+the session, its chunks, its chains and its compacted block, one canonical document per
+part (`idc.cli.artifacts`). `resolve` writes no file — a resolution is computed from the
+transcript, so `compact` derives it again — and prints what the resolver decided.
+`--target` belongs to `compact`, because `CompactedBlock` carries the agent it is
+rendered for and `render` takes the target from the block. `chunk` and `run` reduce the
+harness noise inside a chunk by default; `--no-reduce` turns that off.
+
+`run` writes the compacted transcript **and** a run manifest — `<--out>.manifest.json`
+unless `--manifest` says otherwise — so every compaction run leaves its provenance behind.
+
+Anything that is tedious to retype goes in a TOML config file, passed with `--config`; a
+flag on the command line overrides what the file sets:
+
+```toml
+agent   = "claude-code"     # the agent the input transcript comes from
+target  = "opencode"        # the agent the summary is rendered for; defaults to `agent`
+adapter = "s1m"             # which classifier adapter the run asks for
+reduce  = true
+
+[models]                    # recorded in the run manifest, one id per role
+classifier = "claude-opus-5"
+narrative  = "claude-opus-5"
+
+[paths]
+transcript        = "session.jsonl"
+output            = "compacted.jsonl"
+manifest          = "run.json"
+previous_manifest = "previous.json"
+```
+
+Three exit statuses, and they are a contract: **0** the command did its work, **1** the
+invocation was valid and something it was handed could not be used, **2** the invocation
+itself is wrong — an unknown command, a flag a command does not have, or a path neither
+the command line nor the config file supplied. `--help` works for the program and for
+every command.
+
+The commands that need a model — `classify`, `compact` and `run` — need a backend
+injected, because this build ships none: `idc.classify.LlmAdapter` and `S1MAdapter` take
+their model client as a constructor argument, the narrative client is a `Protocol`, and no
+tokenizer ships either (every real one needs a downloaded vocabulary). All four of those
+dependencies, plus the clock a manifest's two instants come from, arrive through
+`idc.cli.Runtime`, which `main` passes straight to the command. Asked for one that was not
+injected, a command says which one and exits with status 1 rather than inventing it.
 
 The classifier evaluation harness is a development utility outside that surface,
 next to `make schema`:
