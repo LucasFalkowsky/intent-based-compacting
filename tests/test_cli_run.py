@@ -24,11 +24,13 @@ so that a test states what it asserts about and not how many turns the fixture
 happens to have.
 """
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
-from idc.classify import NEW, FakeAdapter
+from idc.classify import NEW, Decision, FakeAdapter
 from idc.cli import (
     EXIT_INPUT_ERROR,
     EXIT_OK,
@@ -219,6 +221,111 @@ def test_the_chains_of_a_run_are_recoverable_from_its_own_output(tmp_path):
 
 def test_a_transcript_nothing_compacted_offers_no_candidate_chain():
     assert candidate_chains(import_transcript(AGENT, transcript()).session) == ()
+
+
+def continued(output, destination):
+    """Write `output` with one further user turn appended, as the agent would have.
+
+    A second `run` reads a transcript the user kept working in after the first
+    compaction, so the fixture for it is the first run's own output plus a new
+    turn. The turn is the golden session's own opening record with another id
+    and another question, so nothing here invents a record shape: it is the
+    fixture's, read back off disk.
+
+    The new turn matters for more than realism. `idc.render` refuses to write a
+    latest chunk that already holds the summary record's identifier
+    (`SummaryIdInUseError`), and the first output is a single chunk with the
+    summary inside it — so a `run` straight back over it is refused by the
+    renderer and never reaches the question this test asks.
+
+    Args:
+        output: The compacted transcript the first run wrote.
+        destination: Where to write the continued transcript.
+
+    Returns:
+        `destination`.
+    """
+    records = [
+        json.loads(line) for line in Path(transcript()).read_text(encoding="utf-8").splitlines()
+    ]
+    opening = next(record for record in records if record.get("uuid") == "u01")
+    turn = {
+        **opening,
+        "uuid": "u90",
+        "promptId": "p90",
+        "parentUuid": "a04",
+        "message": {"role": "user", "content": "Now document the UTC switch in the README."},
+    }
+    destination.write_text(
+        output.read_text(encoding="utf-8") + json.dumps(turn) + "\n", encoding="utf-8"
+    )
+    return destination
+
+
+def test_a_run_over_an_earlier_runs_output_continues_that_runs_chain(tmp_path):
+    """The feed itself, pinned on `run`: the earlier chain is offered and reused.
+
+    `test_the_chains_of_a_run_are_recoverable_from_its_own_output` pins
+    `candidate_chains`; this pins that `run_command` hands what it returns to
+    `idc.classify.classify_chunks`. Both halves are asserted, because the call
+    record alone would not say the id survived and the output alone would not
+    say where the id came from: the adapter is shown `C1`, and the second output
+    recovers one chain still called `C1` instead of a second one beside it.
+
+    The script extends `C1` by id, which the store can only honour while `C1` is
+    seeded in it — verified by cutting the feed, which turns the same script
+    into an `UnknownChainError` and the run into a diagnostic.
+    """
+    _, first = run(tmp_path, name="first.jsonl")
+    adapter = FakeAdapter([Decision.extend("C1")] * SCRIPT_LENGTH)
+    second = tmp_path / "second.jsonl"
+
+    status = main(
+        [
+            "run",
+            "--agent",
+            AGENT.value,
+            "--in",
+            str(continued(first, tmp_path / "continued.jsonl")),
+            "--out",
+            str(second),
+        ],
+        runtime=runtime(adapter=adapter),
+    )
+
+    assert status == EXIT_OK
+    assert adapter.calls[0].candidate_ids == ("C1",)
+    recovered = candidate_chains(import_transcript(AGENT, second).session)
+    assert [chain.id for chain in recovered] == ["C1"]
+
+
+def test_classify_offers_an_earlier_runs_chains_to_the_adapter(tmp_path):
+    """The same feed on the staged path, which is a second call site.
+
+    `classify_command` reads the chains out of the artifact's session, so a
+    `chunk` of a compacted transcript has to carry the summary through for this
+    to work at all; the call record states what the adapter saw, and the written
+    artifact states that the chain kept its id.
+    """
+    _, first = run(tmp_path, name="first.jsonl")
+    session = tmp_path / "session.json"
+    chunked = tmp_path / "chunked.json"
+    classified = tmp_path / "classified.json"
+    for argv in (
+        ["import", "--agent", AGENT.value, "--in", str(first), "--out", str(session)],
+        ["chunk", "--in", str(session), "--out", str(chunked)],
+    ):
+        assert main(argv, runtime=runtime()) == EXIT_OK, argv
+    adapter = FakeAdapter([Decision.extend("C1")] * SCRIPT_LENGTH)
+
+    status = main(
+        ["classify", "--in", str(chunked), "--out", str(classified)],
+        runtime=runtime(adapter=adapter),
+    )
+
+    assert status == EXIT_OK
+    assert adapter.calls[0].candidate_ids == ("C1",)
+    assert [chain.id for chain in load_artifact(classified).chains] == ["C1"]
 
 
 def test_the_written_transcript_carries_the_narrative_clients_own_wording(tmp_path):
