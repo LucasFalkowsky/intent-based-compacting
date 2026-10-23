@@ -221,6 +221,17 @@ def test_a_transcript_nothing_compacted_offers_no_candidate_chain():
     assert candidate_chains(import_transcript(AGENT, transcript()).session) == ()
 
 
+def test_the_written_transcript_carries_the_narrative_clients_own_wording(tmp_path):
+    """The narrative seam, asserted on the file and not on the call record.
+
+    `FakeNarrativeClient` records its calls, but a summary that reached the
+    block and not the file would still pass such an assertion.
+    """
+    _, output = run(tmp_path)
+
+    assert "The exporter keeps formatting in one helper." in output.read_text(encoding="utf-8")
+
+
 def test_the_run_is_reported_on_stdout(tmp_path, capsys):
     run(tmp_path)
 

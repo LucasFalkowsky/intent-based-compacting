@@ -15,9 +15,9 @@ idc run      --agent claude-code --in session.jsonl --out compacted.jsonl
 compacts, renders, measures and writes a run manifest in one pass. The seven
 before it are the same pipeline with files in between, which is how a stage's
 output is inspected and how a disputed number is traced back to the stage that
-produced it. Either way this package is the only place that reads configuration
-or touches the filesystem on the tool's behalf; the stages themselves take
-objects and return objects.
+produced it. Either way this package is the only place that reads the
+configuration and decides *which* files the stages read and write: a stage is
+handed a path or an object and never looks one up.
 
 Reading the package:
 

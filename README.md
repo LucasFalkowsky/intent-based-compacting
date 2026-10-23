@@ -294,11 +294,16 @@ idc measure  --agent claude-code --in session.jsonl --compacted compacted.jsonl
 idc run      --agent claude-code --in session.jsonl --out compacted.jsonl
 ```
 
+`idc` above stands for `python -m idc`, which is what `make run` forwards to.
+
 `import` writes a canonical `Session` document and `render` writes a transcript in the
-target agent's own format; the four commands in between exchange a JSON envelope holding
-the session, its chunks, its chains and its compacted block, one canonical document per
-part (`idc.cli.artifacts`). `resolve` writes no file — a resolution is computed from the
-transcript, so `compact` derives it again — and prints what the resolver decided.
+target agent's own format. Between them the commands read and write a JSON envelope
+holding the session, its chunks, its chains and its compacted block — one canonical
+document per part, each validated on load (`idc.cli.artifacts`); a plain `Session`
+document is accepted wherever an envelope is, so `chunk` reads what `import` wrote.
+`resolve` is the exception that writes nothing: a resolution is computed from the
+transcript, so `compact` derives it again, and the command exists to print what the
+resolver decided.
 `--target` belongs to `compact`, because `CompactedBlock` carries the agent it is
 rendered for and `render` takes the target from the block. `chunk` and `run` reduce the
 harness noise inside a chunk by default; `--no-reduce` turns that off.

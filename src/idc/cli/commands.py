@@ -119,10 +119,14 @@ def summary_block_text(session: Session) -> str | None:
         the *agent* wrote (`native-compaction`) returns `None` too: it is prose
         in the agent's own shape and holds no chain to recover.
 
-    The marker is stripped from the front only, because that is where every
-    writer in `idc.render` puts it; a marker anywhere else is left in place and
-    `idc.parse` will refuse the block, which is the safe direction — a block
-    whose text was quietly edited is not one this tool wrote.
+    Only a *leading* marker is stripped, because that is where every writer in
+    `idc.render` puts it (`tests/rendered/README.md` states as much, and
+    `idc.importers.summary_provenance` reads the file back on that basis).
+    Nothing here searches the rest of the text: `idc.parse` accepts a marker
+    line inside a block as ordinary body text, so a second one would end up in
+    whichever section it sits in rather than being refused — which is the
+    behaviour of a file this tool did not write, and not something this function
+    can repair.
     """
     if session.source is not SessionSource.INTENT_COMPACTION:
         return None
@@ -154,9 +158,11 @@ def candidate_chains(session: Session) -> tuple[Chain, ...]:
 
     Raises:
         ParseError: If the session carries a summary of this tool's that cannot
-            be read back as blocks. Refused rather than ignored: silently
-            dropping it would re-open every chain of the previous run under a
-            new id, and the summary would grow instead of being extended.
+            be read back as blocks. Refused rather than ignored: with no
+            candidates the classifier opens a fresh chain for every chunk, and
+            `idc.compact.incremental_blocks` writes only the chains it is
+            handed — so the earlier run's blocks would not be carried into the
+            output at all, and the summary would silently lose its work.
     """
     text = summary_block_text(session)
     if text is None:
@@ -450,9 +456,13 @@ def measure_command(config: Config, runtime: Runtime) -> int:
 def run_command(config: Config, runtime: Runtime) -> int:
     """Import, chunk, classify, compact, render and measure in one pass.
 
-    The study's command. The four injected dependencies are resolved before any
-    work starts and the tokenizer is picked before anything is written, so a run
-    that cannot be completed leaves no half-written transcript behind.
+    The study's command. The adapter and the narrative backend are resolved
+    before any work starts, and the tokenizer is picked right after the import,
+    so the refusals that do not depend on the output — no backend injected, no
+    tokenizer for the transcript's model family — are reported before a file is
+    created. A failure after that point leaves the compacted transcript without
+    a manifest, and never a partial transcript: `idc.render.write_transcript`
+    writes the whole file in one `write_text`.
 
     Args:
         config: Needs `agent`, `paths.transcript` and `paths.output`; honours

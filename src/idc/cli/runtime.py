@@ -4,17 +4,18 @@ Everything this tool reports is computed from the transcript — that is the
 determinism rule in `CLAUDE.md` — with exactly four exceptions, and every one of
 them is already a one-method `Protocol` in the stage that needs it:
 
-| What | Protocol | Real implementation in this build |
+| What | Protocol | What this build ships |
 |---|---|---|
-| the classifier's decisions | `idc.classify.IntentAdapter` | **none** |
-| the three narrative sections | `idc.compact.NarrativeClient` | **none** |
-| a token count | `idc.measure.Tokenizer` | **none** |
+| the classifier's decisions | `idc.classify.IntentAdapter` | two adapters, no backend |
+| a chain's narrative prose | `idc.compact.NarrativeClient` | **nothing** |
+| a token count | `idc.measure.Tokenizer` | **nothing** |
 | the run's two instants | `idc.measure.Clock` | `SystemClock` |
 
-The first two are models, and `idc.classify.LlmAdapter` and `S1MAdapter` take
-their backend (`ModelClient`, `ContinuationScorer`) as a constructor argument
-precisely so that the suite can run without one; this build ships no
-implementation of either, and none of a `Tokenizer` — every real one needs a
+The first two are models. `idc.classify.LlmAdapter` takes a `ModelClient` and
+`S1MAdapter` a `ContinuationScorer`, both as constructor arguments, precisely so
+that the suite can run without one — and this build implements neither
+protocol, so neither adapter can be constructed here at all. Nothing implements
+`NarrativeClient`, and nothing implements `Tokenizer`: every real one needs a
 downloaded vocabulary (see `idc.measure.NoTokenizerError`). So the seam is not a
 convenience for tests that could be bypassed in production: for three of the
 four rows there is nothing to bypass it with, and a command that tried would
@@ -33,7 +34,7 @@ main(
     ["run", "--agent", "claude-code", "--in", "session.jsonl", "--out", "compacted.jsonl"],
     runtime=Runtime(
         adapter=FakeAdapter([NEW]),
-        narrative_client=FakeNarrativeClient(["## Intent: …"]),
+        narrative_client=FakeNarrativeClient([narrative]),  # see tests/test_cli_run.py
         tokenizers=TokenizerRegistry({ModelFamily.CLAUDE: FakeTokenizer()}),
         clock=FakeClock([started, finished]),
     ),
@@ -43,9 +44,11 @@ main(
 A seam that is declared and never wired fails *silently*, with the suite green,
 so the absence of each dependency is a `BackendUnavailableError` naming it
 rather than a default that quietly does something else. The one exception is the
-clock, which really does have a production implementation and defaults to it;
-`tests/test_cli_run.py` pins that every one of the four is reached by injecting
-all four and reading what they recorded.
+clock, which really does have a production implementation and defaults to it.
+`tests/test_cli_run.py` pins that each of the four is actually reached, by
+asserting on what came back out of it: the clock's two instants and its emptied
+script, the adapter's and the tokenizer's class name in the run manifest, and
+the narrative client's own wording inside the written transcript.
 """
 
 from dataclasses import dataclass
@@ -65,8 +68,9 @@ class Runtime:
     Attributes:
         adapter: The classifier adapter that decides the intent chains. No
             default: see the module docstring.
-        narrative_client: The backend that writes a chain's two narrative
-            sections. No default, for the same reason.
+        narrative_client: The backend that writes a chain's narrative prose —
+            the parts of its block that are not computed from the resolution.
+            No default, for the same reason.
         tokenizers: The tokenizer per model family the token counts are
             produced with. An empty registry when omitted, so that the refusal
             comes from `idc.measure` and names the model family that has
@@ -115,7 +119,7 @@ class Runtime:
         if self.narrative_client is None:
             raise BackendUnavailableError(
                 "a narrative backend",
-                "the three narrative sections of a chain's block are the only model call the "
+                "the narrative prose of a chain's block is the only model call the "
                 "compaction stage makes, and this build ships no client for it: "
                 "idc.cli.Runtime(narrative_client=...)",
             )

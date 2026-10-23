@@ -119,9 +119,12 @@ class ArtifactError(CliError):
     The pipeline is one command per stage with files in between, so a stage's
     input is a file some earlier command wrote — or a file a user wrote by
     hand, or the output of the wrong stage. All three are diagnostics. A
-    document that parses but holds no chunks reports here too: "run `idc chunk`
-    on it first" is the repair, and a stage that went ahead with no chunks would
-    write an empty summary instead.
+    document that parses but holds no chunks reports here too, and that case is
+    the reason this error exists rather than a check inside each command:
+    `idc.cli.commands.compacted_block` names the last chunk as the one kept
+    verbatim, so an empty tuple reaches `chunks[-1]` and raises `IndexError` —
+    which is not in `idc.cli.main.DIAGNOSTIC_ERRORS` and would reach the
+    terminal as a traceback. "run `idc chunk` on it first" is the repair.
 
     Attributes:
         source: The file the artifact came from, or `None` when it was read
@@ -144,8 +147,8 @@ class BackendUnavailableError(CliError):
     """A command needs a model backend and none was supplied.
 
     Not a bug and not a missing feature: this build ships no `ModelClient` for
-    `idc.classify.LlmAdapter`, no `ContinuationScorer` for `S1MAdapter` and no
-    narrative backend for `idc.compact`. Every one of them is an injected
+    `idc.classify.LlmAdapter`, no `ContinuationScorer` for `S1MAdapter` and
+    nothing that implements `idc.compact.NarrativeClient`. Every one of them is an injected
     dependency by design — determinism forbids a model call inside the test
     suite — so the backend reaches a command through `idc.cli.Runtime` or not at
     all. This error is the "or not at all" branch, and it names the seam to

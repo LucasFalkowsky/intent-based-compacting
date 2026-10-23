@@ -116,11 +116,13 @@ DIAGNOSTIC_ERRORS = (
 )
 """Everything a command may fail on that is a diagnostic rather than a defect.
 
-One `except` over the base error of every stage, in pipeline order, plus
-`OSError` and `ValueError`. `ValueError` is last and deliberately broad: three
-stages draw their "a caller's own mistake" line at a plain `ValueError`, and
-`idc.importers.TranscriptImportError` is one, so dropping it would put a
-traceback on the terminal for a transcript that cannot be read.
+One `except` over the base error of every stage that has one — five of the eight
+stages do, and `idc.cli` itself — plus `OSError` and `ValueError`. `ValueError`
+is last and deliberately broad, and it is what covers the two stages that raise
+no family of their own: `idc.chunk` refuses a caller's bad range with a plain
+`ValueError`, and `idc.importers.TranscriptImportError` *is* a `ValueError`, so
+dropping it would put a traceback on the terminal for a transcript that cannot
+be read.
 """
 
 

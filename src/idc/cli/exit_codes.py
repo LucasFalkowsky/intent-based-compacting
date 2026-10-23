@@ -20,9 +20,9 @@ was, in effect, reporting that the invocation could not be served.
 
 `idc.classify.EXIT_INPUT_ERROR` is `2` and deliberately **not** reused here.
 That constant belongs to `python -m idc.classify`, a development utility with no
-subcommands, where a usage error and an unusable input collapse into one status
-because nothing can tell them apart anyway. This surface can tell them apart, so
-it numbers them apart.
+subcommands, where both kinds of mistake report `2` — `argparse`'s own value for
+the ones it catches, that constant for the ones the harness catches — so a caller
+cannot tell them apart from the status alone. This surface numbers them apart.
 """
 
 __all__ = ["EXIT_INPUT_ERROR", "EXIT_OK", "EXIT_USAGE_ERROR"]

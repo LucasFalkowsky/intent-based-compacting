@@ -1,11 +1,11 @@
 """What one stage hands the next on disk, when the stages are separate commands.
 
-The pipeline is one command per stage with files in between, and only three of
-the things a stage produces are canonical documents on their own: a `Session`, a
-`Chunk` and a `Chain`. A chunking is a *list* of chunks, a classification is a
-list of chains plus the session they range over, and `idc.schema` has no type
-for either — adding one would be a change to the canonical schema, which
-`CLAUDE.md` makes a ticket of its own.
+The pipeline is one command per stage with files in between, and two of the
+stages produce something no canonical type can hold on its own. A chunking is a
+*list* of `Chunk`s, a classification is a list of `Chain`s, and both are only
+readable next to the `Session` their ranges and ids point into — `idc.schema`
+has a type for each part and none for the three groupings. Adding one would be a
+change to the canonical schema, which `CLAUDE.md` makes a ticket of its own.
 
 So the intermediate file is an envelope this package defines, holding one
 canonical document per part:
