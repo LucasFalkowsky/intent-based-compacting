@@ -1,0 +1,50 @@
+{
+  "manifest_version": 1,
+  "started_at": "2026-03-01T10:00:00Z",
+  "finished_at": "2026-03-01T10:00:45Z",
+  "input_file": {
+    "path": "<input>",
+    "sha256": "07c861557394fa00040aef1a658fb5d4d5e3fcf9d707fb441f9b25ccf942d61b",
+    "size_bytes": 7409
+  },
+  "output_file": {
+    "path": "<output>",
+    "sha256": "f371cd4a47950dcd77a9a20c978b7de19d188c75f841131fd8c16ed008194204",
+    "size_bytes": 3126
+  },
+  "config": {
+    "agent": "claude-code",
+    "adapter": "FakeAdapter",
+    "models": {},
+    "options": {
+      "adapter_requested": "llm",
+      "reduce": "true",
+      "source_agent": "claude-code"
+    }
+  },
+  "instruction": {
+    "version": 1,
+    "digest": "cd98dbdc820dc1c94b87a67b517d94406837a790c2f15c7912019f9a76e43ae9"
+  },
+  "tokenizer": {
+    "name": "FakeTokenizer",
+    "family": "claude"
+  },
+  "metrics": {
+    "session_id": "sess-interleaved-intents",
+    "tokens_before": 526,
+    "tokens_after": 319,
+    "saved_fraction": 0.3935361216730038,
+    "exploration_rate": 0.16666666666666666,
+    "read_calls": 1,
+    "write_calls": 3,
+    "exec_calls": 2,
+    "other_calls": 0,
+    "files_edited": [
+      "src/rates/sampler.py",
+      "src/config/cli.py"
+    ],
+    "lines_added": 11
+  },
+  "previous_output_sha256": "2482d3fbebe4c904699cc800bcfee697a501f472c5ff2b499282711cee58ac2e"
+}
