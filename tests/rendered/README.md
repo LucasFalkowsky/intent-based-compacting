@@ -15,7 +15,7 @@ re-import as `intent-compaction` instead of as the baseline condition.
 
 All three are `idc.render.render_transcript`'s output for the **same** input —
 the corpus fixture `interleaved_intents`, its golden chains from
-`tests/fixtures/compact/`, and the last of its three chunks. Regenerate them
+`tests/fixtures/gold/compact/`, and the last of its three chunks. Regenerate them
 only when a writer's output is meant to change, and review the diff: these files
 are the only place a changed field name, field order or line break shows up as a
 failing test.
