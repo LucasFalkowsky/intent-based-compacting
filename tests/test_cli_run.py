@@ -34,10 +34,12 @@ from idc.cli import (
     EXIT_OK,
     MANIFEST_SUFFIX,
     Runtime,
+    candidate_chains,
     load_artifact,
     main,
 )
 from idc.compact import DECISIONS_HEADER, REJECTED_HEADER, FakeNarrativeClient
+from idc.importers import import_transcript
 from idc.measure import (
     FakeClock,
     FakeTokenizer,
@@ -113,8 +115,6 @@ def test_run_writes_the_compacted_transcript(tmp_path):
 
 
 def test_the_written_transcript_re_imports_as_this_tools_compaction(tmp_path):
-    from idc.importers import import_transcript
-
     _, output = run(tmp_path)
 
     reread = import_transcript(AGENT, output).session
@@ -199,6 +199,26 @@ def test_a_second_run_chains_to_the_manifest_it_is_given(tmp_path):
     assert status == EXIT_OK
     second = load_manifest(str(tmp_path / "second.jsonl") + MANIFEST_SUFFIX)
     assert second.previous_output_sha256 == load_manifest(first).output_file.sha256
+
+
+def test_the_chains_of_a_run_are_recoverable_from_its_own_output(tmp_path):
+    """The seam a second run needs: the block parses back into the same chains.
+
+    Without it a re-run would offer the classifier no candidate, re-open every
+    intent under a new id, and append a second summary next to the first
+    instead of extending it.
+    """
+    _, output = run(tmp_path)
+
+    reread = import_transcript(AGENT, output).session
+
+    recovered = candidate_chains(reread)
+    assert [chain.id for chain in recovered] == ["C1"]
+    assert all(chain.compacted for chain in recovered)
+
+
+def test_a_transcript_nothing_compacted_offers_no_candidate_chain():
+    assert candidate_chains(import_transcript(AGENT, transcript()).session) == ()
 
 
 def test_the_run_is_reported_on_stdout(tmp_path, capsys):

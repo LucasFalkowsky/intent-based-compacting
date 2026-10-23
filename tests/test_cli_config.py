@@ -112,7 +112,13 @@ def test_an_unknown_key_under_paths_is_refused_too():
     with pytest.raises(ConfigError) as caught:
         loads_config('[paths]\nin = "session.jsonl"')
 
-    assert "paths.in" in str(caught.value)
+    # A nested table's problems are listed under the table's own name rather
+    # than as one dotted path, because `Paths` translates its own construction
+    # error before `Config` sees it. The same shape `idc.measure.ManifestError`
+    # produces for `input_file.sha256`.
+    lines = [line.strip() for line in str(caught.value).splitlines()]
+    assert any(line.startswith("paths:") for line in lines), lines
+    assert any(line.startswith("in:") for line in lines), lines
 
 
 def test_a_model_id_that_is_not_a_string_is_a_config_error():
