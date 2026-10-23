@@ -18,15 +18,25 @@ run's output hash that lets two runs be chained.
 The digest tests use `hashlib` as the oracle for the general property and one
 published constant — sha256 of the empty byte string — so the test does not
 merely repeat the implementation's own call.
+
+The metrics record is pinned the same way. The two one-message sessions below
+make no tool call, so over them seven of the record's eleven fields are their
+own field defaults and any comparison against `MetricsRecord.of` would hold for
+any implementation. Those seven are therefore pinned over two corpus
+transcripts that do make tool calls, against the numbers in `TOOL_FIGURES`,
+written out by hand here, and against `tool_statistics` of the measured session
+as a second oracle.
 """
 
 import hashlib
 import json
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 import pytest
 from pydantic import ValidationError
 
+from fixture_corpus import CORPUS
 from idc.compact import INSTRUCTION_PATH, INSTRUCTION_VERSION, instruction_digest
 from idc.measure import (
     MANIFEST_VERSION,
@@ -49,6 +59,7 @@ from idc.measure import (
     load_manifest,
     loads_manifest,
     measure,
+    tool_statistics,
 )
 from idc.schema import Agent, Message, Role, Session, SessionSource
 
@@ -80,6 +91,76 @@ TOP_LEVEL_KEYS = {
     "previous_output_sha256",
 }
 """Every key the document holds — the manifest's contract with a reader."""
+
+
+class ToolFigures(NamedTuple):
+    """The hand-written tool figures of one corpus transcript.
+
+    Written out here rather than taken from `MetricsRecord.of` or from
+    `tool_statistics`: a record asserted only against the code that built it
+    holds for any implementation of that code.
+    """
+
+    session_id: str
+    read_calls: int
+    write_calls: int
+    exec_calls: int
+    other_calls: int
+    exploration_rate: float
+    files_edited: tuple[str, ...]
+    lines_added: int
+
+
+TOOL_FIGURES = {
+    # Eight tool calls: one read, four writes, three execs, nothing else. The
+    # added lines are 16 for the test file written whole plus 18 for slug.py
+    # over its three writes; `tests/test_measure_statistics.py` arrives at the
+    # same 34 from the same transcript, by its own hand count.
+    "write_then_two_edits": ToolFigures(
+        session_id="sess-write-then-two-edits",
+        read_calls=1,
+        write_calls=4,
+        exec_calls=3,
+        other_calls=0,
+        exploration_rate=1 / 8,
+        files_edited=("/repo/tests/text/test_slug.py", "/repo/src/text/slug.py"),
+        lines_added=34,
+    ),
+    # Seven calls, and the only corpus transcript holding a call of no
+    # category — the subagent delegation. It is here for exactly that: with
+    # `write_then_two_edits` alone, `other_calls` is 0 in every row and
+    # zeroing the field would leave this test green.
+    "subagent_result": ToolFigures(
+        session_id="sess-subagent-result",
+        read_calls=2,
+        write_calls=3,
+        exec_calls=1,
+        other_calls=1,
+        exploration_rate=2 / 7,
+        files_edited=(
+            "src/billing/money.py",
+            "src/billing/invoice.py",
+            "src/report/totals.py",
+        ),
+        lines_added=3,
+    ),
+}
+"""Hand-written tool figures per corpus transcript; see the module docstring."""
+
+SILENT_DEFAULTS = {
+    "read_calls": 0,
+    "write_calls": 0,
+    "exec_calls": 0,
+    "other_calls": 0,
+    "files_edited": (),
+    "lines_added": 0,
+}
+"""The recorded tool fields that have a field default, with that default.
+
+`session_id` and `exploration_rate` are not in here: the first is required, and
+the second is `None` only for a session with no tool call, which neither
+transcript in `TOOL_FIGURES` is.
+"""
 
 
 def session(session_id: str, content: str) -> Session:
@@ -118,8 +199,17 @@ def metrics():
     )
 
 
-def manifest(tmp_path, *, input_bytes: bytes = b"before\n", previous=None) -> RunManifest:
-    """Build a manifest over two files written into `tmp_path`."""
+def manifest(
+    tmp_path, *, input_bytes: bytes = b"before\n", previous=None, measured=None
+) -> RunManifest:
+    """Build a manifest over two files written into `tmp_path`.
+
+    Args:
+        tmp_path: Directory the two files are written into.
+        input_bytes: The bytes of the input file, so a test can vary them.
+        previous: The predecessor manifest, if the run continues one.
+        measured: The metrics to record; `metrics()` when a test does not care.
+    """
     tmp_path.mkdir(parents=True, exist_ok=True)
     source = tmp_path / "session.jsonl"
     source.write_bytes(input_bytes)
@@ -131,7 +221,7 @@ def manifest(tmp_path, *, input_bytes: bytes = b"before\n", previous=None) -> Ru
         output_path=target,
         config=run_config(),
         tokenizer_name=TOKENIZER_NAME,
-        metrics=metrics(),
+        metrics=metrics() if measured is None else measured,
         previous=previous,
     )
 
@@ -181,10 +271,67 @@ def test_the_manifest_records_the_configuration_and_the_metrics(tmp_path):
     recorded = manifest(tmp_path)
 
     assert recorded.config == run_config()
+    # This pins the pass-through only: both sides are `MetricsRecord.of` of the
+    # same metrics. What each field holds is pinned below, over a transcript
+    # that makes tool calls.
     assert recorded.metrics == MetricsRecord.of(metrics())
     assert (recorded.metrics.tokens_before, recorded.metrics.tokens_after) == (5, 3)
     assert recorded.metrics.saved_fraction == pytest.approx(0.4)
     assert recorded.metrics.exploration_rate is None
+
+
+@pytest.mark.parametrize("fixture", sorted(TOOL_FIGURES))
+def test_the_manifest_records_the_tool_figures_of_the_measured_session(fixture, tmp_path):
+    before = CORPUS.session(fixture)
+    expected = TOOL_FIGURES[fixture]
+    measured = measure(before, session("s-after", "Summary block here"), FakeTokenizer())
+
+    recorded = manifest(tmp_path, measured=measured).metrics
+
+    assert recorded.session_id == expected.session_id
+    assert (
+        recorded.read_calls,
+        recorded.write_calls,
+        recorded.exec_calls,
+        recorded.other_calls,
+    ) == (
+        expected.read_calls,
+        expected.write_calls,
+        expected.exec_calls,
+        expected.other_calls,
+    )
+    assert recorded.exploration_rate == pytest.approx(expected.exploration_rate)
+    assert recorded.files_edited == expected.files_edited
+    assert recorded.lines_added == expected.lines_added
+
+
+@pytest.mark.parametrize("fixture", sorted(TOOL_FIGURES))
+def test_the_recorded_tool_figures_are_the_measured_session_s(fixture, tmp_path):
+    """The record takes every tool figure from the session, computing none itself."""
+    before = CORPUS.session(fixture)
+    stats = tool_statistics(before)
+    measured = measure(before, session("s-after", "Summary block here"), FakeTokenizer())
+
+    recorded = manifest(tmp_path, measured=measured).metrics
+
+    assert recorded.session_id == stats.session_id
+    assert (
+        recorded.read_calls,
+        recorded.write_calls,
+        recorded.exec_calls,
+        recorded.other_calls,
+    ) == (stats.read_calls, stats.write_calls, stats.exec_calls, stats.other_calls)
+    assert recorded.exploration_rate == pytest.approx(stats.exploration_rate)
+    assert recorded.files_edited == stats.files_edited
+    assert recorded.lines_added == stats.lines_added
+
+
+def test_every_recorded_tool_field_is_pinned_away_from_its_default():
+    """A field left at its default in every row is a field no row can pin."""
+    assert TOOL_FIGURES, "an empty table would pin nothing at all"
+    for field, default in SILENT_DEFAULTS.items():
+        values = {getattr(figures, field) for figures in TOOL_FIGURES.values()}
+        assert values - {default}, f"{field} is its field default in every row of TOOL_FIGURES"
 
 
 def test_the_manifest_records_the_injected_window(tmp_path):
