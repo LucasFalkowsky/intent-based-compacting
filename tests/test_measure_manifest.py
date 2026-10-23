@@ -105,7 +105,12 @@ def run_config() -> RunConfig:
 
 
 def metrics():
-    """Return the metrics of a six-token-to-three-token run."""
+    """Return the metrics of a run from five tokens to three.
+
+    `please fix the slug helper` is five words and `Summary block here` three,
+    counted by `FakeTokenizer`; the manifest has to record those two numbers
+    and the fraction between them, not recompute anything of its own.
+    """
     return measure(
         session("s-before", "please fix the slug helper"),
         session("s-after", "Summary block here"),
@@ -152,7 +157,7 @@ def test_the_manifest_digests_a_file_exactly_as_the_instruction_does():
 
 
 def test_a_file_that_cannot_be_read_is_a_measure_error(tmp_path):
-    with pytest.raises(ManifestError, match="missing.jsonl") as raised:
+    with pytest.raises(ManifestError, match=r"missing\.jsonl") as raised:
         digest_file(tmp_path / "missing.jsonl")
 
     assert isinstance(raised.value, MeasureError)
@@ -169,9 +174,7 @@ def test_the_manifest_records_the_instruction_identity(tmp_path):
 def test_the_manifest_records_the_tokenizer_identity(tmp_path):
     recorded = manifest(tmp_path)
 
-    assert recorded.tokenizer == TokenizerIdentity(
-        name=TOKENIZER_NAME, family=ModelFamily.CLAUDE
-    )
+    assert recorded.tokenizer == TokenizerIdentity(name=TOKENIZER_NAME, family=ModelFamily.CLAUDE)
 
 
 def test_the_manifest_records_the_configuration_and_the_metrics(tmp_path):
@@ -179,7 +182,8 @@ def test_the_manifest_records_the_configuration_and_the_metrics(tmp_path):
 
     assert recorded.config == run_config()
     assert recorded.metrics == MetricsRecord.of(metrics())
-    assert (recorded.metrics.tokens_before, recorded.metrics.tokens_after) == (6, 3)
+    assert (recorded.metrics.tokens_before, recorded.metrics.tokens_after) == (5, 3)
+    assert recorded.metrics.saved_fraction == pytest.approx(0.4)
     assert recorded.metrics.exploration_rate is None
 
 
@@ -322,7 +326,7 @@ def test_a_file_that_is_not_a_manifest_names_its_path(tmp_path):
 
 
 def test_a_caller_s_own_bad_construction_is_a_plain_value_error():
-    with pytest.raises(ValueError) as raised:
+    with pytest.raises(ValueError, match="sha256") as raised:
         FileDigest(path="session.jsonl", sha256="not-a-digest", size_bytes=1)
 
     assert not isinstance(raised.value, MeasureError)
@@ -332,7 +336,7 @@ def test_a_caller_s_own_bad_construction_is_a_plain_value_error():
 def test_the_manifest_is_frozen(tmp_path):
     recorded = manifest(tmp_path)
 
-    with pytest.raises(ValueError) as raised:
+    with pytest.raises(ValueError, match="frozen") as raised:
         recorded.manifest_version = MANIFEST_VERSION + 1
 
     assert not isinstance(raised.value, ValidationError)

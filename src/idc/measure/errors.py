@@ -43,6 +43,7 @@ from collections.abc import Sequence
 
 __all__ = [
     "EmptyBaselineError",
+    "ManifestError",
     "MeasureError",
     "NoTokenizerError",
     "NoToolCallsError",
@@ -197,3 +198,52 @@ class NoToolCallsError(MeasureError, ValueError):
             f"the visible context of {session_id!r} holds no tool call, so no exploration "
             f"rate is defined for it; its other statistics are reported as they stand"
         )
+
+
+class ManifestError(MeasureError):
+    """A run manifest could not be read, or a file it records could not be hashed.
+
+    The manifest is the one artifact of this stage that is written to disk and
+    read back, so it is handed two things from outside its own code: the
+    **files** it records the digests of, and a **document** a later run or a
+    reader hands back. Both are in the family for the reason this module's
+    docstring gives — "this file is not there" and "this manifest declares a
+    version I cannot read" are diagnostics for the CLI user.
+
+    What is deliberately **not** here: a manifest a caller's own code builds
+    wrongly. `idc.measure.manifest` translates pydantic's `ValidationError`
+    into a plain `ValueError` for construction and assignment, and into this
+    error only on the load path, which is the same line
+    `EmptyBaselineError`'s neighbours are drawn along. Either way pydantic's
+    own error never escapes the module.
+
+    Attributes:
+        source: The file the document or the digest came from, or `None` when a
+            manifest was read from text with no source named.
+        errors: One `(location, message)` pair per problem, with the location
+            given as a dotted field path such as `input_file.sha256`. Empty for
+            a failure that is not about a field — an unreadable file, or text
+            that is not JSON.
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        source: str | None = None,
+        errors: Sequence[tuple[str, str]] = (),
+    ) -> None:
+        """Build the error and render its message.
+
+        Args:
+            reason: Summary line, e.g. `2 problems` or `not valid JSON`.
+            source: Where the document or the file came from, named in the
+                message when given.
+            errors: The located problems, listed one per line after the summary.
+        """
+        self.source = source
+        self.errors = tuple(errors)
+        origin = f" from {source}" if source else ""
+        lines = [f"invalid run manifest{origin}: {reason}"]
+        lines += [f"  {location}: {message}" for location, message in self.errors]
+        super().__init__("\n".join(lines))

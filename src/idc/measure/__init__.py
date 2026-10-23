@@ -108,3 +108,72 @@ __all__ += [
     "lines_added_of",
     "tool_statistics",
 ]
+
+# T9.3 (#39) — the metrics aggregate and the run manifest. Its own block with
+# its own imports and its own `__all__ +=`, as the comment above the first
+# block asks.
+#
+# The two modules carry this part's decisions in their docstrings.
+# `idc.measure.metrics`: one injected tokenizer counts both sides of a run, the
+# tool statistics are the *before* session's because the after session's
+# history is this tool's own summary block, and an exploration rate with no
+# tool call behind it is `None` rather than a refusal. `idc.measure.manifest`:
+# a digest is sha256 over a file's bytes (the same function the instruction
+# digest is), the tokenizer is named by the caller because a count carries no
+# backend identity, a predecessor run is identified by its *output* digest so
+# that two manifests chain, and the document is read back only through
+# `loads_manifest` / `load_manifest`, which raise `ManifestError`.
+# `idc.measure.clock` holds the one seam measurement cannot compute: the two
+# instants of a run, injected, never read from a clock inside the stage.
+#
+# `noqa: E402` on each import below: ruff permits an import after a dunder
+# *assignment* (which is why T9.1's block needs none) but not after the
+# augmented `__all__ += [...]` that T9.2's block ends with. Keeping the
+# per-ticket blocks is worth five suppressions; moving these imports above
+# that line would mean editing another sub-ticket's block, which the comment
+# above the first `__all__` exists to prevent.
+from idc.measure.clock import Clock, RunTimer, RunWindow, SystemClock  # noqa: E402
+from idc.measure.errors import ManifestError  # noqa: E402
+from idc.measure.fake import FakeClock  # noqa: E402
+from idc.measure.manifest import (  # noqa: E402
+    MANIFEST_VERSION,
+    FileDigest,
+    InstructionIdentity,
+    MetricsRecord,
+    RunConfig,
+    RunManifest,
+    TokenizerIdentity,
+    build_manifest,
+    digest_bytes,
+    digest_file,
+    dump_manifest,
+    dumps_manifest,
+    load_manifest,
+    loads_manifest,
+)
+from idc.measure.metrics import Metrics, measure  # noqa: E402
+
+__all__ += [
+    "MANIFEST_VERSION",
+    "Clock",
+    "FakeClock",
+    "FileDigest",
+    "InstructionIdentity",
+    "ManifestError",
+    "Metrics",
+    "MetricsRecord",
+    "RunConfig",
+    "RunManifest",
+    "RunTimer",
+    "RunWindow",
+    "SystemClock",
+    "TokenizerIdentity",
+    "build_manifest",
+    "digest_bytes",
+    "digest_file",
+    "dump_manifest",
+    "dumps_manifest",
+    "load_manifest",
+    "loads_manifest",
+    "measure",
+]
