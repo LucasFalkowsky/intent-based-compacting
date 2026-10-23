@@ -17,7 +17,9 @@ resolving tool categories, logging unknown tools and validating the result are
   empty content and a note for the block that was dropped: the turn happened,
   and it is an intent boundary T3.1 splits on.
 - `user` with `isCompactSummary` -> an injected `system` message carrying the
-  summary's text, the session's `source` becomes `native-compaction` and the
+  summary's text, the session's `source` becomes `native-compaction` — or
+  `intent-compaction` when the text carries `INTENT_SUMMARY_MARKER`, i.e. when
+  this tool wrote the file (#102) — and the
   message is the session's `native_summary_id`; any other block of that record is
   dropped and noted like anywhere else. A session compacted twice names the
   second summary, which is where the agent's context then starts.

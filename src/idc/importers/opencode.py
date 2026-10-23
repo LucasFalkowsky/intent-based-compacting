@@ -44,7 +44,9 @@ below follows from them:
   every call its `tool` parts made, followed by one `tool` message per call whose result
   has arrived.
 - `type = compaction` -> an injected `system` message carrying the summary, and the
-  session's `source` becomes `native-compaction`.
+  session's `source` becomes `native-compaction` — or `intent-compaction` when the
+  summary's text carries `INTENT_SUMMARY_MARKER`, i.e. when `idc.render` wrote the
+  file (#102).
 - anything else -> skipped, and noted by its kind; a record that names neither a `role`
   nor a `type` is noted as `<no kind>`, one whose `role` is `null` as `<null role>` and
   one whose `type` is `null` as `<null type>`. A dropped *part* is named the same way, by
@@ -535,9 +537,12 @@ def _add_compaction_record(builder: SessionBuilder, line: JsonLine) -> bool:
     Returns:
         `True`. The record always yields the injected `system` message that
         carries the summary, and the session's provenance becomes
-        `native-compaction` — that provenance is what makes the agent's own
-        compaction a measurable condition of the study, and it follows from the
-        record existing, not from its text being readable.
+        `native-compaction`, or `intent-compaction` for a summary this tool wrote
+        (`idc.importers.base.summary_provenance`). That the session *was*
+        compacted follows from the record existing, not from its text being
+        readable; which compaction wrote it is the one thing the text decides,
+        and that is what keeps the baseline condition of the study apart from the
+        one under test.
     """
     record = line.data
     content = _summary(builder, record)
