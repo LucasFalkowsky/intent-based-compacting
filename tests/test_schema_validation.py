@@ -56,7 +56,7 @@ INVALID_DOCUMENTS = [
     ),
     ("unexpected field", Session, changed("Session", nickname="s1"), "nickname"),
     (
-        "summary named by a session that was never natively compacted",
+        "summary named by a session that nothing compacted",
         Session,
         changed("Session", native_summary_id="m-0"),
         "native_summary_id",
@@ -163,23 +163,57 @@ def test_tool_result_whose_call_id_has_no_tool_call_is_accepted_on_purpose():
     assert restored.messages[3].tool_result.call_id == "call-cut-off"
 
 
-def test_a_named_native_summary_requires_the_native_compaction_provenance():
-    """The one half of the pair that is a contradiction inside a single document.
+# (provenance, whether the document names a summary) -> whether it loads.
+SUMMARY_UNDER_EACH_PROVENANCE = {
+    (SessionSource.RAW, False): True,
+    (SessionSource.RAW, True): False,
+    (SessionSource.NATIVE_COMPACTION, False): True,
+    (SessionSource.NATIVE_COMPACTION, True): True,
+    (SessionSource.INTENT_COMPACTION, False): True,
+    (SessionSource.INTENT_COMPACTION, True): True,
+}
+"""Which `source` x `native_summary_id` combinations the schema accepts.
 
-    `source` and `native_summary_id` say the same thing about the same
-    transcript — *the agent compacted this and continued from that message* — so
-    an identifier under any other provenance is not incomplete data, it is two
-    fields disagreeing. The invariant used to sit on `ImportedSession`; with the
-    identifier canonical it belongs to the type that carries both halves.
+The two fields answer different questions — `source` who compacted the
+transcript, `native_summary_id` which message its context now starts at — so
+every combination is a document that can legitimately exist, with one
+exception: a transcript nobody compacted has no cut, so `raw` plus an
+identifier stays refused (T1.4).
+"""
+
+
+def test_the_provenance_table_covers_every_session_source():
+    """A fourth `SessionSource` cannot slip past the table by being forgotten."""
+    assert SUMMARY_UNDER_EACH_PROVENANCE, "the table decides the cases below and may not be empty"
+    assert {source for source, _ in SUMMARY_UNDER_EACH_PROVENANCE} == set(SessionSource)
+    assert len(SUMMARY_UNDER_EACH_PROVENANCE) == 2 * len(SessionSource)
+
+
+@pytest.mark.parametrize(("source", "names_summary"), list(SUMMARY_UNDER_EACH_PROVENANCE))
+def test_a_named_summary_is_refused_only_where_nothing_was_compacted(source, names_summary):
+    """`raw` plus a summary identifier is the one pair the schema refuses.
+
+    It is refused because the two fields contradict each other there: a
+    transcript nothing compacted has no message its context starts at. Under
+    either compaction provenance they do not — the summary this tool writes
+    marks the cut of an `intent-compaction` session exactly as the agent's own
+    marks the cut of a `native-compaction` one.
     """
-    for source in ("raw", "intent-compaction"):
-        invalid = changed("Session", source=source, native_summary_id="m-0")
+    summary_id = "m-0" if names_summary else None
+    data = changed("Session", source=source.value, native_summary_id=summary_id)
 
-        with pytest.raises(SchemaValidationError) as excinfo:
-            loads(Session, json.dumps(invalid))
+    if SUMMARY_UNDER_EACH_PROVENANCE[(source, names_summary)]:
+        restored = loads(Session, json.dumps(data))
 
-        assert "native_summary_id" in str(excinfo.value)
-        assert "native-compaction" in str(excinfo.value)
+        assert restored.source is source
+        assert restored.native_summary_id == summary_id
+        return
+
+    with pytest.raises(SchemaValidationError) as excinfo:
+        loads(Session, json.dumps(data))
+
+    assert "native_summary_id" in str(excinfo.value)
+    assert source.value in str(excinfo.value)
 
 
 def test_assigning_a_native_summary_to_a_raw_session_is_rejected_too():
