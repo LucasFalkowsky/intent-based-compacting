@@ -85,10 +85,14 @@ from idc.measure.tokens import (
     message_parts,
 )
 
-# One self-contained block, and the sub-tickets of T9 (#36) **append** to it
-# with `__all__ += [...]` of their own rather than editing this one: two
+# One self-contained block, and the sub-tickets of T9 (#36) **extend** it with
+# `__all__ = [*__all__, ...]` of their own rather than editing this one: two
 # sub-tickets of one parent once collided in a package `__init__.py` because
-# both rewrote the single list.
+# both rewrote the single list. The splice form, not `__all__ += [...]`: ruff
+# permits an import after a dunder *assignment* but not after an augmented
+# one, so a block ending in `+=` would make the next block's imports E402 and
+# charge it the suppressions. `tests/test_measure_api.py` pins that each splice
+# keeps the names before it.
 __all__ = [
     "FAMILY_SEPARATOR",
     "CompressionRate",
@@ -110,7 +114,7 @@ __all__ = [
 ]
 
 # T9.2 (#38) — exploration rate, write counts and the exit-code histogram.
-# Appended as its own block, with its own imports and its own `__all__ +=`,
+# Its own block, with its own imports and its own `__all__ = [*__all__, ...]`,
 # the way the comment above asks: nothing here edits the list T9.1 wrote.
 #
 # `idc.measure.statistics` carries this part's decisions in its docstring —
@@ -131,7 +135,8 @@ from idc.measure.statistics import (
     tool_statistics,
 )
 
-__all__ += [
+__all__ = [
+    *__all__,
     "ExitCodeCount",
     "FileEdits",
     "NoToolCallsError",
@@ -141,8 +146,8 @@ __all__ += [
 ]
 
 # T9.3 (#39) — the metrics aggregate and the run manifest. Its own block with
-# its own imports and its own `__all__ +=`, as the comment above the first
-# block asks.
+# its own imports and its own `__all__ = [*__all__, ...]`, as the comment above
+# the first block asks.
 #
 # The two modules carry this part's decisions in their docstrings.
 # `idc.measure.metrics`: one injected tokenizer counts both sides of a run, the
@@ -156,17 +161,10 @@ __all__ += [
 # `loads_manifest` / `load_manifest`, which raise `ManifestError`.
 # `idc.measure.clock` holds the one seam measurement cannot compute: the two
 # instants of a run, injected, never read from a clock inside the stage.
-#
-# `noqa: E402` on each import below: ruff permits an import after a dunder
-# *assignment* (which is why T9.1's block needs none) but not after the
-# augmented `__all__ += [...]` that T9.2's block ends with. Keeping the
-# per-ticket blocks is worth five suppressions; moving these imports above
-# that line would mean editing another sub-ticket's block, which the comment
-# above the first `__all__` exists to prevent.
-from idc.measure.clock import Clock, RunTimer, RunWindow, SystemClock  # noqa: E402
-from idc.measure.errors import ManifestError  # noqa: E402
-from idc.measure.fake import FakeClock  # noqa: E402
-from idc.measure.manifest import (  # noqa: E402
+from idc.measure.clock import Clock, RunTimer, RunWindow, SystemClock
+from idc.measure.errors import ManifestError
+from idc.measure.fake import FakeClock
+from idc.measure.manifest import (
     MANIFEST_VERSION,
     FileDigest,
     InstructionIdentity,
@@ -182,9 +180,10 @@ from idc.measure.manifest import (  # noqa: E402
     load_manifest,
     loads_manifest,
 )
-from idc.measure.metrics import Metrics, measure  # noqa: E402
+from idc.measure.metrics import Metrics, measure
 
-__all__ += [
+__all__ = [
+    *__all__,
     "MANIFEST_VERSION",
     "Clock",
     "FakeClock",
