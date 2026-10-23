@@ -67,23 +67,29 @@ Known limitations, both deliberate:
   and keeps typing has opened a genuine intent, which T3.2 would then reduce
   away. The comparison is equality for that reason, which also means a notice
   spelling this repository has not seen stays unflagged.
-- **A `native-compaction` session that does not locate its summary is refused,
-  not guessed at.** Where the summary sits is `Session.native_summary_id`, a
+- **A session whose summary cannot be located is refused, not guessed at.**
+  Where the summary sits is `Session.native_summary_id`, a
   canonical field since T2.6, so a document written by one CLI command and read
   by the next answers the question itself — an `ImportedSession` and the file it
-  was dumped to normalise identically, which is what the native-compaction
-  baseline needs to cross two invocations. Two cases remain refused, and both
+  was dumped to normalise identically, which is what both compacted conditions
+  need in order to cross two invocations. Two cases are refused, and both
   are documents the canonical schema accepts on purpose:
 
-  - the provenance says `native-compaction` but `native_summary_id` is `null`;
-  - the identifier names no message of the session, e.g. because the transcript
-    was truncated at the front past its own summary.
+  - the provenance says `native-compaction` but `native_summary_id` is `null`.
+    An `intent-compaction` document without the identifier is accepted instead:
+    T1.4 left the field permitted and never required under that provenance, and
+    `idc.render` names the summary it wrote anyway;
+  - the identifier names no message of the session, whichever compaction wrote
+    it, e.g. because the transcript was truncated at the front past its own
+    summary.
 
   Either way the cut-off point is unknown, and no content marker could recover
-  it for all three agents (OpenCode's summary text is arbitrary). Guessing would
-  silently count history the agent had already dropped — the exact failure this
-  tool is built to measure — so `visible_context` raises instead. Every other
-  session is accepted as it is.
+  it: the text of a summary the *agent* wrote is arbitrary (OpenCode's
+  especially), and `INTENT_SUMMARY_MARKER` says who compacted a session, not
+  which message the summary is. Guessing would silently count history the
+  compaction had already dropped — the exact failure this tool is built to
+  measure — so `visible_context` raises instead. Every other session is accepted
+  as it is.
 
 `toolUseResult.interrupted` is **not** read here either, and that is the second
 pointer #10 was asked about: a Claude Code tool run the user cancelled still
@@ -209,12 +215,16 @@ def visible_context(session: ImportedSession | Session) -> VisibleContext:
         and what was flagged.
 
     Raises:
-        TranscriptImportError: If the session was compacted — by the agent or by
-            this tool — and
-            but does not locate its summary — `native_summary_id` is `null`, or
-            it names no message of the session. Both would mean counting history
-            the agent dropped, which is the error this function exists to
-            prevent.
+        TranscriptImportError: If a compacted session does not locate its
+            summary. Two cases, and they are not symmetric: a
+            `native-compaction` session whose `native_summary_id` is `null` is
+            refused, and so is *any* session — either compaction — whose
+            identifier names no message of it. An `intent-compaction` session
+            that names no summary is **not** refused, because T1.4 left the
+            identifier permitted and never required there; it normalises as it
+            stands, and `idc.render` always names the summary it wrote. Both
+            refusals are about counting history a compaction dropped, which is
+            the error this function exists to prevent.
         SchemaValidationError: If the visible messages do not satisfy the
             canonical schema.
     """
@@ -262,12 +272,13 @@ def _unpack(session: ImportedSession | Session) -> tuple[Session, str | None]:
         compacted the transcript.
 
     Raises:
-        TranscriptImportError: If the session was compacted — by the agent or by
-            this tool — and
-            but names no summary. The canonical schema accepts that document on
-            purpose (see `idc.schema.models`); it is this function that cannot
-            proceed, because nothing in it says where the agent's context
-            starts.
+        TranscriptImportError: If a `native-compaction` session names no
+            summary. The canonical schema accepts that document on purpose (see
+            `idc.schema.models`); it is this function that cannot proceed,
+            because nothing in it says where the agent's context starts. An
+            `intent-compaction` session without the identifier passes here: the
+            schema permits it and the field is not required there, so it has no
+            cut and is normalised as it stands.
     """
     unpacked = session.session if isinstance(session, ImportedSession) else session
     if unpacked.source is SessionSource.NATIVE_COMPACTION and unpacked.native_summary_id is None:

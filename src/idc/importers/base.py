@@ -1,17 +1,20 @@
 """What every importer needs, so that each agent module is only its own format.
 
 An importer has two halves. The agent-specific half knows one on-disk shape —
-which record carries a message, how a tool call is encoded, where the summary of
-a native compaction sits. The other half is the same for all three agents and
+which record carries a message, how a tool call is encoded, where a compaction's
+summary sits. The other half is the same for all three agents and
 lives here:
 
 - **Assembling the canonical session.** `SessionBuilder` collects messages, asks
   the tool registry for every call's category, remembers the model and the
   provenance, and validates the result into a `Session` on `build()`.
-- **Recording the agent's own summary.** `SessionBuilder.add_native_summary`
-  appends it, sets the session's provenance and remembers which message it is,
-  so that `idc.importers.provenance` can tell the context the agent still has
-  from the history its compaction replaced.
+- **Recording a compaction's summary.** `SessionBuilder.add_native_summary`
+  appends it and remembers which message it is, so that
+  `idc.importers.provenance` can tell the context the session still has from the
+  history the compaction replaced. It also sets the provenance, and which of the
+  two compactions wrote the summary is read off its text: a file `idc.render`
+  wrote carries `INTENT_SUMMARY_MARKER` and imports as `intent-compaction`, a
+  transcript the agent compacted itself as `native-compaction` (#102).
 - **Resolving a tool category and logging the unknown ones.** A tool the registry
   does not declare resolves to `other` *and* is reported — the parent criterion
   of T2 — both as an `ImportNote` on the result and as one log warning per
@@ -221,7 +224,10 @@ class ImportedSession:
     the summary this tool wrote, and `Session` refuses the one combination that
     contradicts itself, `raw` plus an identifier (see `idc.schema.models`). No
     importer produces either form: an importer that read a summary record calls
-    `add_native_summary`, which sets both fields together.
+    `add_native_summary`, which sets both fields together — under
+    `intent-compaction` as well, which is the provenance that method resolves to
+    for a file `idc.render` wrote (#102), so that session names its summary too
+    even though nothing requires it to.
     """
 
     session: Session

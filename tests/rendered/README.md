@@ -8,6 +8,11 @@ One file per agent, byte-compared by `tests/test_render_native.py`:
 | `gemini-cli.jsonl` | A Gemini CLI chat recording in its append-log shape: the metadata record, the summary as a `user` turn wrapped in `<state_snapshot>`, then one record per kept message. |
 | `opencode.jsonl` | An OpenCode message stream: the summary as a `compaction` record, then one record per kept message, a tool result inside the tool part of its own call. |
 
+In all three, the summary's text begins with the marker line
+`<!-- idc:intent-compaction -->` (`idc.importers.INTENT_SUMMARY_MARKER`, T7.3):
+the record shape is the agent's own, so the marker is what makes the file
+re-import as `intent-compaction` instead of as the baseline condition.
+
 All three are `idc.render.render_transcript`'s output for the **same** input —
 the corpus fixture `interleaved_intents`, its golden chains from
 `tests/fixtures/compact/`, and the last of its three chunks. Regenerate them
