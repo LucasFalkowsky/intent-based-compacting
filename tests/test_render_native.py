@@ -231,17 +231,18 @@ def test_the_rendered_file_re_imports_as_a_canonical_session(
 ) -> None:
     """Write, import, validate: the whole round trip, for every fixture.
 
-    The resulting `source` is `native-compaction`, which is what actually
-    happens and **not** a stand-in for `intent-compaction`: the summary is
-    written in the agent's own compaction shape, and that shape is the only
-    provenance signal an importer reads. `SessionSource.INTENT_COMPACTION` is
-    produced nowhere in `src/` today; making this file re-import under it is a
-    ticket of its own (#102).
+    The resulting `source` is `intent-compaction`: the summary is written in the
+    agent's own compaction shape, so the shape alone cannot say who compacted the
+    session, and T7.3 (#102) added the signal that can — the marker line
+    `idc.importers.INTENT_SUMMARY_MARKER` in front of the summary's text, which
+    every importer reads back. Asserted here for every fixture and every agent;
+    the three-way distinction against `native-compaction` and `raw` is
+    `tests/test_intent_compaction_source.py`.
     """
     session = reimported(name, agent, tmp_path)
 
     assert session.agent is agent
-    assert session.source is SessionSource.NATIVE_COMPACTION
+    assert session.source is SessionSource.INTENT_COMPACTION
     assert session.native_summary_id == SUMMARY_MESSAGE_ID
     assert session.id == CORPUS.session(name).id
 
