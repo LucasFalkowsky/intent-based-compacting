@@ -24,10 +24,12 @@ run, and this module's own fixture takes it as its starting point.
   chunks appended: `second_run_input`. The transcript therefore opens with the
   summary record of the first run, so the run reads its own earlier work back
   through `idc.cli.candidate_chains` and the classifier is offered `C1` and
-  `C2` as candidates. That feed is what this module pins hardest — a run that
-  was offered no candidates cannot assign a chunk to `C1` at all and fails
-  loudly in `idc.classify`, which is the one thing a passing suite did *not*
-  notice before this module existed.
+  `C2` as candidates. That feed is what this module pins hardest, and the
+  pinning was measured rather than hoped for: with `candidates=()` in
+  `run_command` instead of `candidates=candidate_chains(...)`, the second run
+  exits with `no chain 'C1' in the store; the candidates were: none` and **17
+  of the 24 tests here fail**. A review had found that same substitution
+  leaving the whole suite green.
 - **The decisions** are `("C1", "C1", NEW)`, for the three chunks the second
   run sees: the chunk the first run kept verbatim (the gold labelling's last,
   `C1`), then one new chunk continuing that same chain, then one new chunk on an
@@ -52,6 +54,7 @@ what they pin and how to regenerate them.
 
 import hashlib
 import json
+import socket
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
@@ -90,6 +93,7 @@ from test_cli_end_to_end import (
     INPUT_PLACEHOLDER,
     OUTPUT_PLACEHOLDER,
     SUMMARY_PLACEHOLDER,
+    NetworkUsedError,
     Produced,
     assert_golden,
     no_network,
@@ -483,9 +487,11 @@ def opening_turn(session: Session, chunk: Chunk) -> Message:
         The first real user turn in the chunk's span.
 
     Raises:
-        AssertionError: If the chunk holds none — which would mean the chunker
-            cut somewhere other than a user turn, and the comparison this
-            helper exists for would be meaningless rather than false.
+        AssertionError: If the chunk holds none. A chunk legitimately can —
+            `idc.chunk` makes one per subagent span, and those have no user
+            turn — but then there is no turn to compare and the comparison
+            this helper exists for would be meaningless rather than false.
+            Every chunk of this run's transcripts has `ChunkOrigin.USER`.
     """
     for message in session.messages[chunk.start_index : chunk.end_index]:
         if is_user_turn(message):
@@ -540,9 +546,10 @@ def test_the_second_runs_golden_files_agree_about_its_output_transcript() -> Non
 def test_the_second_runs_golden_manifest_names_the_first_runs_golden_transcript() -> None:
     """The two golden pairs chain: the predecessor digest is the first run's output.
 
-    Read off the four committed files alone. This is what keeps the two pairs
-    one story: regenerating the first run's transcript without regenerating the
-    second run's manifest fails here, with `hashlib` as the only witness.
+    Read off three committed files and nothing else: the second run's manifest,
+    the first run's transcript, and the first run's manifest. This is what keeps
+    the two pairs one story — regenerating the first run's transcript without
+    regenerating the second run's manifest fails here.
     """
     manifest = load_manifest(GOLDEN_SECOND_MANIFEST)
 
@@ -790,6 +797,22 @@ def test_the_second_run_asks_the_clock_exactly_twice(second: SecondRun) -> None:
 
     assert (manifest.started_at, manifest.finished_at) == (SECOND_STARTED, SECOND_FINISHED)
     assert second.clock.remaining == 0
+
+
+def test_the_network_guard_covers_this_module(second: SecondRun) -> None:
+    """The guard really is applied here, and not only in the module it is defined in.
+
+    An autouse fixture imported into another module's namespace is a pytest
+    mechanism, not an obvious one, and the whole "no network" claim of this
+    module rests on it: if the import stopped taking effect, every run below
+    would be free to reach a backend and nothing would say so. The run in
+    `second` happened under this.
+    """
+    assert second.status == EXIT_OK
+    with pytest.raises(NetworkUsedError):
+        socket.socket()
+    with pytest.raises(NetworkUsedError):
+        socket.create_connection(("localhost", 9))
 
 
 def test_the_second_run_opens_no_socket(second: SecondRun) -> None:

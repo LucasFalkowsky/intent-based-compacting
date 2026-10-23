@@ -29,7 +29,8 @@ canonical messages written into Claude Code's records by the same writer. Its
 own fakes differ in the two places the run differs: the adapter's script is
 `("C1", "C1", NEW)` — the chunk the first run kept, one new chunk continuing
 that chain, one new chunk on a new intent — and the narrative client holds
-**two** answers, because the third chain's block is copied and costs no call.
+**two** answers for three chains, because `C2`, the one nothing in this run
+touches, is copied and costs no call.
 The clock's two instants are an hour after the first run's.
 
 Why a directory of its own, next to `tests/fixtures/`, `tests/native/` and
