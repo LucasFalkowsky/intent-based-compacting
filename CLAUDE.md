@@ -145,7 +145,7 @@ the issue bookkeeping — is the orchestrating session's and lives in `docs/orch
 ```
 make setup    # install dependencies (uv sync --all-groups)
 make test     # lint + full test suite — the gate before every PR
-make run ARGS="compact --agent opencode --in session.jsonl --out compacted.jsonl"
+make run ARGS="run --agent opencode --in session.jsonl --out compacted.jsonl"
 ```
 
 Convenience targets that exist but are not the gate: `make help`, `make lint`, `make unit`,

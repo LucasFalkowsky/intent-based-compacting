@@ -1,37 +1,26 @@
 """Module entry point: `python -m idc`, which `make run ARGS="…"` forwards to.
 
-The entry point exists so that the invocation documented in `README.md` and the
-`run` target of the `Makefile` reach the package from the moment the repository
-is scaffolded. The commands themselves are implemented in ticket T10.1; until
-then every invocation exits with status 2 and says so, rather than failing with
-an import error.
+Two lines of its own and nothing more. The whole command surface — the parser,
+the command table and `main` — lives in `idc.cli`, so that it can be driven
+in-process by a test or by another program (`main(argv, runtime=…)` returns a
+status and never exits the interpreter), and this module exists only to turn
+that status into the process's.
+
+```
+python -m idc --help
+python -m idc run --agent claude-code --in session.jsonl --out compacted.jsonl
+make run ARGS="compact --help"
+```
+
+`main` is re-exported here because `python -m idc` is the documented invocation
+and a reader who opens this file expects to find the function it calls.
 """
 
 import sys
 
-NOT_WIRED_UP = (
-    "idc: the command surface is not wired up yet (ticket T10.1). "
-    "The package scaffold is in place; `make test` runs the suite."
-)
+from idc.cli import main
 
-EXIT_NOT_WIRED_UP = 2
-
-
-def main(argv: list[str] | None = None) -> int:
-    """Report that the command surface is not available yet.
-
-    Args:
-        argv: Command-line arguments, excluding the program name. Defaults to
-            `sys.argv[1:]`. They are accepted so that the signature already
-            matches the real entry point, and ignored until T10.1 lands.
-
-    Returns:
-        The process exit status: always `EXIT_NOT_WIRED_UP`.
-    """
-    del argv
-    print(NOT_WIRED_UP, file=sys.stderr)
-    return EXIT_NOT_WIRED_UP
-
+__all__ = ["main"]
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
