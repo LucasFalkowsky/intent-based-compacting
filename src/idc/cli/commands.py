@@ -309,7 +309,7 @@ def manifest_path(config: Config, output: Path) -> Path:
     return Path(str(output) + MANIFEST_SUFFIX)
 
 
-def _reserved_manifest_path(config: Config, output: Path) -> Path:
+def _checked_manifest_path(config: Config, output: Path) -> Path:
     """Return the run's manifest path, refusing one no file can be written at.
 
     Called before the compacted transcript is written, so that the two failures
@@ -508,7 +508,7 @@ def run_command(config: Config, runtime: Runtime) -> int:
     can already refuse would otherwise be found *after* the transcript was
     written, leaving a compacted transcript on disk with no provenance beside
     it. What a stat cannot see — no permission, a full disk — still fails at
-    `dump_manifest` and still leaves that gap; `_reserved_manifest_path` says
+    `dump_manifest` and still leaves that gap; `_checked_manifest_path` says
     which half it covers.
 
     A failure never leaves a *partial* transcript either way:
@@ -531,7 +531,7 @@ def run_command(config: Config, runtime: Runtime) -> int:
     """
     adapter = runtime.require_adapter(config.adapter)
     runtime.require_narrative_client()
-    destination = _reserved_manifest_path(config, Path(config.paths.output))
+    destination = _checked_manifest_path(config, Path(config.paths.output))
     previous = (
         None
         if config.paths.previous_manifest is None
