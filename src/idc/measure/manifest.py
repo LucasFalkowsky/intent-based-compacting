@@ -76,15 +76,17 @@ import json
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
+from types import MappingProxyType
 from typing import Annotated, Any, Final, Self
 
 from pydantic import (
+    AfterValidator,
     AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
+    PlainSerializer,
     ValidationError,
-    field_validator,
     model_validator,
 )
 
@@ -131,6 +133,30 @@ Sha256Hex = Annotated[str, Field(pattern=SHA256_PATTERN)]
 """A hex sha256 digest, as `digest_bytes` renders one."""
 
 
+def _sorted_read_only(given: Mapping[str, str]) -> Mapping[str, str]:
+    """Return `given` sorted by key and read-only."""
+    return MappingProxyType(dict(sorted(given.items())))
+
+
+SortedMapping = Annotated[
+    Mapping[str, str],
+    AfterValidator(_sorted_read_only),
+    PlainSerializer(dict, return_type=dict[str, str]),
+]
+"""A string mapping that is sorted by key once and cannot be changed after.
+
+Both halves are load-bearing, and `frozen=True` on the model provides neither:
+it refuses an *attribute* assignment and does not touch the object the
+attribute holds. Sorting at validation alone was not enough either —
+`config.models["aaa"] = "z"` on a built manifest then succeeded and the next
+`dumps_manifest` emitted `["classifier", "narrative", "aaa"]`, which is the
+byte stability of the dump gone. The validator sorts, `MappingProxyType`
+refuses the insertion, and the serializer renders the proxy as the JSON object
+pydantic cannot serialize it as by itself — in the validator's order, so the
+dumped keys are sorted too.
+"""
+
+
 def digest_bytes(data: bytes) -> str:
     """Return the hex sha256 of `data`.
 
@@ -158,6 +184,12 @@ def _as_manifest_error(exc: ValidationError, source: str | None) -> ManifestErro
 
 class _ManifestModel(BaseModel):
     """Base of the manifest's data types: no unknown fields, no mutation.
+
+    `frozen=True` is half of "no mutation": it refuses an attribute assignment
+    and does nothing about the object an attribute holds, so a mapping field
+    needs a read-only type of its own — see `SortedMapping`, which is what
+    `RunConfig`'s two mappings are. Every other field here is a string, a
+    number, a datetime, a tuple or another `_ManifestModel`.
 
     Invalid input raises a plain `ValueError` whichever way a caller's own code
     produces it — construction or assignment — and never pydantic's
@@ -277,23 +309,21 @@ class RunConfig(_ManifestModel):
             name the run invoked it under.
         models: The model id per role the run asked a model for — the
             classifier's and the narrative writer's are different ids in
-            general. Sorted by key, so two runs with the same configuration
-            dump the same bytes.
+            general. A `SortedMapping`: sorted by key and read-only, so two
+            runs with the same configuration dump the same bytes and no later
+            insertion can change that.
         options: The rest of the run's switches as strings, for the same
             reason: whatever a later CLI ticket adds is recordable here without
-            a schema change. Sorted by key.
+            a schema change. A `SortedMapping` too.
     """
 
     agent: Agent
     adapter: str = Field(min_length=1)
-    models: Mapping[str, str] = Field(default_factory=dict)
-    options: Mapping[str, str] = Field(default_factory=dict)
-
-    @field_validator("models", "options", mode="before")
-    @classmethod
-    def _sorted_by_key(cls, given: Any) -> Any:
-        """Sort a mapping by key, so the same configuration dumps the same bytes."""
-        return dict(sorted(given.items())) if isinstance(given, Mapping) else given
+    # `validate_default` so that an omitted mapping is the same read-only type
+    # as a given one: a default is not validated otherwise, and `{}` would be a
+    # writable dict on exactly the manifests that configured nothing.
+    models: SortedMapping = Field(default_factory=dict, validate_default=True)
+    options: SortedMapping = Field(default_factory=dict, validate_default=True)
 
     def __str__(self) -> str:
         """Return the configuration as one diagnostic line."""
@@ -531,7 +561,8 @@ def dumps_manifest(manifest: RunManifest) -> str:
     Returns:
         Indented JSON without a trailing newline. The same manifest always
         dumps the same bytes — the field order is the model's, and
-        `RunConfig` sorts its two mappings — so two runs' manifests are
+        `RunConfig`'s two mappings are `SortedMapping`s, sorted by key at
+        validation and read-only afterwards — so two runs' manifests are
         diffable.
     """
     return manifest.model_dump_json(indent=INDENT)

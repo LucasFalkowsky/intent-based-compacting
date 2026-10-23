@@ -381,6 +381,41 @@ def test_the_dump_is_byte_stable_and_sorts_the_configuration(tmp_path):
     assert list(json.loads(first)["config"]["models"]) == ["classifier", "narrative"]
 
 
+def test_the_configuration_mappings_of_a_built_manifest_refuse_a_mutation(tmp_path):
+    """`frozen=True` does not freeze a dict a `Mapping` field holds; the type does.
+
+    Sorting the mapping at validation was not enough on its own: with a plain
+    dict behind the field, `recorded.config.models["aaa"] = "z"` succeeded on a
+    built manifest and the next dump emitted
+    `["classifier", "narrative", "aaa"]` — a mutated "frozen" manifest with an
+    unsorted configuration, which is the byte stability `dumps_manifest`
+    promises gone. Both were run before this test was written.
+    """
+    recorded = manifest(tmp_path)
+
+    for mapping in (recorded.config.models, recorded.config.options):
+        with pytest.raises(TypeError):
+            mapping["aaa"] = "z"
+
+    document = json.loads(dumps_manifest(recorded))
+    assert list(document["config"]["models"]) == ["classifier", "narrative"]
+    assert list(document["config"]["options"]) == ["max_chunks"]
+
+
+def test_the_configuration_sorts_a_mapping_it_is_given_unsorted(tmp_path):
+    recorded = build_manifest(
+        window=WINDOW,
+        input_path=digest_file(INSTRUCTION_PATH).path,
+        output_path=digest_file(INSTRUCTION_PATH).path,
+        config=RunConfig(agent=Agent.CLAUDE_CODE, adapter="fake", options={"b": "2", "a": "1"}),
+        tokenizer_name=TOKENIZER_NAME,
+        metrics=metrics(),
+    )
+
+    assert list(recorded.config.options) == ["a", "b"]
+    assert list(json.loads(dumps_manifest(recorded))["config"]["options"]) == ["a", "b"]
+
+
 def test_a_first_run_records_no_predecessor(tmp_path):
     recorded = manifest(tmp_path)
 
