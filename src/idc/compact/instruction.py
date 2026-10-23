@@ -13,8 +13,9 @@ module exists instead of a string literal in `idc.compact.narrative`:
 - It declares a `version`, and `INSTRUCTION_VERSION` is the only one this build
   reads. A text and a build cannot silently disagree about what was asked.
 - `instruction_digest` is the sha256 of the file's **bytes** — the value the run
-  manifest (T9.3, #39) records. Nothing wires it up yet; #39 is its one
-  consumer, and it is exposed here so that ticket has something to record.
+  manifest (T9.3, #39) records. `idc.measure.manifest.build_manifest` is its
+  one consumer: it stores the digest next to `INSTRUCTION_VERSION`, which is
+  what ties a run's narrative sections to the exact prompt that produced them.
 
 ```python
 from idc.compact import instruction, instruction_digest

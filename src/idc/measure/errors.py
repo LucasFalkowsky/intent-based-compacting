@@ -1,10 +1,12 @@
 """The failures of the measurement stage, as one catchable family.
 
-Measurement is handed two kinds of input from outside its own code: a
+Measurement is handed three kinds of input from outside its own code: a
 **transcript** — whose `model` field says which tokenizer the numbers have to be
 produced with, and whose tool calls are what the exploration rate is a rate of —
-and a pair of **token counts** that a previous stage produced. Everything that
-can go wrong with either is a `MeasureError`, so a caller (and
+a pair of **token counts** that a previous stage produced, and the **files** a
+run manifest records: the transcript that went in, the one that came out, and a
+manifest document handed back to be read. Everything that can go wrong with any
+of them is a `MeasureError`, so a caller (and
 T10's CLI) catches the whole stage with one `except`, and each subclass carries
 the values its message is built from — the shape `idc.classify.errors`,
 `idc.resolve.errors`, `idc.compact.errors` and `idc.parse.errors` established.
@@ -17,9 +19,13 @@ The line between the family and a plain `ValueError` is drawn here the way
   CLI user — "this transcript cannot be measured, and here is what to do" — not
   tracebacks.
 - A value only a caller's own code can produce is **not**. A negative token
-  count is the one case: nothing in this stage counts below zero, so a negative
+  count is one case: nothing in this stage counts below zero, so a negative
   `before` or `after` is a programming error and raises a plain `ValueError`
-  that is deliberately *not* a `MeasureError`.
+  that is deliberately *not* a `MeasureError`. A manifest a caller builds or
+  mutates wrongly, and a run window whose finish precedes its start, are the
+  others; `idc.measure.manifest` translates pydantic's own error into a plain
+  `ValueError` on that path and into `ManifestError` on the load path, so the
+  two sides of the line stay apart while no pydantic traceback escapes either.
 
 `EmptyBaselineError` and `NoToolCallsError` are both, and deliberately overlap
 rather than split —

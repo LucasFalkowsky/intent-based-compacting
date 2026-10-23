@@ -1,9 +1,9 @@
 """Where a run manifest's two instants come from, and why they are injected.
 
-A manifest records when a run started and when it finished, and those are the
-only two values in the whole tool that cannot be computed from a transcript.
-`CLAUDE.md` forbids a clock in a test, so the clock is a seam rather than a
-call: `Clock` is a `Protocol` with one method, exactly as
+A manifest records when a run started and when it finished. Everything else it
+holds is computed from the files and transcripts it records; these two are not,
+and a clock is their only source. `CLAUDE.md` forbids a clock in a test, so the
+clock is a seam rather than a call: `Clock` is a `Protocol` with one method, exactly as
 `idc.classify.adapters.IntentAdapter`, `idc.compact.narrative.NarrativeClient`
 and `idc.measure.tokenizers.Tokenizer` are, `SystemClock` is the one real
 implementation, and `idc.measure.fake.FakeClock` plays a scripted list of

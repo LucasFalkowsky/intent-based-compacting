@@ -43,9 +43,12 @@ to check:
   placed in, which this module computes with `model_family`, and a `name` the
   caller supplies for the tokenizer build itself (`FakeTokenizer`,
   `o200k_base`, a vocabulary's own version). Two fields rather than one joined
-  string because `FAMILY_SEPARATOR` is a dash and dashes occur inside both a
-  model name and a tokenizer's name, so a joined id could not be split back
-  apart.
+  identifier, because the two say different things: `family` is what this build
+  resolves from the transcript, `name` is what the caller states was actually
+  used, and the two **can** disagree — a `claude` session counted with another
+  family's vocabulary is exactly the mistake a manifest should expose. Joined
+  into one string, that disagreement would be unrepresentable rather than
+  visible.
 - **A predecessor is identified by its output digest.** `previous_output_sha256`
   is the sha256 of the file the previous run wrote — the file an incremental
   run is handed as its input — so two manifests chain by comparing this run's

@@ -1,8 +1,8 @@
-"""Token measurement before and after compaction.
+"""What a run measured, and what makes those numbers mean something.
 
 Measurement is deterministic: the numbers reported by the study are computed
-from the transcripts alone, never estimated by a model. Three decisions carry
-the stage, and each is stated where it is implemented:
+from the transcripts alone, never estimated by a model. Six decisions carry the
+stage, and each is stated where it is implemented:
 
 - **What is counted** — `idc.measure.tokens`: a message's `content`, every tool
   call's name and its arguments as JSON, and its tool result's output, over the
@@ -20,13 +20,44 @@ the stage, and each is stated where it is implemented:
 - **What is reported** — `idc.measure.compression`: `saved_fraction =
   (before - after) / before`, with a zero baseline refused, a context that grew
   reported as a negative fraction, and neither clamped.
+- **What else the transcript says about the work** —
+  `idc.measure.statistics`: the exploration rate, the writes per file, the
+  lines they added and the exit-code histogram, over the same visible context
+  the token counts are over. A write whose added lines the transcript does not
+  state is reported as uncounted rather than given a guess.
+- **What one call answers** — `idc.measure.metrics`: `measure(before, after,
+  tokenizer)` assembles the four above for one pair of transcripts and computes
+  nothing of its own. One tokenizer counts both sides, the tool statistics are
+  the *before* session's, and an exploration rate with no tool call behind it
+  is `None` instead of a refusal.
+- **What makes a number attributable** — `idc.measure.manifest`: the run
+  manifest, with the digests of the input and output bytes, the configuration,
+  the compaction instruction's digest and version, the **tokenizer's identity**
+  (a count does not carry it), the metrics, the run's two instants — injected
+  through `idc.measure.clock`, never read from a clock inside the stage — and
+  the predecessor run's output digest, so two runs chain. It is its own
+  artifact, read back only through `load_manifest`/`loads_manifest`.
 
 ```python
-from idc.measure import CompressionRate, FakeTokenizer, count_context
+from idc.measure import FakeTokenizer, RunConfig, RunTimer, SystemClock
+from idc.measure import build_manifest, dump_manifest, measure
 
-before = count_context(session, FakeTokenizer())
-after = count_context(compacted, FakeTokenizer())
-CompressionRate.between(before, after).saved_fraction
+timer = RunTimer(SystemClock())
+timer.start()
+...                                        # the pipeline
+metrics = measure(session, compacted, FakeTokenizer())
+metrics.saved_fraction                     # what the study reports
+dump_manifest(
+    build_manifest(
+        window=timer.finish(),
+        input_path=source,
+        output_path=target,
+        config=RunConfig(agent=session.agent, adapter="s1m"),
+        tokenizer_name="FakeTokenizer",
+        metrics=metrics,
+    ),
+    target.with_suffix(".manifest.json"),
+)
 ```
 """
 
