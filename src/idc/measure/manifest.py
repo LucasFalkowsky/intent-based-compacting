@@ -484,8 +484,8 @@ class RunManifest(_ManifestModel):
 
         **This is `False` for every successful run of this tool, and the
         docstring used to claim the opposite** — that an equal pair is "the
-        chain a second run is supposed to form". A second run'''s input is the
-        agent'''s *continued* transcript: it begins from what the previous run
+        chain a second run is supposed to form". A second run's input is the
+        agent's *continued* transcript: it begins from what the previous run
         wrote and has grown by the turns that came after, so it is never byte-
         identical to it. Handing the tool the previous output unchanged does
         not produce the `True` case either, because such a transcript is a
@@ -496,12 +496,12 @@ class RunManifest(_ManifestModel):
 
         What to read instead is `previous_output_sha256`, which records *which*
         run this one continues whether or not any predicate holds. Whether this
-        comparison should be redefined — the predecessor'''s summary block
-        occurring in this run'''s input is the question a reader actually has —
+        comparison should be redefined — the predecessor's summary block
+        occurring in this run's input is the question a reader actually has —
         or dropped, is an open decision and has a ticket of its own (#112).
 
         Returns:
-            `True` when a predecessor is recorded and this run'''s input has
+            `True` when a predecessor is recorded and this run's input has
             exactly its bytes. `False` on a first run, and `False` when a
             predecessor is recorded whose output is not what this run read:
             the hash stays in the document either way, so the recorded
