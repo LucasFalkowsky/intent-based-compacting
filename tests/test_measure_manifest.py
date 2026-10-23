@@ -20,12 +20,13 @@ published constant — sha256 of the empty byte string — so the test does not
 merely repeat the implementation's own call.
 
 The metrics record is pinned the same way. The two one-message sessions below
-make no tool call, so over them seven of the record's eleven fields are their
-own field defaults and any comparison against `MetricsRecord.of` would hold for
-any implementation. Those seven are therefore pinned over two corpus
-transcripts that do make tool calls, against the numbers in `TOOL_FIGURES`,
-written out by hand here, and against `tool_statistics` of the measured session
-as a second oracle.
+make no tool call, so over them seven of the record's eleven fields hold
+exactly what a manifest that never read them would hold — three of the seven
+their field default, the four category counts a plain `0` — and any comparison
+against `MetricsRecord.of` would hold for any implementation. Those seven are
+therefore pinned over two corpus transcripts that do make tool calls, against
+the numbers in `TOOL_FIGURES`, written out by hand here, and against
+`tool_statistics` of the measured session as a second oracle.
 """
 
 import hashlib
@@ -147,7 +148,7 @@ TOOL_FIGURES = {
 }
 """Hand-written tool figures per corpus transcript; see the module docstring."""
 
-SILENT_DEFAULTS = {
+BLIND_VALUES = {
     "read_calls": 0,
     "write_calls": 0,
     "exec_calls": 0,
@@ -155,11 +156,23 @@ SILENT_DEFAULTS = {
     "files_edited": (),
     "lines_added": 0,
 }
-"""The recorded tool fields that have a field default, with that default.
+"""What each recorded tool field would hold if the manifest never read it.
 
-`session_id` and `exploration_rate` are not in here: the first is required, and
-the second is `None` only for a session with no tool call, which neither
-transcript in `TOOL_FIGURES` is.
+**Only three of the six are field defaults**, and the earlier name for this
+table claimed all six were. `files_edited`, `lines_added` and
+`exploration_rate` have defaults; `read_calls`, `write_calls`, `exec_calls`
+and `other_calls` are *required*, so dropping the keyword raises rather than
+falling back and the mutation they guard against is a hardcoded `0`, not a
+default. Either way the value here is what a row must differ from for that row
+to pin the field at all — which is the one property the guard needs, and
+`test_every_recorded_tool_field_differs_from_its_blind_value` checks the three
+real defaults against `MetricsRecord.model_fields` so a changed default cannot
+leave a stale value in this table.
+
+`session_id` is not in here because no value of it is blind: it is required and
+a hardcoded one is caught by comparing it to the measured session. Nor is
+`exploration_rate`, which is `None` only for a session with no tool call, and
+neither transcript in `TOOL_FIGURES` is one.
 """
 
 
@@ -326,12 +339,28 @@ def test_the_recorded_tool_figures_are_the_measured_session_s(fixture, tmp_path)
     assert recorded.lines_added == stats.lines_added
 
 
-def test_every_recorded_tool_field_is_pinned_away_from_its_default():
-    """A field left at its default in every row is a field no row can pin."""
+def test_every_recorded_tool_field_differs_from_its_blind_value():
+    """A field holding the same value in every row is a field no row can pin.
+
+    This is what reopened the hole once: `MetricsRecord.of` could drop
+    `files_edited` and `lines_added`, hardcode `session_id` or zero all four
+    category counts with the whole suite still green, because every session it
+    was measured over had no tool call. The guard fails if `TOOL_FIGURES` ever
+    drifts back to such a table.
+    """
     assert TOOL_FIGURES, "an empty table would pin nothing at all"
-    for field, default in SILENT_DEFAULTS.items():
+    for field, blind in BLIND_VALUES.items():
         values = {getattr(figures, field) for figures in TOOL_FIGURES.values()}
-        assert values - {default}, f"{field} is its field default in every row of TOOL_FIGURES"
+        assert values - {blind}, f"{field} is {blind!r} in every row of TOOL_FIGURES"
+
+    declared = MetricsRecord.model_fields
+    for field, blind in BLIND_VALUES.items():
+        if declared[field].is_required():
+            continue
+        assert declared[field].default == blind, (
+            f"{field}'s field default moved to {declared[field].default!r}; "
+            f"BLIND_VALUES still says {blind!r}"
+        )
 
 
 def test_the_manifest_records_the_injected_window(tmp_path):
@@ -400,6 +429,25 @@ def test_the_configuration_mappings_of_a_built_manifest_refuse_a_mutation(tmp_pa
     document = json.loads(dumps_manifest(recorded))
     assert list(document["config"]["models"]) == ["classifier", "narrative"]
     assert list(document["config"]["options"]) == ["max_chunks"]
+
+
+def test_the_configuration_mappings_are_read_only_when_they_are_omitted():
+    """A configuration that configured nothing is as read-only as one that did.
+
+    Pydantic does not validate a default, so `default_factory=dict` alone left
+    an **omitted** mapping a writable dict while a given one was a
+    `mappingproxy` — read-only on every manifest except the ones with no model
+    id and no switch recorded. `validate_default=True` is what closes that, and
+    without this test the whole suite passed with the keyword removed.
+
+    The call shape is the one the package's own docstring example uses, which
+    is how the gap stayed invisible: both mappings omitted.
+    """
+    config = RunConfig(agent=Agent.CLAUDE_CODE, adapter="s1m")
+
+    for mapping in (config.models, config.options):
+        with pytest.raises(TypeError):
+            mapping["aaa"] = "z"
 
 
 def test_the_configuration_sorts_a_mapping_it_is_given_unsorted(tmp_path):
