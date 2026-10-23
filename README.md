@@ -391,7 +391,8 @@ tests/                # pytest suite
   fixtures/           # shared canonical transcript fixture corpus
   native/             # agent-native transcripts — the importers' input side
   rendered/           # golden output: one rendered transcript per agent
-  end_to_end/         # golden output: the transcript and manifest of one whole run
+  end_to_end/         # golden output: the transcript and manifest of a first run, and of
+                      # the second run that continues it
 .github/workflows/    # CI: make test on every pull request
 ```
 
