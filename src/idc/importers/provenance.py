@@ -268,8 +268,11 @@ def _unpack(session: ImportedSession | Session) -> tuple[Session, str | None]:
         session: What the caller passed — an `ImportedSession` or a `Session`.
 
     Returns:
-        The session, and the summary's identifier or `None` when the agent never
-        compacted the transcript.
+        The session, and the summary's identifier or `None` when the session
+        names none. `None` therefore covers two unlike cases: a transcript no
+        compaction touched, and an `intent-compaction` one that names no block —
+        which the Raises clause below says passes. Only `native-compaction` must
+        name a summary, so only there does `None` mean the document is unusable.
 
     Raises:
         TranscriptImportError: If a `native-compaction` session names no
@@ -328,13 +331,15 @@ def _hidden_reason(
         summary_id: Identifier of the native summary, or `None`.
 
     Returns:
-        `HIDDEN_REPLACED_BY_COMPACTION` for a message the agent's compaction
-        replaced, `HIDDEN_HARNESS_NOTICE` for an injected `system` notice, and
-        `None` for everything else — including the summary itself, which is the
-        one injected `system` message the agent
-            does see — **when the session names it**. An unnamed summary is
-            hidden as a harness notice like any other injected message, which
-            is why a transcript this tool compacted names its own block.
+        `HIDDEN_REPLACED_BY_COMPACTION` for a message that sits before the
+        summary, whichever compaction wrote it — the agent's own in a
+        `native-compaction` transcript, this tool's in an `intent-compaction`
+        one, as the module docstring says. `HIDDEN_HARNESS_NOTICE` for an
+        injected `system` notice. `None` for everything else — including the
+        summary itself, which is the one injected `system` message the agent
+        does see, **when the session names it**. An unnamed summary is hidden as
+        a harness notice like any other injected message, which is why a
+        transcript this tool compacted names its own block.
     """
     if cut is not None and index < cut:
         return HIDDEN_REPLACED_BY_COMPACTION

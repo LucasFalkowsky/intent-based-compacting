@@ -238,11 +238,21 @@ def test_the_block_comes_back_once_the_marker_is_stripped(agent: Agent, tmp_path
     `parse_chains` refuses the summary's text as it stands — a loud refusal, as
     it is for Gemini CLI's snapshot tag — and the chains come back from the text
     with the marker line removed.
+
+    The refusal is asserted twice on purpose. For Gemini CLI the first one is
+    satisfied by the `<state_snapshot>` wrapper alone, so it would hold with no
+    marker in the file at all; the second strips the wrapper and leaves the
+    marker, which is the only thing that can still be refused. Without it this
+    parameter pinned nothing of this ticket.
     """
     content = summary_of(reimported(agent, tmp_path)).content
 
     with pytest.raises(StrayContentError):
         parse_chains(content)
+
+    unwrapped = content.removeprefix(f"{SNAPSHOT_OPEN}\n").removesuffix(SNAPSHOT_CLOSE)
+    with pytest.raises(StrayContentError):
+        parse_chains(unwrapped)
 
     stripped = (
         content.removeprefix(f"{SNAPSHOT_OPEN}\n")
