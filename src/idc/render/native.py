@@ -137,6 +137,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+from idc.importers.base import INTENT_SUMMARY_MARKER
 from idc.importers.claude_code import (
     BLOCK_TEXT,
     BLOCK_TOOL_RESULT,
@@ -158,6 +159,7 @@ from idc.render.errors import (
 from idc.schema import Agent, Chunk, CompactedBlock, Message, Role, Session
 
 __all__ = [
+    "INTENT_SUMMARY_MARKER",
     "SNAPSHOT_CLOSE",
     "SNAPSHOT_OPEN",
     "SUMMARY_MESSAGE_ID",
@@ -242,6 +244,28 @@ def _lines(records: Iterable[Mapping[str, Any]]) -> str:
     )
 
 
+def _marked(summary: str) -> str:
+    """Return the summary text with the provenance marker as its first line.
+
+    Every writer puts it there, so the file says who compacted the session
+    whichever agent's format it is in, and says it in the one field that format
+    carries verbatim. See `idc.importers.INTENT_SUMMARY_MARKER` for why the
+    marker is a line of the text rather than a field beside it, and
+    `idc.importers.summary_provenance` for the reading side.
+
+    Args:
+        summary: The chains' summary text, as `idc.render.assemble` produced it.
+
+    Returns:
+        The marker, a newline, then the summary unchanged — so that removing the
+        first line restores its bytes exactly. For a block that holds no chains
+        the result is the marker line alone: an empty summary is still this
+        tool's output, and a file that failed to say so would read back as the
+        baseline condition.
+    """
+    return f"{INTENT_SUMMARY_MARKER}\n{summary}"
+
+
 def _text_block(content: str) -> list[dict[str, Any]]:
     """Return the one-element text block list of a content, or none if it is empty."""
     return [{"type": BLOCK_TEXT, "text": content}] if content else []
@@ -266,7 +290,7 @@ def _claude_code(transcript: AssembledTranscript, *, session: Session) -> str:
         {
             "type": RECORD_USER,
             SUMMARY_FLAG: True,
-            "message": {"role": RECORD_USER, "content": transcript.summary},
+            "message": {"role": RECORD_USER, "content": _marked(transcript.summary)},
             "uuid": SUMMARY_MESSAGE_ID,
             "timestamp": _instant(session.created_at),
             "sessionId": session.id,
@@ -354,7 +378,7 @@ def _gemini_cli(transcript: AssembledTranscript, *, session: Session) -> str:
             "timestamp": _instant(session.created_at),
             "type": "user",
             "content": [
-                {"text": f"{SNAPSHOT_OPEN}\n{transcript.summary}{SNAPSHOT_CLOSE}"},
+                {"text": f"{SNAPSHOT_OPEN}\n{_marked(transcript.summary)}{SNAPSHOT_CLOSE}"},
             ],
         },
     ]
@@ -448,7 +472,7 @@ def _opencode(transcript: AssembledTranscript, *, session: Session) -> str:
         "sessionID": session.id,
         "type": RECORD_COMPACTION,
         "time": {"created": _millis(session.created_at)},
-        "summary": transcript.summary,
+        "summary": _marked(transcript.summary),
         "recent": [record["id"] for record in records],
     }
     return _lines([summary, *records])

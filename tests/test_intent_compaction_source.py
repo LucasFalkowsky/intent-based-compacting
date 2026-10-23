@@ -209,7 +209,9 @@ def test_the_builder_sets_the_provenance_the_marker_names() -> None:
     """One decision point: the importers hand the text over and set nothing themselves."""
     builder = SessionBuilder(Agent.CLAUDE_CODE)
     builder.add_native_summary(
-        message_id="c01", content=f"{INTENT_SUMMARY_MARKER}\n## [C1] Intent: x"
+        message_id="c01",
+        content=f"{INTENT_SUMMARY_MARKER}\n## [C1] Intent: x",
+        timestamp=datetime(2026, 3, 4, 9, 0, tzinfo=UTC),
     )
 
     session = builder.build(session_id="sess-1").session
@@ -246,9 +248,10 @@ def test_the_block_comes_back_once_the_marker_is_stripped(agent: Agent, tmp_path
         .removeprefix(f"{INTENT_SUMMARY_MARKER}\n")
     )
     session = CORPUS.session(FIXTURE)
-    assert stripped == assemble(
-        block_of(agent), session=session, chunks=chunk_session(session)
-    ).summary
+    assert (
+        stripped
+        == assemble(block_of(agent), session=session, chunks=chunk_session(session)).summary
+    )
     assert parse_chains(stripped) == block_of(agent).chains
 
 

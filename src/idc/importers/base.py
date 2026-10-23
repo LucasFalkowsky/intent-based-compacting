@@ -81,6 +81,11 @@ __all__ = [
     "type_name",
 ]
 
+# T7.3 (#102) — the one signal that says which compaction wrote a summary.
+# Appended rather than merged into the sorted literal above, the convention this
+# project uses when a later ticket extends a module another one closed.
+__all__ += ["INTENT_SUMMARY_MARKER", "summary_provenance"]
+
 LOGGER = logging.getLogger("idc.importers")
 """Where the importers report what they could not interpret.
 
@@ -107,6 +112,60 @@ Distinct from `NO_TYPE`: a missing field is a shape the importer does not know,
 a `null` one is damaged, and `str(None)` reads the same for both — and the same
 as a kind genuinely spelled `"None"`.
 """
+
+INTENT_SUMMARY_MARKER = "<!-- idc:intent-compaction -->"
+"""How a summary **this tool** wrote is told from one the agent wrote.
+
+All three agents have a record shape for their own compaction summary, and
+`idc.render` writes its summary in exactly that shape, because that is the shape
+the agent reads. The shape therefore cannot say who compacted the session, and
+without a second signal the arm of the study under test would be
+indistinguishable in the data from its baseline (#102). This is that signal: the
+renderer puts this line in front of the summary's text and `summary_provenance`
+reads it back.
+
+**In the text, not beside it.** The summary's text is the one field all three
+formats carry through verbatim, and it is the only field this repository can
+*show* surviving a round trip — `tests/test_intent_compaction_source.py` does
+that for each agent. A key of our own beside the record would rest on a claim
+nothing here can check: that an agent preserves a key it does not know when it
+rewrites the file.
+
+**A Markdown comment**, because the text around it is the Markdown block
+`idc.compact` renders: a comment is invisible wherever that block is displayed,
+and it is no heading, list item or fenced block that `idc.parse.parse_chains`
+could take for part of a chain. It is a line of its own, so the block's own bytes
+are untouched and stripping it is a `removeprefix` — unstripped,
+`parse_chains` refuses the text with `StrayContentError` instead of mis-reading
+it, the same loud refusal Gemini CLI's `<state_snapshot>` wrapper already gets.
+
+The test is containment rather than a prefix, because that wrapper comes first in
+a Gemini CLI transcript. One ambiguity is left and is named rather than denied: a
+summary the *agent* wrote reads as this tool's if its own text quotes the marker,
+which needs the marker to have been in the compacted history — this tool's output
+quoted back, or a user who typed it.
+"""
+
+
+def summary_provenance(content: str) -> SessionSource:
+    """Return which compaction wrote a summary, reading its text.
+
+    The whole rule lives here, so that the three importers hand their summary's
+    text over and decide nothing themselves.
+
+    Args:
+        content: The summary's text as the transcript carries it, including any
+            native wrapper around it.
+
+    Returns:
+        `SessionSource.INTENT_COMPACTION` if the text carries
+        `INTENT_SUMMARY_MARKER`, and `SessionSource.NATIVE_COMPACTION` otherwise.
+        A transcript that holds no summary record never reaches here and stays
+        `raw`, which is what makes the distinction three-way.
+    """
+    if INTENT_SUMMARY_MARKER in content:
+        return SessionSource.INTENT_COMPACTION
+    return SessionSource.NATIVE_COMPACTION
 
 
 class TranscriptImportError(ValueError):
@@ -492,21 +551,30 @@ class SessionBuilder:
         content: str,
         timestamp: datetime | None = None,
     ) -> Message:
-        """Append the summary the agent's own compaction wrote.
+        """Append the summary a compaction wrote in the agent's own summary shape.
 
         All three agents record that summary the same way once it is canonical —
         an injected `system` message — and all three mean the same thing by it:
-        the agent dropped everything before it and continued from the summary.
-        The two facts that follow from it are therefore set here rather than in
-        each importer: the session's provenance becomes `native-compaction`, and
-        the message is recorded as the session's `native_summary_id`. Both are
-        canonical fields, so a dumped transcript still says where the agent's
-        context starts — which is what `idc.importers.provenance` reads, in this
-        process or two CLI invocations later.
+        everything before it was dropped and the session continued from the
+        summary. The two facts that follow from it are therefore set here rather
+        than in each importer: the message is recorded as the session's
+        `native_summary_id`, and the session's provenance becomes whichever
+        compaction wrote the text, as `summary_provenance` reads off
+        `INTENT_SUMMARY_MARKER` — `intent-compaction` for a file `idc.render`
+        wrote, `native-compaction` for one the agent compacted itself (#102).
+        Deciding it here is what keeps the three-way rule in one place and keeps
+        a caller from producing the half-stated form, a provenance without the
+        identifier. Both are canonical fields, so a dumped transcript still says
+        where the context starts — which is what `idc.importers.provenance`
+        reads, in this process or two CLI invocations later.
+
+        The method's name is about the *record* it reads, which is the agent's
+        native summary shape either way; who wrote the text is what the marker
+        answers.
 
         Args:
             message_id: Identifier of the summary message, from the transcript.
-            content: The summary's text, as the agent wrote it.
+            content: The summary's text, as the transcript carries it.
             timestamp: When it was recorded, timezone-aware.
 
         Returns:
@@ -516,7 +584,7 @@ class SessionBuilder:
             SchemaValidationError: If the message does not satisfy the canonical
                 schema.
         """
-        self.set_provenance(SessionSource.NATIVE_COMPACTION)
+        self.set_provenance(summary_provenance(content))
         message = self.add_message(
             message_id=message_id,
             role=Role.SYSTEM,

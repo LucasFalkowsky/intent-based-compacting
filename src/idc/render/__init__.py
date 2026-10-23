@@ -19,6 +19,7 @@ from idc.render.errors import (
     UnknownLatestChunkError,
 )
 from idc.render.native import (
+    INTENT_SUMMARY_MARKER,
     SNAPSHOT_CLOSE,
     SNAPSHOT_OPEN,
     SUMMARY_MESSAGE_ID,
@@ -62,3 +63,10 @@ __all__ += [
 # without an error. Appended rather than merged into the sorted literal above,
 # for the reason the first comment in this file gives.
 __all__ += ["SummaryIdInUseError"]
+
+# T7.3 (#102) — the marker every writer puts in front of the summary, so that a
+# rendered file re-imports as `intent-compaction` and not as the baseline it is
+# compared against. Re-exported here, where a consumer of a rendered file looks
+# for the constants it has to strip; it is defined in `idc.importers.base`,
+# because the reading side is the one that cannot import the writing side.
+__all__ += ["INTENT_SUMMARY_MARKER"]
