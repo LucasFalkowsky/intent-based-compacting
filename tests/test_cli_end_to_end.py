@@ -136,12 +136,13 @@ class NetworkUsedError(AssertionError):
 def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make every socket constructor in this module's tests raise.
 
-    What this proves and what it does not: every HTTP client in the Python
-    ecosystem ends up at `socket.socket` or `socket.create_connection`, so a
-    classifier or narrative backend that tried to call a model would fail here
-    rather than reach the network. It is not a sandbox — code that opened a
-    descriptor another way, or a C extension that connected without the
-    standard library, would not be seen. `test_the_network_guard_bites` pins
+    What this proves and what it does not: a Python HTTP client reaches the
+    network through one of these two constructors, so a classifier or narrative
+    backend that tried to call a model would fail here rather than get out.
+    It is not a sandbox — a caller that opened a descriptor another way, or a C
+    extension that connected without the standard library, would not be seen,
+    and the test that uses it says "opens no socket" and not "proves the
+    machine's network was unreachable". `test_the_network_guard_bites` pins
     that the guard is installed and raises, so the guarded tests cannot pass
     because the patch silently stopped applying.
     """
@@ -378,7 +379,9 @@ def test_the_manifest_matches_the_golden_file(produced: Produced) -> None:
     assert_golden(masked.read_text(encoding="utf-8"), GOLDEN_MANIFEST, masked)
 
 
-def test_the_masked_manifest_keeps_everything_but_the_two_paths(produced: Produced) -> None:
+def test_the_mask_replaces_both_paths_and_hides_the_temporary_directory(
+    produced: Produced,
+) -> None:
     """The masking cannot hide a difference it was not meant to hide.
 
     Both placeholders have to appear — otherwise the comparison above would be
