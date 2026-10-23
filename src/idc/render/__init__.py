@@ -4,9 +4,12 @@ The output is one summary block in the agent's own tags plus the latest chunk
 verbatim, written back as a transcript file the agent can resume from. The
 counterpart that reads such a file back in lives in `idc.importers`.
 
-T7.1 adds the assembly: which parts the output holds and in which order. The
-native tags, the role the summary is written under and the metadata beside it
-are T7.2's, so nothing here branches on `Agent` yet.
+T7.1 adds the assembly: which parts the output holds and in which order. T7.2
+adds the three native writers behind `WRITERS`, which is where the output's shape
+branches on `Agent`, the role the summary is written under and the metadata
+beside it. T7.3 adds the one thing the native shapes cannot say — that this tool
+wrote the file and not the agent's own compaction — as
+`INTENT_SUMMARY_MARKER` in front of the summary's text.
 """
 
 from idc.render.assembly import AssembledTranscript, assemble, latest_messages, summary_text
@@ -19,6 +22,7 @@ from idc.render.errors import (
     UnknownLatestChunkError,
 )
 from idc.render.native import (
+    INTENT_SUMMARY_MARKER,
     SNAPSHOT_CLOSE,
     SNAPSHOT_OPEN,
     SUMMARY_MESSAGE_ID,
@@ -62,3 +66,10 @@ __all__ += [
 # without an error. Appended rather than merged into the sorted literal above,
 # for the reason the first comment in this file gives.
 __all__ += ["SummaryIdInUseError"]
+
+# T7.3 (#102) — the marker every writer puts in front of the summary, so that a
+# rendered file re-imports as `intent-compaction` and not as the baseline it is
+# compared against. Re-exported here, where a consumer of a rendered file looks
+# for the constants it has to strip; it is defined in `idc.importers.base`,
+# because the reading side is the one that cannot import the writing side.
+__all__ += ["INTENT_SUMMARY_MARKER"]

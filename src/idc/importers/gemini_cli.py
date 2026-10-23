@@ -52,7 +52,9 @@ everything ever appended.
   report a result gets a `user` message only when it also carries text, so that
   no empty turn is invented in front of a tool result.
 - `user` whose text holds `<state_snapshot>` -> an injected `system` message
-  carrying the summary, and the session's `source` becomes `native-compaction`.
+  carrying the summary, and the session's `source` becomes `native-compaction` —
+  or `intent-compaction` when the text carries `INTENT_SUMMARY_MARKER`, i.e.
+  when `idc.render` wrote the file in this shape (#102).
   The compression writes its summary back into the history as a user turn, and
   importing it as one would hand T3.1 a user intent the user never had.
 - `user` whose text starts with `<session_context>` -> a `user` message marked

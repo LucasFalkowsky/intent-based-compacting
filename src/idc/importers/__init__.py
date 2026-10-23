@@ -57,6 +57,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from idc.importers.base import (
+    INTENT_SUMMARY_MARKER,
     NO_TYPE,
     NOTE_DROPPED_BLOCK,
     NOTE_SKIPPED_RECORD,
@@ -71,6 +72,7 @@ from idc.importers.base import (
     note_unreadable_content,
     parse_timestamp,
     shape,
+    summary_provenance,
     type_name,
 )
 from idc.importers.claude_code import import_claude_code
@@ -138,6 +140,11 @@ __all__ = [
     "type_name",
     "visible_context",
 ]
+
+# T7.3 (#102) — the marker that says a transcript is this tool's output, and the
+# rule that reads it. Appended rather than merged into the sorted literal above,
+# the convention this project uses when a later ticket extends a closed module.
+__all__ += ["INTENT_SUMMARY_MARKER", "summary_provenance"]
 
 Importer = Callable[..., ImportedSession]
 """Signature of an importer: `(path, *, registry=None) -> ImportedSession`."""

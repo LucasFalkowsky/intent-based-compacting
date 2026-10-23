@@ -29,13 +29,25 @@ only add one.
 - **Gemini CLI** has no flag. Its compression writes the summary back into the
   history as a user turn and recognises it again by the `<state_snapshot>` tag
   in the text (`SNAPSHOT_MARKER`), so the summary is a `user` record whose text
-  part is the block **wrapped in that tag and otherwise untouched**: the block's
-  own bytes are the tag's content, so unwrapping restores them exactly.
+  part is the marked block **wrapped in that tag and otherwise untouched**: the
+  marker line and the block's own bytes are the tag's content, so removing the
+  tag and that one line restores them exactly.
 - **OpenCode** has a record type of its own, `compaction` (`RECORD_COMPACTION`),
   with the text in `summary`. Its `recent` field names the messages the
   compaction kept, so it is written with the identifiers of the records this
   renderer kept — which is what the field means. No `role` is set: the record is
   identified by its `type`.
+
+**Whose compaction wrote it, on top of all three shapes (T7.3, #102).** Those
+three shapes are the agent's *own* — the reason this module writes them — and
+that is also what makes the file unidentifiable: an agent that compacted the
+session itself writes the same record. So every writer puts
+`idc.importers.INTENT_SUMMARY_MARKER` in front of the summary's text, as a line
+of its own, and the matching importer reads it back —
+`idc.importers.summary_provenance`. A file written here therefore re-imports
+with `source` = `intent-compaction`, the arm of the study under test, instead of
+`native-compaction`, the baseline it is compared against. See that constant for
+why the marker is part of the text rather than a field beside it.
 
 **What of a kept message survives, and what cannot.** The messages are written
 back as records, and the next import re-derives the canonical form from them.
@@ -117,18 +129,15 @@ note **per** unknown name. It is therefore never silent — but the exploration
 rate is computed from those categories, so a cross-agent render is not a
 transcript to measure.
 
-*The Gemini summary's block has to have its tag stripped before
-`idc.parse.parse_chains` will read it.* The block's own bytes sit verbatim
-inside `SNAPSHOT_OPEN`/`SNAPSHOT_CLOSE` — both exported for exactly this — and
-handing the raw message content to `parse_chains` refuses with
-`StrayContentError` rather than mis-parsing. A loud refusal, so a consumer that
-forgets cannot read a corrupted chain; the two constants are what it strips.
-
-**Not in scope, and a true statement for the ticket that is (#102):** a file
-written here re-imports with `source` = `native-compaction`, because the summary
-is written in the agent's own compaction shape and that shape is the only
-provenance signal an importer reads. `SessionSource.INTENT_COMPACTION` is
-produced nowhere in `src/` today.
+*A summary record's text has to be stripped before `idc.parse.parse_chains`
+will read it — the marker line for every agent, and Gemini CLI's tag on top of
+it.* The block's own bytes sit verbatim inside `INTENT_SUMMARY_MARKER` plus a
+newline, and for Gemini CLI inside `SNAPSHOT_OPEN`/`SNAPSHOT_CLOSE` as well —
+all three exported for exactly this — and handing the raw message content to
+`parse_chains` refuses with `StrayContentError` rather than mis-parsing. A loud
+refusal, so a consumer that forgets cannot read a corrupted chain; those
+constants are what it strips, which
+`tests/test_intent_compaction_source.py` pins for all three agents.
 """
 
 import json
@@ -137,6 +146,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+from idc.importers.base import INTENT_SUMMARY_MARKER
 from idc.importers.claude_code import (
     BLOCK_TEXT,
     BLOCK_TOOL_RESULT,
@@ -158,6 +168,7 @@ from idc.render.errors import (
 from idc.schema import Agent, Chunk, CompactedBlock, Message, Role, Session
 
 __all__ = [
+    "INTENT_SUMMARY_MARKER",
     "SNAPSHOT_CLOSE",
     "SNAPSHOT_OPEN",
     "SUMMARY_MESSAGE_ID",
@@ -242,6 +253,28 @@ def _lines(records: Iterable[Mapping[str, Any]]) -> str:
     )
 
 
+def _marked(summary: str) -> str:
+    """Return the summary text with the provenance marker as its first line.
+
+    Every writer puts it there, so the file says who compacted the session
+    whichever agent's format it is in, and says it in the one field that format
+    carries verbatim. See `idc.importers.INTENT_SUMMARY_MARKER` for why the
+    marker is a line of the text rather than a field beside it, and
+    `idc.importers.summary_provenance` for the reading side.
+
+    Args:
+        summary: The chains' summary text, as `idc.render.assemble` produced it.
+
+    Returns:
+        The marker, a newline, then the summary unchanged — so that removing the
+        first line restores its bytes exactly. For a block that holds no chains
+        the result is the marker line alone: an empty summary is still this
+        tool's output, and a file that failed to say so would read back as the
+        baseline condition.
+    """
+    return f"{INTENT_SUMMARY_MARKER}\n{summary}"
+
+
 def _text_block(content: str) -> list[dict[str, Any]]:
     """Return the one-element text block list of a content, or none if it is empty."""
     return [{"type": BLOCK_TEXT, "text": content}] if content else []
@@ -266,7 +299,7 @@ def _claude_code(transcript: AssembledTranscript, *, session: Session) -> str:
         {
             "type": RECORD_USER,
             SUMMARY_FLAG: True,
-            "message": {"role": RECORD_USER, "content": transcript.summary},
+            "message": {"role": RECORD_USER, "content": _marked(transcript.summary)},
             "uuid": SUMMARY_MESSAGE_ID,
             "timestamp": _instant(session.created_at),
             "sessionId": session.id,
@@ -354,7 +387,7 @@ def _gemini_cli(transcript: AssembledTranscript, *, session: Session) -> str:
             "timestamp": _instant(session.created_at),
             "type": "user",
             "content": [
-                {"text": f"{SNAPSHOT_OPEN}\n{transcript.summary}{SNAPSHOT_CLOSE}"},
+                {"text": f"{SNAPSHOT_OPEN}\n{_marked(transcript.summary)}{SNAPSHOT_CLOSE}"},
             ],
         },
     ]
@@ -448,7 +481,7 @@ def _opencode(transcript: AssembledTranscript, *, session: Session) -> str:
         "sessionID": session.id,
         "type": RECORD_COMPACTION,
         "time": {"created": _millis(session.created_at)},
-        "summary": transcript.summary,
+        "summary": _marked(transcript.summary),
         "recent": [record["id"] for record in records],
     }
     return _lines([summary, *records])
