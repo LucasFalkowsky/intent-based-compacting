@@ -16,9 +16,11 @@ Four properties carry the tests:
   `test_the_source_table_is_complete` guards the parametrization, because an
   empty or a half-filled table would skip rather than fail.
 - **The marker travels in the summary's text, so it survives a re-read.** The
-  text is the one field all three formats carry verbatim; a JSON key beside it
-  would be at the mercy of whatever the agent does when it rewrites the file,
-  and no test here could show that it survives.
+  text is prose to all three formats; a key of our own beside the record would
+  rest on the agent preserving a field it does not know, which no test here
+  could show. What these tests do show is that each agent's own importer reads
+  the marker back — the agents themselves are not run anywhere in this suite,
+  exactly as for the native shapes in `tests/test_render_native.py`.
 - **Naming the summary is what makes it context.** `visible_context` exempts the
   message `native_summary_id` names from the harness-notice rule *before* it
   looks at the role, and this tool writes its summary as an injected `system`

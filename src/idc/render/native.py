@@ -39,9 +39,9 @@ only add one.
   identified by its `type`.
 
 **Whose compaction wrote it, on top of all three shapes (T7.3, #102).** Those
-three shapes are the agent's *own*, which is what makes the file loadable and
-also what makes it unidentifiable: an agent that compacted the session itself
-writes the same record. So every writer puts
+three shapes are the agent's *own* — the reason this module writes them — and
+that is also what makes the file unidentifiable: an agent that compacted the
+session itself writes the same record. So every writer puts
 `idc.importers.INTENT_SUMMARY_MARKER` in front of the summary's text, as a line
 of its own, and the matching importer reads it back —
 `idc.importers.summary_provenance`. A file written here therefore re-imports

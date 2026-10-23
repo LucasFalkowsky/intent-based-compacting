@@ -121,18 +121,20 @@ INTENT_SUMMARY_MARKER = "<!-- idc:intent-compaction -->"
 
 All three agents have a record shape for their own compaction summary, and
 `idc.render` writes its summary in exactly that shape, because that is the shape
-the agent reads. The shape therefore cannot say who compacted the session, and
-without a second signal the arm of the study under test would be
-indistinguishable in the data from its baseline (#102). This is that signal: the
-renderer puts this line in front of the summary's text and `summary_provenance`
-reads it back.
+each agent's own compaction uses and the one its importer reads. The shape
+therefore cannot say who compacted the session, and without a second signal the
+arm of the study under test would be indistinguishable in the data from its
+baseline (#102). This is that signal: the renderer puts this line in front of the
+summary's text and `summary_provenance` reads it back.
 
-**In the text, not beside it.** The summary's text is the one field all three
-formats carry through verbatim, and it is the only field this repository can
-*show* surviving a round trip — `tests/test_intent_compaction_source.py` does
-that for each agent. A key of our own beside the record would rest on a claim
-nothing here can check: that an agent preserves a key it does not know when it
-rewrites the file.
+**In the text, not beside it.** The text is prose to every one of the three
+formats — a JSON string whose contents none of them parses — so a marker in it
+takes up no structural position and cannot change how the file reads; a key of
+our own next to the record would instead rest on a claim nothing here can check,
+that an agent preserves a field it does not know when it rewrites the file. What
+is shown and what is not is the same as for the shapes themselves (see
+`idc.render.native`): `tests/test_intent_compaction_source.py` reads the marker
+back through each agent's importer, and no test here runs the agents.
 
 **A Markdown comment**, because the text around it is the Markdown block
 `idc.compact` renders: a comment is invisible wherever that block is displayed,
