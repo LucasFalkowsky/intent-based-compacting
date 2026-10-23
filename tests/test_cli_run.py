@@ -124,10 +124,22 @@ def test_the_written_transcript_re_imports_as_this_tools_compaction(tmp_path):
     assert reread.native_summary_id is not None
 
 
+def test_the_default_manifest_suffix_is_the_documented_one():
+    """The literal, spelled out once, because three documents promise it.
+
+    `README.md`, `--manifest`'s help text and `manifest_path`'s docstring all
+    name `.manifest.json`, so the suffix is a contract and not an internal
+    detail. Every other test here derives the path from `MANIFEST_SUFFIX`,
+    which keeps those tests about what they assert — and leaves the constant
+    free to change under all of them, which is what this one stops.
+    """
+    assert MANIFEST_SUFFIX == ".manifest.json"
+
+
 def test_run_writes_a_manifest_next_to_its_output_by_default(tmp_path):
     _, output = run(tmp_path)
 
-    manifest = load_manifest(str(output) + MANIFEST_SUFFIX)
+    manifest = load_manifest(f"{output}.manifest.json")
     assert manifest.input_file.path == transcript()
     assert manifest.output_file.path == str(output)
 
