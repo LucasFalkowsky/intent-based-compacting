@@ -414,6 +414,65 @@ def test_a_run_without_a_tokenizer_reports_the_measurement_refusal(tmp_path, cap
     assert "tokenizer" in capsys.readouterr().err
 
 
+def test_a_manifest_path_that_is_a_directory_is_refused_before_the_output(tmp_path, capsys):
+    """The one hole in "no run without provenance", reproduced from a config file.
+
+    `manifest = ""` is merged as the empty string and `Path("")` is `Path(".")`,
+    which no file can be written to. The refusal has to happen before
+    `idc.render.write_transcript` runs: otherwise the compacted transcript is on
+    disk and the manifest that says how it was produced never is, which is
+    exactly what the derived default exists to prevent.
+    """
+    config = tmp_path / "idc.toml"
+    config.write_text('[paths]\nmanifest = ""\n', encoding="utf-8")
+    output = tmp_path / "compacted.jsonl"
+
+    status = main(
+        [
+            "run",
+            "--config",
+            str(config),
+            "--agent",
+            AGENT.value,
+            "--in",
+            transcript(),
+            "--out",
+            str(output),
+        ],
+        runtime=runtime(),
+    )
+
+    assert status == EXIT_INPUT_ERROR
+    assert not output.exists()
+    assert "manifest" in capsys.readouterr().err
+
+
+def test_a_manifest_in_a_directory_that_does_not_exist_is_refused_before_the_output(
+    tmp_path, capsys
+):
+    """The second half of the same check: the destination's directory has to be there."""
+    output = tmp_path / "compacted.jsonl"
+
+    status = main(
+        [
+            "run",
+            "--agent",
+            AGENT.value,
+            "--in",
+            transcript(),
+            "--out",
+            str(output),
+            "--manifest",
+            str(tmp_path / "absent" / "run.json"),
+        ],
+        runtime=runtime(),
+    )
+
+    assert status == EXIT_INPUT_ERROR
+    assert not output.exists()
+    assert "absent" in capsys.readouterr().err
+
+
 def test_no_output_is_left_behind_when_the_adapter_is_missing(tmp_path):
     output = tmp_path / "out.jsonl"
 
