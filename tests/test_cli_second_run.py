@@ -713,9 +713,9 @@ def test_the_second_runs_input_is_not_the_predecessors_output_itself(
     The second run was handed the predecessor's output **with two chunks
     appended**, so its `input_file.sha256` is not the predecessor's output
     digest — while the predecessor is still recorded. That is the honest
-    reading of the two fields for a continued session, and the test below says
-    why no run of this tool is handed the predecessor's output unchanged
-    instead.
+    reading of the two fields for a continued session; the test below shows
+    what happens to a run that *is* handed the predecessor's output unchanged,
+    which is that it is refused before a manifest exists.
     """
     again = load_manifest(second.manifest_path)
 
