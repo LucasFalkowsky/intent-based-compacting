@@ -10,8 +10,8 @@ the ticket asks are asserted on the result:
   continue is rewritten; the chain they do not touch comes back out of the
   summary **byte for byte**, and costs no model call.
 - **The manifest records the previous run's hash.** `previous_output_sha256` is
-  the digest of the file the first run wrote, and
-  `Manifest.continues_previous` compares it with this run's own input digest.
+  the digest of the file the first run wrote, which a reader compares against
+  this run's own `input_file.sha256` when it wants to know how the two relate.
 
 Everything here reuses the harness of `tests/test_cli_end_to_end.py` — the four
 fakes, `native_input`, `assert_golden`, the manifest masking and the socket
@@ -27,8 +27,8 @@ run, and this module's own fixture takes it as its starting point.
   `C2` as candidates. That feed is what this module pins hardest, and the
   pinning was measured rather than hoped for: with `candidates=()` in
   `run_command` instead of `candidates=candidate_chains(...)`, the second run
-  exits with `no chain 'C1' in the store; the candidates were: none` and **17
-  of the 24 tests here fail**. A review had found that same substitution
+  exits with `no chain 'C1' in the store; the candidates were: none` and **16
+  of the 23 tests here fail**. A review had found that same substitution
   leaving the whole suite green.
 - **The decisions** are `("C1", "C1", NEW)`, for the three chunks the second
   run sees: the chunk the first run kept verbatim (the gold labelling's last,
@@ -53,7 +53,6 @@ what they pin and how to regenerate them.
 """
 
 import hashlib
-import json
 import socket
 from datetime import UTC, datetime
 from pathlib import Path
@@ -80,7 +79,6 @@ from idc.measure import (
     ModelFamily,
     TokenizerRegistry,
     load_manifest,
-    loads_manifest,
 )
 from idc.render import WRITERS, AssembledTranscript
 from idc.schema import Chunk, Message, Role, Session, ToolCall, ToolCategory, ToolResult
@@ -705,53 +703,24 @@ def test_the_first_run_records_no_predecessor(second: SecondRun) -> None:
     first = load_manifest(second.first.manifest_path)
 
     assert first.previous_output_sha256 is None
-    assert first.continues_previous is False
 
 
-def test_the_second_run_does_not_claim_its_input_is_the_predecessors_output(
+def test_the_second_runs_input_is_not_the_predecessors_output_itself(
     second: SecondRun,
 ) -> None:
-    """`continues_previous` is about the file, and this run's file has grown.
+    """The predecessor is recorded by digest, and this run's own file has grown.
 
     The second run was handed the predecessor's output **with two chunks
     appended**, so its `input_file.sha256` is not the predecessor's output
-    digest and the comparison is `False` — while the predecessor is still
-    recorded. That is the honest reading of the two fields for a continued
-    session, and the two tests below say what the `True` case would take and
-    why no run of this tool reaches it.
+    digest — while the predecessor is still recorded. That is the honest
+    reading of the two fields for a continued session, and the test below says
+    why no run of this tool is handed the predecessor's output unchanged
+    instead.
     """
     again = load_manifest(second.manifest_path)
 
     assert again.previous_output_sha256 is not None
     assert again.input_file.sha256 != again.previous_output_sha256
-    assert again.continues_previous is False
-
-
-def test_the_comparison_holds_when_the_input_digest_is_the_recorded_one(
-    second: SecondRun,
-) -> None:
-    """`continues_previous` is exactly the equality of the two digests, on real ones.
-
-    The second run's own manifest, re-read through `loads_manifest` with its
-    `input_file.sha256` set to the digest it recorded for its predecessor's
-    output — every other value, both digests' *format* and the predecessor
-    digest itself included, is the one a real run wrote. So the property under
-    test is the comparison and nothing else: the same document is `False`
-    above and `True` here, and the one field that moved is the one
-    `continues_previous` reads.
-
-    Why this is not a run: see the test below. A run handed its predecessor's
-    output unchanged is refused before it can write a manifest, so there is no
-    pair of real runs whose digests meet, and a test that claimed to produce
-    one would be claiming something this tool cannot do.
-    """
-    document = json.loads(second.manifest_path.read_text(encoding="utf-8"))
-    document["input_file"]["sha256"] = document["previous_output_sha256"]
-
-    chained = loads_manifest(json.dumps(document))
-
-    assert chained.input_file.sha256 == load_manifest(second.manifest_path).previous_output_sha256
-    assert chained.continues_previous is True
 
 
 def test_a_run_handed_the_untouched_output_is_refused(produced: Produced, tmp_path: Path) -> None:
@@ -763,7 +732,7 @@ def test_a_run_handed_the_untouched_output_is_refused(produced: Produced, tmp_pa
     `idc.render` refuses that (its `errors` module says why), the command exits
     `EXIT_INPUT_ERROR` and writes no manifest. The input of a successful second
     run therefore always has records the predecessor's output did not, which is
-    precisely why `continues_previous` is `False` above.
+    precisely why its digest is never the recorded `previous_output_sha256`.
     """
     output = tmp_path / "unchanged.jsonl"
     status, adapter, client = run_again(
