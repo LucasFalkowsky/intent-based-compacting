@@ -84,14 +84,13 @@ regenerate below and check that `instruction.version` moved too.
 
 ## What the second run's goldens do **not** pin
 
-They do not pin `continues_previous`, beyond its being `False`. That field asks
-whether this run's input *is* the file the predecessor wrote, and the second
-run's input is that file **with two chunks appended** — so a continued session
-answers `False` by construction, and the digest above is what records the
-predecessor. Handing a run the output file unchanged does not produce a `True`
-either: such a transcript is a single chunk that holds the summary record, and
-`idc.render` refuses to write a second record under that identity, so the
-command exits `EXIT_INPUT_ERROR`. Both halves are pinned in
+They do not pin how the second run's input relates to the predecessor's bytes.
+The input is the file the first run wrote **with two chunks appended**, so its
+own digest is not `previous_output_sha256` — the recorded digest above, not the
+input's, is what names the predecessor. Handing a run the output file unchanged
+is not an alternative: such a transcript is a single chunk that holds the
+summary record, and `idc.render` refuses to write a second record under that
+identity, so the command exits `EXIT_INPUT_ERROR`. Both halves are pinned in
 `tests/test_cli_second_run.py`, the second by a run that is expected to be
 refused.
 

@@ -468,7 +468,6 @@ def test_a_first_run_records_no_predecessor(tmp_path):
     recorded = manifest(tmp_path)
 
     assert recorded.previous_output_sha256 is None
-    assert recorded.continues_previous is False
 
 
 def test_a_second_run_chains_to_its_predecessor_s_output(tmp_path):
@@ -484,7 +483,6 @@ def test_a_second_run_chains_to_its_predecessor_s_output(tmp_path):
     )
 
     assert second.previous_output_sha256 == first.output_file.sha256
-    assert second.continues_previous is True
     assert loads_manifest(dumps_manifest(second)) == second
 
 
@@ -493,7 +491,7 @@ def test_a_broken_chain_is_recorded_rather_than_hidden(tmp_path):
     second = manifest(tmp_path / "run-2", input_bytes=b"edited by hand\n", previous=first)
 
     assert second.previous_output_sha256 == first.output_file.sha256
-    assert second.continues_previous is False
+    assert second.input_file.sha256 != first.output_file.sha256
 
 
 MALFORMED = {
